@@ -15,55 +15,210 @@ import 'dart:ffi' as ffi;
 class MediapipeFaceMeshBindings {
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-      _lookup;
+  _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
   MediapipeFaceMeshBindings(ffi.DynamicLibrary dynamicLibrary)
-      : _lookup = dynamicLibrary.lookup;
+    : _lookup = dynamicLibrary.lookup;
 
   /// The symbols are looked up with [lookup].
   MediapipeFaceMeshBindings.fromLookup(
-      ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-          lookup)
-      : _lookup = lookup;
+    ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
+  ) : _lookup = lookup;
 
-  /// A very short-lived native function.
-  ///
-  /// For very short-lived functions, it is fine to call them on the main isolate.
-  /// They will block the Dart execution while running the native function, so
-  /// only do this for native functions which are guaranteed to be short-lived.
-  int sum(
-    int a,
-    int b,
+  ffi.Pointer<MpFaceMeshContext> mp_face_mesh_create(
+    ffi.Pointer<ffi.Char> model_path,
+    ffi.Pointer<MpFaceMeshCreateOptions> options,
   ) {
-    return _sum(
-      a,
-      b,
-    );
+    return _mp_face_mesh_create(model_path, options);
   }
 
-  late final _sumPtr =
-      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Int, ffi.Int)>>('sum');
-  late final _sum = _sumPtr.asFunction<int Function(int, int)>();
+  late final _mp_face_mesh_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceMeshContext> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<MpFaceMeshCreateOptions>,
+          )
+        >
+      >('mp_face_mesh_create');
+  late final _mp_face_mesh_create = _mp_face_mesh_createPtr
+      .asFunction<
+        ffi.Pointer<MpFaceMeshContext> Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<MpFaceMeshCreateOptions>,
+        )
+      >();
 
-  /// A longer lived native function, which occupies the thread calling it.
-  ///
-  /// Do not call these kind of native functions in the main isolate. They will
-  /// block Dart execution. This will cause dropped frames in Flutter applications.
-  /// Instead, call these native functions on a separate isolate.
-  int sum_long_running(
-    int a,
-    int b,
-  ) {
-    return _sum_long_running(
-      a,
-      b,
-    );
+  void mp_face_mesh_destroy(ffi.Pointer<MpFaceMeshContext> context) {
+    return _mp_face_mesh_destroy(context);
   }
 
-  late final _sum_long_runningPtr =
-      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Int, ffi.Int)>>(
-          'sum_long_running');
-  late final _sum_long_running =
-      _sum_long_runningPtr.asFunction<int Function(int, int)>();
+  late final _mp_face_mesh_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpFaceMeshContext>)>
+      >('mp_face_mesh_destroy');
+  late final _mp_face_mesh_destroy = _mp_face_mesh_destroyPtr
+      .asFunction<void Function(ffi.Pointer<MpFaceMeshContext>)>();
+
+  ffi.Pointer<MpFaceMeshResult> mp_face_mesh_process(
+    ffi.Pointer<MpFaceMeshContext> context,
+    ffi.Pointer<MpImage> image,
+    ffi.Pointer<MpNormalizedRect> override_rect,
+  ) {
+    return _mp_face_mesh_process(context, image, override_rect);
+  }
+
+  late final _mp_face_mesh_processPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceMeshResult> Function(
+            ffi.Pointer<MpFaceMeshContext>,
+            ffi.Pointer<MpImage>,
+            ffi.Pointer<MpNormalizedRect>,
+          )
+        >
+      >('mp_face_mesh_process');
+  late final _mp_face_mesh_process = _mp_face_mesh_processPtr
+      .asFunction<
+        ffi.Pointer<MpFaceMeshResult> Function(
+          ffi.Pointer<MpFaceMeshContext>,
+          ffi.Pointer<MpImage>,
+          ffi.Pointer<MpNormalizedRect>,
+        )
+      >();
+
+  void mp_face_mesh_release_result(ffi.Pointer<MpFaceMeshResult> result) {
+    return _mp_face_mesh_release_result(result);
+  }
+
+  late final _mp_face_mesh_release_resultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpFaceMeshResult>)>
+      >('mp_face_mesh_release_result');
+  late final _mp_face_mesh_release_result = _mp_face_mesh_release_resultPtr
+      .asFunction<void Function(ffi.Pointer<MpFaceMeshResult>)>();
+
+  ffi.Pointer<ffi.Char> mp_face_mesh_last_error(
+    ffi.Pointer<MpFaceMeshContext> context,
+  ) {
+    return _mp_face_mesh_last_error(context);
+  }
+
+  late final _mp_face_mesh_last_errorPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceMeshContext>)
+        >
+      >('mp_face_mesh_last_error');
+  late final _mp_face_mesh_last_error = _mp_face_mesh_last_errorPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceMeshContext>)
+      >();
+
+  ffi.Pointer<ffi.Char> mp_face_mesh_last_global_error() {
+    return _mp_face_mesh_last_global_error();
+  }
+
+  late final _mp_face_mesh_last_global_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_face_mesh_last_global_error',
+      );
+  late final _mp_face_mesh_last_global_error =
+      _mp_face_mesh_last_global_errorPtr
+          .asFunction<ffi.Pointer<ffi.Char> Function()>();
+}
+
+final class MpFaceMeshContext extends ffi.Opaque {}
+
+enum MpPixelFormat {
+  MP_PIXEL_FORMAT_RGBA(0),
+  MP_PIXEL_FORMAT_BGRA(1);
+
+  final int value;
+  const MpPixelFormat(this.value);
+
+  static MpPixelFormat fromValue(int value) => switch (value) {
+    0 => MP_PIXEL_FORMAT_RGBA,
+    1 => MP_PIXEL_FORMAT_BGRA,
+    _ => throw ArgumentError("Unknown value for MpPixelFormat: $value"),
+  };
+}
+
+final class MpImage extends ffi.Struct {
+  external ffi.Pointer<ffi.Uint8> data;
+
+  @ffi.Int32()
+  external int width;
+
+  @ffi.Int32()
+  external int height;
+
+  @ffi.Int32()
+  external int bytes_per_row;
+
+  @ffi.UnsignedInt()
+  external int format;
+}
+
+final class MpNormalizedRect extends ffi.Struct {
+  @ffi.Float()
+  external double x_center;
+
+  @ffi.Float()
+  external double y_center;
+
+  @ffi.Float()
+  external double width;
+
+  @ffi.Float()
+  external double height;
+
+  @ffi.Float()
+  external double rotation;
+}
+
+final class MpLandmark extends ffi.Struct {
+  @ffi.Float()
+  external double x;
+
+  @ffi.Float()
+  external double y;
+
+  @ffi.Float()
+  external double z;
+}
+
+final class MpFaceMeshResult extends ffi.Struct {
+  external ffi.Pointer<MpLandmark> landmarks;
+
+  @ffi.Int32()
+  external int landmarks_count;
+
+  external MpNormalizedRect rect;
+
+  @ffi.Float()
+  external double score;
+
+  @ffi.Int32()
+  external int image_width;
+
+  @ffi.Int32()
+  external int image_height;
+}
+
+final class MpFaceMeshCreateOptions extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> tflite_library_path;
+
+  @ffi.Int32()
+  external int threads;
+
+  @ffi.Float()
+  external double min_detection_confidence;
+
+  @ffi.Float()
+  external double min_tracking_confidence;
+
+  @ffi.Uint8()
+  external int enable_smoothing;
 }

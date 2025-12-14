@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
-import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart' as mediapipe_face_mesh;
+import 'package:flutter/material.dart';
+import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,57 +15,99 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
+  MediapipeFaceMesh? _faceMesh;
+  String _status = 'Initializing...';
+  FaceMeshResult? _result;
 
   @override
   void initState() {
     super.initState();
-    sumResult = mediapipe_face_mesh.sum(1, 2);
-    sumAsyncResult = mediapipe_face_mesh.sumAsync(3, 4);
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      final mesh = await MediapipeFaceMesh.create();
+      setState(() {
+        _faceMesh = mesh;
+        _status = 'Engine ready. Tap the button to run a dummy inference.';
+      });
+    } catch (error) {
+      setState(() {
+        _status =
+            'Initialization failed (expected until a proper TFLite runtime/model is bundled): $error';
+      });
+    }
+  }
+
+  Future<void> _runOnce() async {
+    final mesh = _faceMesh;
+    if (mesh == null) {
+      return;
+    }
+    try {
+      // Create a dummy RGBA frame filled with zeros. Replace with camera pixels.
+      final FaceMeshImage image = FaceMeshImage(
+        pixels: Uint8List(meshInputBytes),
+        width: 192,
+        height: 192,
+      );
+      final FaceMeshResult result = mesh.process(image);
+      setState(() {
+        _result = result;
+        _status =
+            'Landmarks: ${result.landmarks.length}, score: ${result.score.toStringAsFixed(2)}';
+      });
+    } catch (error) {
+      setState(() {
+        _status = 'Inference failed: $error';
+      });
+    }
+  }
+
+  static int get meshInputBytes => 192 * 192 * 4;
+
+  @override
+  void dispose() {
+    _faceMesh?.close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(fontSize: 25);
-    const spacerSmall = SizedBox(height: 10);
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Native Packages'),
+          title: const Text('MediaPipe Face Mesh'),
         ),
-        body: SingleChildScrollView(
-          child: Container(
-            padding: const .all(10),
-            child: Column(
-              children: [
-                const Text(
-                  'This calls a native function through FFI that is shipped as source in the package. '
-                  'The native code is built as part of the Flutter Runner build.',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _status,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: _faceMesh == null ? null : _runOnce,
+                child: const Text('Run process()'),
+              ),
+              const SizedBox(height: 12),
+              if (_result != null)
                 Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: .center,
+                  'First landmark: '
+                  'x=${_result!.landmarks.first.x.toStringAsFixed(3)}, '
+                  'y=${_result!.landmarks.first.y.toStringAsFixed(3)}',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                spacerSmall,
-                FutureBuilder<int>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
-                    final displayValue =
-                        (value.hasData) ? value.data : 'loading';
-                    return Text(
-                      'await sumAsync(3, 4) = $displayValue',
-                      style: textStyle,
-                      textAlign: .center,
-                    );
-                  },
-                ),
-              ],
-            ),
+              const Spacer(),
+              const Text(
+                'Provide a valid mediapipe_face_mesh.tflite and TensorFlow Lite '
+                'runtime libraries to get real predictions.',
+              ),
+            ],
           ),
         ),
       ),

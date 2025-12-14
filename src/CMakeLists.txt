@@ -3,10 +3,13 @@
 # the plugin to fail to compile for some customers of the plugin.
 cmake_minimum_required(VERSION 3.10)
 
-project(mediapipe_face_mesh_library VERSION 0.0.1 LANGUAGES C)
+project(mediapipe_face_mesh_library VERSION 0.0.1 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(mediapipe_face_mesh SHARED
-  "mediapipe_face_mesh.c"
+  "mediapipe_face_mesh.cc"
 )
 
 set_target_properties(mediapipe_face_mesh PROPERTIES
@@ -19,4 +22,7 @@ target_compile_definitions(mediapipe_face_mesh PUBLIC DART_SHARED_LIB)
 if (ANDROID)
   # Support Android 15 16k page size
   target_link_options(mediapipe_face_mesh PRIVATE "-Wl,-z,max-page-size=16384")
+  target_link_libraries(mediapipe_face_mesh PRIVATE log dl)
+elseif (UNIX AND NOT APPLE)
+  target_link_libraries(mediapipe_face_mesh PRIVATE dl)
 endif()
