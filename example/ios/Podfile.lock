@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - mediapipe_face_mesh (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - mediapipe_face_mesh (from `.symlinks/plugins/mediapipe_face_mesh/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  mediapipe_face_mesh:
+    :path: ".symlinks/plugins/mediapipe_face_mesh/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  mediapipe_face_mesh: 34fc8b377820db7920aa7ec4feba50961625a306
+
+PODFILE CHECKSUM: ef3dbc5151e9843a60df6336fcb5ee4563a17775
+
+COCOAPODS: 1.16.2

@@ -6,7 +6,21 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if defined(__OBJC__) && TARGET_OS_IPHONE
+#import <Foundation/Foundation.h>
+#endif
+// Use the umbrella header from TensorFlowLiteC.framework on Apple platforms.
+#if TARGET_OS_IPHONE
+#include <TensorFlowLiteC/TensorFlowLiteC.h>
+#else
 #include "tensorflow/lite/c/c_api.h"
+#endif
+#else
+#include "tensorflow/lite/c/c_api.h"
+#endif
 #include <memory>
 #include <string>
 #include <utility>
@@ -69,6 +83,29 @@ class TfLiteRuntime {
       candidates.emplace_back(explicit_path);
     } else {
 #if defined(__APPLE__)
+#if TARGET_OS_IPHONE
+#if defined(__OBJC__)
+      @autoreleasepool {
+        NSString* bundlePath = [[NSBundle mainBundle] bundlePath];
+        NSArray<NSString*>* roots = @[
+          [[NSBundle mainBundle] privateFrameworksPath],
+          bundlePath ? [bundlePath stringByAppendingPathComponent:@"Frameworks"] : nil,
+          [[NSBundle mainBundle] resourcePath],
+        ];
+        for (NSString* root in roots) {
+          if (![root length]) {
+            continue;
+          }
+          NSString* frameworkBinary =
+              [root stringByAppendingPathComponent:
+                            @"TensorFlowLiteC.framework/TensorFlowLiteC"];
+          candidates.emplace_back([frameworkBinary UTF8String]);
+        }
+      }
+#endif  // defined(__OBJC__)
+      candidates.emplace_back("TensorFlowLiteC.framework/TensorFlowLiteC");
+      candidates.emplace_back("TensorFlowLiteC");
+#endif  // TARGET_OS_IPHONE
       candidates.emplace_back("libtensorflowlite_c.dylib");
 #elif defined(_WIN32)
       candidates.emplace_back("tensorflowlite_c.dll");
@@ -94,6 +131,16 @@ class TfLiteRuntime {
     }
 
     if (!handle_) {
+#if defined(__APPLE__)
+      // On Apple platforms the TensorFlowLiteC framework may be linked
+      // statically into the final binary. In that case `dlopen` fails, but the
+      // symbols are still available through RTLD_DEFAULT.
+      handle_ = RTLD_DEFAULT;
+      if (LoadSymbols()) {
+        return true;
+      }
+      handle_ = nullptr;
+#endif
       error_ = "TensorFlow Lite runtime library could not be loaded.";
       return false;
     }
@@ -110,7 +157,9 @@ class TfLiteRuntime {
 #if defined(_WIN32)
       FreeLibrary(static_cast<HMODULE>(handle_));
 #else
-      dlclose(handle_);
+      if (handle_ != RTLD_DEFAULT) {
+        dlclose(handle_);
+      }
 #endif
       handle_ = nullptr;
     }
