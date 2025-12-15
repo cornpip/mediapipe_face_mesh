@@ -18,6 +18,9 @@ set_target_properties(mediapipe_face_mesh PROPERTIES
 )
 
 target_compile_definitions(mediapipe_face_mesh PUBLIC DART_SHARED_LIB)
+target_include_directories(mediapipe_face_mesh PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
 
 if (ANDROID)
   # Support Android 15 16k page size

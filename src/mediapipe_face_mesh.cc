@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include "tensorflow/lite/c/c_api.h"
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,40 +30,6 @@
 
 namespace {
 
-struct TfLiteModel;
-struct TfLiteInterpreter;
-struct TfLiteInterpreterOptions;
-struct TfLiteTensor;
-
-enum TfLiteStatus {
-  kTfLiteOk = 0,
-  kTfLiteError = 1,
-  kTfLiteDelegateError = 2,
-  kTfLiteApplicationError = 3,
-};
-
-enum TfLiteType {
-  kTfLiteNoType = 0,
-  kTfLiteFloat32 = 1,
-  kTfLiteInt32 = 2,
-  kTfLiteUInt8 = 3,
-  kTfLiteInt64 = 4,
-  kTfLiteString = 5,
-  kTfLiteBool = 6,
-  kTfLiteInt16 = 7,
-  kTfLiteComplex64 = 8,
-  kTfLiteInt8 = 9,
-  kTfLiteFloat16 = 10,
-  kTfLiteFloat64 = 11,
-  kTfLiteComplex128 = 12,
-  kTfLiteUInt64 = 13,
-  kTfLiteResource = 14,
-  kTfLiteVariant = 15,
-  kTfLiteUInt32 = 16,
-  kTfLiteUInt16 = 17,
-  kTfLiteInt4 = 18,
-};
-
 class TfLiteRuntime {
  public:
   using ModelCreateFromFileFn = TfLiteModel* (*)(const char*);
@@ -76,7 +43,8 @@ class TfLiteRuntime {
   using InterpreterAllocateTensorsFn = TfLiteStatus (*)(TfLiteInterpreter*);
   using InterpreterInvokeFn = TfLiteStatus (*)(TfLiteInterpreter*);
   using InterpreterGetInputTensorFn = TfLiteTensor* (*)(TfLiteInterpreter*, int32_t);
-  using InterpreterGetOutputTensorFn = TfLiteTensor* (*)(TfLiteInterpreter*, int32_t);
+  using InterpreterGetOutputTensorFn =
+      const TfLiteTensor* (*)(const TfLiteInterpreter*, int32_t);
   using InterpreterGetInputTensorCountFn = int32_t (*)(const TfLiteInterpreter*);
   using InterpreterGetOutputTensorCountFn = int32_t (*)(const TfLiteInterpreter*);
   using TensorTypeFn = TfLiteType (*)(const TfLiteTensor*);
@@ -471,6 +439,24 @@ class FaceMeshContext {
       return nullptr;
     }
 
+    // Debug: log raw landmark ranges before normalization.
+    if (!landmarks_buffer_.empty()) {
+      float min_x = landmarks_buffer_[0];
+      float max_x = landmarks_buffer_[0];
+      float min_y = landmarks_buffer_[1];
+      float max_y = landmarks_buffer_[1];
+      for (int i = 0; i < output_landmark_count_; ++i) {
+        const float rx = landmarks_buffer_[i * 3];
+        const float ry = landmarks_buffer_[i * 3 + 1];
+        min_x = std::min(min_x, rx);
+        max_x = std::max(max_x, rx);
+        min_y = std::min(min_y, ry);
+        max_y = std::max(max_y, ry);
+      }
+      MP_LOGI("Raw landmarks: count=%d min_x=%.3f max_x=%.3f min_y=%.3f max_y=%.3f\n",
+              output_landmark_count_, min_x, max_x, min_y, max_y);
+    }
+
     if (!override_rect) {
       UpdateTrackingState(*result, score);
     } else {
@@ -651,11 +637,22 @@ class FaceMeshContext {
     const float sin_r = std::sin(roi.rotation);
     const float half_w = roi.width * 0.5f;
     const float half_h = roi.height * 0.5f;
+    const float input_w = std::max(1, input_width_);
+    const float input_h = std::max(1, input_height_);
 
     for (int i = 0; i < output_landmark_count_; ++i) {
-      const float raw_x = landmarks_buffer_[i * 3];
-      const float raw_y = landmarks_buffer_[i * 3 + 1];
-      const float raw_z = landmarks_buffer_[i * 3 + 2];
+      float raw_x = landmarks_buffer_[i * 3];
+      float raw_y = landmarks_buffer_[i * 3 + 1];
+      float raw_z = landmarks_buffer_[i * 3 + 2];
+
+      // Some models emit normalized [0,1], others emit pixel coordinates in
+      // input resolution. If values are outside [0,1], normalize using input
+      // tensor size.
+      if (raw_x > 1.0f || raw_y > 1.0f || raw_x < 0.0f || raw_y < 0.0f) {
+        raw_x = raw_x / input_w;
+        raw_y = raw_y / input_h;
+        raw_z = raw_z / input_w;
+      }
 
       const float nx = (raw_x - 0.5f) * 2.0f;
       const float ny = (raw_y - 0.5f) * 2.0f;
@@ -783,8 +780,8 @@ class FaceMeshContext {
       nullptr, {&runtime_}};
 
   TfLiteTensor* input_tensor_ = nullptr;
-  TfLiteTensor* output_landmarks_tensor_ = nullptr;
-  TfLiteTensor* output_score_tensor_ = nullptr;
+  const TfLiteTensor* output_landmarks_tensor_ = nullptr;
+  const TfLiteTensor* output_score_tensor_ = nullptr;
 
   int input_width_ = 0;
   int input_height_ = 0;

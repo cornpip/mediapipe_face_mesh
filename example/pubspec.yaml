@@ -31,6 +31,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+  image: ^4.1.7
+
   mediapipe_face_mesh:
     # When depending on this package from a real application you should use:
     #   mediapipe_face_mesh: ^x.y.z
@@ -66,7 +68,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
+  assets:
+    - assets/
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
