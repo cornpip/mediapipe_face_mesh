@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -14,6 +15,16 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#endif
+
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define MP_LOG_TAG "MediapipeFaceMesh"
+#define MP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, MP_LOG_TAG, __VA_ARGS__)
+#define MP_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, MP_LOG_TAG, __VA_ARGS__)
+#else
+#define MP_LOGI(...) std::fprintf(stdout, "[INFO] " __VA_ARGS__)
+#define MP_LOGE(...) std::fprintf(stderr, "[ERROR] " __VA_ARGS__)
 #endif
 
 namespace {
@@ -182,35 +193,38 @@ class TfLiteRuntime {
 
  private:
   bool LoadSymbols() {
-#define LOAD_SYMBOL(name)                                                      \
-  do {                                                                         \
-    name = reinterpret_cast<decltype(name)>(ResolveSymbol(#name));             \
-    if (!name) {                                                               \
-      error_ = std::string("Unable to locate symbol: ") + #name;               \
-      return false;                                                            \
-    }                                                                          \
+#define LOAD_SYMBOL(var, sym)                                                   \
+  do {                                                                          \
+    var = reinterpret_cast<decltype(var)>(ResolveSymbol(sym));                  \
+    if (!var) {                                                                 \
+      error_ = std::string("Unable to locate symbol: ") + sym;                  \
+      return false;                                                             \
+    }                                                                           \
   } while (false)
 
-    LOAD_SYMBOL(ModelCreateFromFile);
-    LOAD_SYMBOL(ModelDelete);
-    LOAD_SYMBOL(InterpreterOptionsCreate);
-    LOAD_SYMBOL(InterpreterOptionsDelete);
-    LOAD_SYMBOL(InterpreterOptionsSetThreads);
-    LOAD_SYMBOL(InterpreterCreate);
-    LOAD_SYMBOL(InterpreterDelete);
-    LOAD_SYMBOL(InterpreterAllocateTensors);
-    LOAD_SYMBOL(InterpreterInvoke);
-    LOAD_SYMBOL(InterpreterGetInputTensor);
-    LOAD_SYMBOL(InterpreterGetOutputTensor);
-    LOAD_SYMBOL(InterpreterGetInputTensorCount);
-    LOAD_SYMBOL(InterpreterGetOutputTensorCount);
-    LOAD_SYMBOL(TensorType);
-    LOAD_SYMBOL(TensorNumDims);
-    LOAD_SYMBOL(TensorDim);
-    LOAD_SYMBOL(TensorByteSize);
-    LOAD_SYMBOL(TensorData);
-    LOAD_SYMBOL(TensorCopyFromBuffer);
-    LOAD_SYMBOL(TensorCopyToBuffer);
+    LOAD_SYMBOL(ModelCreateFromFile, "TfLiteModelCreateFromFile");
+    LOAD_SYMBOL(ModelDelete, "TfLiteModelDelete");
+    LOAD_SYMBOL(InterpreterOptionsCreate, "TfLiteInterpreterOptionsCreate");
+    LOAD_SYMBOL(InterpreterOptionsDelete, "TfLiteInterpreterOptionsDelete");
+    LOAD_SYMBOL(InterpreterOptionsSetThreads,
+                "TfLiteInterpreterOptionsSetNumThreads");
+    LOAD_SYMBOL(InterpreterCreate, "TfLiteInterpreterCreate");
+    LOAD_SYMBOL(InterpreterDelete, "TfLiteInterpreterDelete");
+    LOAD_SYMBOL(InterpreterAllocateTensors, "TfLiteInterpreterAllocateTensors");
+    LOAD_SYMBOL(InterpreterInvoke, "TfLiteInterpreterInvoke");
+    LOAD_SYMBOL(InterpreterGetInputTensor, "TfLiteInterpreterGetInputTensor");
+    LOAD_SYMBOL(InterpreterGetOutputTensor, "TfLiteInterpreterGetOutputTensor");
+    LOAD_SYMBOL(InterpreterGetInputTensorCount,
+                "TfLiteInterpreterGetInputTensorCount");
+    LOAD_SYMBOL(InterpreterGetOutputTensorCount,
+                "TfLiteInterpreterGetOutputTensorCount");
+    LOAD_SYMBOL(TensorType, "TfLiteTensorType");
+    LOAD_SYMBOL(TensorNumDims, "TfLiteTensorNumDims");
+    LOAD_SYMBOL(TensorDim, "TfLiteTensorDim");
+    LOAD_SYMBOL(TensorByteSize, "TfLiteTensorByteSize");
+    LOAD_SYMBOL(TensorData, "TfLiteTensorData");
+    LOAD_SYMBOL(TensorCopyFromBuffer, "TfLiteTensorCopyFromBuffer");
+    LOAD_SYMBOL(TensorCopyToBuffer, "TfLiteTensorCopyToBuffer");
 #undef LOAD_SYMBOL
     return true;
   }
@@ -284,6 +298,9 @@ class FaceMeshContext {
             ? options->min_tracking_confidence
             : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
+
+    MP_LOGI("Initialize start: model=%s threads=%d\n", model_path.c_str(),
+            threads_);
 
     const char* runtime_path =
         (options && options->tflite_library_path)
@@ -384,7 +401,8 @@ class FaceMeshContext {
     }
 
     roi_ = DefaultRect();
-    has_roi_ = true;
+    has_valid_rect_ = true;
+    MP_LOGI("Initialize success\n");
     return true;
   }
 
@@ -752,7 +770,10 @@ class FaceMeshContext {
     return std::atan2(dy, dx);
   }
 
-  void SetError(const std::string& message) { last_error_ = message; }
+  void SetError(const std::string& message) {
+    last_error_ = message;
+    MP_LOGE("%s\n", message.c_str());
+  }
 
   TfLiteRuntime runtime_;
   std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_{nullptr, {&runtime_}};
@@ -784,15 +805,15 @@ class FaceMeshContext {
 
 thread_local std::string g_last_global_error;
 
-struct MpFaceMeshContext {
-  FaceMeshContext impl;
-};
-
 void SetGlobalError(const std::string& message) {
   g_last_global_error = message;
 }
 
 }  // namespace
+
+struct MpFaceMeshContext {
+  FaceMeshContext impl;
+};
 
 extern "C" {
 

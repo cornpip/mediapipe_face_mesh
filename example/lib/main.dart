@@ -32,11 +32,14 @@ class _MyAppState extends State<MyApp> {
         _faceMesh = mesh;
         _status = 'Engine ready. Tap the button to run a dummy inference.';
       });
+      debugPrint("!!!!!!!!!!!!!!!!1111");
     } catch (error) {
       setState(() {
         _status =
             'Initialization failed (expected until a proper TFLite runtime/model is bundled): $error';
       });
+      debugPrint("!!!!!!!!!!!!!!!!2222");
+      debugPrint(error.toString());
     }
   }
 

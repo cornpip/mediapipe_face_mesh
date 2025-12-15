@@ -28,6 +28,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            // 제공된 native 라이브러리가 arm64-v8a만 포함되어 있으므로 ABI를 고정한다.
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
