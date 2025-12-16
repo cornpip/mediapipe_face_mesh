@@ -207,6 +207,15 @@ struct FaceDetectionContext {
       SetError("Invalid image.");
       return false;
     }
+    if (width == 0 || image.bytes_per_row % width != 0) {
+      SetError("bytes_per_row is not aligned with image width.");
+      return false;
+    }
+    const int pixel_stride = image.bytes_per_row / width;
+    if (pixel_stride < 3 || pixel_stride > 4) {
+      SetError("Unsupported pixel stride. Expected 3 (RGB/BGR) or 4 (RGBA/BGRA).");
+      return false;
+    }
     // Resize with aspect ratio kept and bilinear sampling + replicated padding
     // to mimic MediaPipe's ImageToTensor letterbox behavior.
     letterbox_scale =
@@ -236,10 +245,10 @@ struct FaceDetectionContext {
             image.data + static_cast<size_t>(y0) * image.bytes_per_row;
         const uint8_t* row1 =
             image.data + static_cast<size_t>(y1) * image.bytes_per_row;
-        const uint8_t* p00 = row0 + static_cast<size_t>(x0) * 4;
-        const uint8_t* p01 = row0 + static_cast<size_t>(x1) * 4;
-        const uint8_t* p10 = row1 + static_cast<size_t>(x0) * 4;
-        const uint8_t* p11 = row1 + static_cast<size_t>(x1) * 4;
+        const uint8_t* p00 = row0 + static_cast<size_t>(x0) * pixel_stride;
+        const uint8_t* p01 = row0 + static_cast<size_t>(x1) * pixel_stride;
+        const uint8_t* p10 = row1 + static_cast<size_t>(x0) * pixel_stride;
+        const uint8_t* p11 = row1 + static_cast<size_t>(x1) * pixel_stride;
         float r, g, b;
         if (image.format == MP_PIXEL_FORMAT_RGBA) {
           const float r0 = (1.0f - wx) * p00[0] + wx * p01[0];
@@ -263,9 +272,10 @@ struct FaceDetectionContext {
           b = (1.0f - wy) * b0 + wy * b1;
         }
         const int idx = (y * input_w + x) * channels;
-        input_buffer[idx + 0] = r / 255.0f;
-        input_buffer[idx + 1] = g / 255.0f;
-        input_buffer[idx + 2] = b / 255.0f;
+        // MediaPipe short-range detector expects inputs normalized to [-1, 1].
+        input_buffer[idx + 0] = r / 127.5f - 1.0f;
+        input_buffer[idx + 1] = g / 127.5f - 1.0f;
+        input_buffer[idx + 2] = b / 127.5f - 1.0f;
       }
     }
     return true;
