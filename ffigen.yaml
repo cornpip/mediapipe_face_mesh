@@ -1,15 +1,15 @@
 # Run with `dart run ffigen --config ffigen.yaml`.
-name: MediapipeFaceMeshBindings
+name: MediapipeFaceBindings
 description: |
-  Bindings for `src/mediapipe_face_mesh.h`.
+  Bindings for `src/mediapipe_face.h`.
 
   Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
-output: 'lib/mediapipe_face_mesh_bindings_generated.dart'
+output: 'lib/mediapipe_face_bindings_generated.dart'
 headers:
   entry-points:
-    - 'src/mediapipe_face_mesh.h'
+    - 'src/mediapipe_face.h'
   include-directives:
-    - 'src/mediapipe_face_mesh.h'
+    - 'src/mediapipe_face.h'
 preamble: |
   // ignore_for_file: always_specify_types
   // ignore_for_file: camel_case_types

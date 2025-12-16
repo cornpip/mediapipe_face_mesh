@@ -4,32 +4,17 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
-
-import 'mediapipe_face_mesh_bindings_generated.dart';
+import 'package:mediapipe_face_mesh/mediapipe_face_bindings_generated.dart';
+import 'src/bindings.dart';
 
 part 'src/native_converters.dart';
 
-const String _libName = 'mediapipe_face_mesh';
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
 
-final ffi.DynamicLibrary _dylib = () {
-  if (Platform.isMacOS || Platform.isIOS) {
-    return ffi.DynamicLibrary.open('$_libName.framework/$_libName');
-  }
-  if (Platform.isAndroid || Platform.isLinux) {
-    return ffi.DynamicLibrary.open('lib$_libName.so');
-  }
-  if (Platform.isWindows) {
-    return ffi.DynamicLibrary.open('$_libName.dll');
-  }
-  throw UnsupportedError('Unsupported platform ${Platform.operatingSystem}');
-}();
-
-final MediapipeFaceMeshBindings _bindings = MediapipeFaceMeshBindings(_dylib);
 final Finalizer<ffi.Pointer<MpFaceMeshContext>> _contextFinalizer =
     Finalizer<ffi.Pointer<MpFaceMeshContext>>(
-        (pointer) => _bindings.mp_face_mesh_destroy(pointer));
+        (pointer) => faceBindings.mp_face_mesh_destroy(pointer));
 
 /// Represents the pixel format understood by the native preprocessor.
 class FaceMeshPixelFormat {
@@ -166,10 +151,10 @@ class MediapipeFaceMesh {
       }
 
       final ffi.Pointer<MpFaceMeshContext> context =
-          _bindings.mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
+          faceBindings.mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
         throw MediapipeFaceMeshException(
-            _readCString(_bindings.mp_face_mesh_last_global_error()) ??
+            _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
                 'Failed to create face mesh context.');
       }
       return MediapipeFaceMesh._(context);
@@ -211,17 +196,17 @@ class MediapipeFaceMesh {
     FaceMeshResult? processed;
     try {
       final ffi.Pointer<MpFaceMeshResult> resultPtr =
-          _bindings.mp_face_mesh_process(
+          faceBindings.mp_face_mesh_process(
               _context,
               nativeImage.image,
               roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr);
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
-            _readCString(_bindings.mp_face_mesh_last_error(_context)) ??
+            _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
                 'Native face mesh error.');
       }
       processed = _copyResult(resultPtr.ref);
-      _bindings.mp_face_mesh_release_result(resultPtr);
+      faceBindings.mp_face_mesh_release_result(resultPtr);
     } finally {
       pkg_ffi.calloc.free(nativeImage.pixels);
       pkg_ffi.calloc.free(nativeImage.image);
@@ -259,7 +244,7 @@ class MediapipeFaceMesh {
       return;
     }
     _contextFinalizer.detach(this);
-    _bindings.mp_face_mesh_destroy(_context);
+    faceBindings.mp_face_mesh_destroy(_context);
     _closed = true;
   }
 

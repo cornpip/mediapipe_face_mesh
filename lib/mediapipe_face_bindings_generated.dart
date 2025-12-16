@@ -8,21 +8,21 @@
 // ignore_for_file: type=lint
 import 'dart:ffi' as ffi;
 
-/// Bindings for `src/mediapipe_face_mesh.h`.
+/// Bindings for `src/mediapipe_face.h`.
 ///
 /// Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
 ///
-class MediapipeFaceMeshBindings {
+class MediapipeFaceBindings {
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
   _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
-  MediapipeFaceMeshBindings(ffi.DynamicLibrary dynamicLibrary)
+  MediapipeFaceBindings(ffi.DynamicLibrary dynamicLibrary)
     : _lookup = dynamicLibrary.lookup;
 
   /// The symbols are looked up with [lookup].
-  MediapipeFaceMeshBindings.fromLookup(
+  MediapipeFaceBindings.fromLookup(
     ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
   ) : _lookup = lookup;
 
@@ -127,9 +127,118 @@ class MediapipeFaceMeshBindings {
   late final _mp_face_mesh_last_global_error =
       _mp_face_mesh_last_global_errorPtr
           .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  /// Face detection (short-range) APIs.
+  ffi.Pointer<MpFaceDetectionContext> mp_face_detection_create(
+    ffi.Pointer<ffi.Char> model_path,
+    ffi.Pointer<MpFaceDetectionCreateOptions> options,
+  ) {
+    return _mp_face_detection_create(model_path, options);
+  }
+
+  late final _mp_face_detection_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceDetectionContext> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<MpFaceDetectionCreateOptions>,
+          )
+        >
+      >('mp_face_detection_create');
+  late final _mp_face_detection_create = _mp_face_detection_createPtr
+      .asFunction<
+        ffi.Pointer<MpFaceDetectionContext> Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<MpFaceDetectionCreateOptions>,
+        )
+      >();
+
+  void mp_face_detection_destroy(ffi.Pointer<MpFaceDetectionContext> context) {
+    return _mp_face_detection_destroy(context);
+  }
+
+  late final _mp_face_detection_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<MpFaceDetectionContext>)
+        >
+      >('mp_face_detection_destroy');
+  late final _mp_face_detection_destroy = _mp_face_detection_destroyPtr
+      .asFunction<void Function(ffi.Pointer<MpFaceDetectionContext>)>();
+
+  ffi.Pointer<MpFaceDetectionResult> mp_face_detection_process(
+    ffi.Pointer<MpFaceDetectionContext> context,
+    ffi.Pointer<MpImage> image,
+  ) {
+    return _mp_face_detection_process(context, image);
+  }
+
+  late final _mp_face_detection_processPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceDetectionResult> Function(
+            ffi.Pointer<MpFaceDetectionContext>,
+            ffi.Pointer<MpImage>,
+          )
+        >
+      >('mp_face_detection_process');
+  late final _mp_face_detection_process = _mp_face_detection_processPtr
+      .asFunction<
+        ffi.Pointer<MpFaceDetectionResult> Function(
+          ffi.Pointer<MpFaceDetectionContext>,
+          ffi.Pointer<MpImage>,
+        )
+      >();
+
+  void mp_face_detection_release_result(
+    ffi.Pointer<MpFaceDetectionResult> result,
+  ) {
+    return _mp_face_detection_release_result(result);
+  }
+
+  late final _mp_face_detection_release_resultPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<MpFaceDetectionResult>)
+        >
+      >('mp_face_detection_release_result');
+  late final _mp_face_detection_release_result =
+      _mp_face_detection_release_resultPtr
+          .asFunction<void Function(ffi.Pointer<MpFaceDetectionResult>)>();
+
+  ffi.Pointer<ffi.Char> mp_face_detection_last_error(
+    ffi.Pointer<MpFaceDetectionContext> context,
+  ) {
+    return _mp_face_detection_last_error(context);
+  }
+
+  late final _mp_face_detection_last_errorPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceDetectionContext>)
+        >
+      >('mp_face_detection_last_error');
+  late final _mp_face_detection_last_error = _mp_face_detection_last_errorPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceDetectionContext>)
+      >();
+
+  ffi.Pointer<ffi.Char> mp_face_detection_last_global_error() {
+    return _mp_face_detection_last_global_error();
+  }
+
+  late final _mp_face_detection_last_global_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_face_detection_last_global_error',
+      );
+  late final _mp_face_detection_last_global_error =
+      _mp_face_detection_last_global_errorPtr
+          .asFunction<ffi.Pointer<ffi.Char> Function()>();
 }
 
 final class MpFaceMeshContext extends ffi.Opaque {}
+
+final class MpFaceDetectionContext extends ffi.Opaque {}
 
 enum MpPixelFormat {
   MP_PIXEL_FORMAT_RGBA(0),
@@ -221,4 +330,61 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
 
   @ffi.Uint8()
   external int enable_smoothing;
+}
+
+final class MpFaceDetectionCreateOptions extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> tflite_library_path;
+
+  @ffi.Int32()
+  external int threads;
+
+  @ffi.Float()
+  external double score_threshold;
+
+  @ffi.Float()
+  external double nms_threshold;
+
+  @ffi.Int32()
+  external int max_detections;
+}
+
+final class MpDetectionBox extends ffi.Struct {
+  @ffi.Float()
+  external double x_center;
+
+  @ffi.Float()
+  external double y_center;
+
+  @ffi.Float()
+  external double width;
+
+  @ffi.Float()
+  external double height;
+}
+
+final class MpDetection extends ffi.Struct {
+  external MpDetectionBox box;
+
+  @ffi.Float()
+  external double score;
+
+  /// x0,y0,x1,y1,...
+  @ffi.Array.multi([10])
+  external ffi.Array<ffi.Float> keypoints;
+
+  @ffi.Int32()
+  external int keypoints_count;
+}
+
+final class MpFaceDetectionResult extends ffi.Struct {
+  external ffi.Pointer<MpDetection> detections;
+
+  @ffi.Int32()
+  external int count;
+
+  @ffi.Int32()
+  external int image_width;
+
+  @ffi.Int32()
+  external int image_height;
 }

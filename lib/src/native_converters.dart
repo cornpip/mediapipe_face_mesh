@@ -1,4 +1,4 @@
-part of '../mediapipe_face_mesh.dart';
+part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 class _NativeImage {
   _NativeImage({
