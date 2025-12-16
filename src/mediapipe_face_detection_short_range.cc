@@ -40,14 +40,13 @@ namespace {
 struct AnchorOptions {
   int input_width = 128;
   int input_height = 128;
-  int min_level = 3;
-  int max_level = 6;
+  float min_scale = 0.1484375f;
+  float max_scale = 0.75f;
   float anchor_offset_x = 0.5f;
   float anchor_offset_y = 0.5f;
   bool fixed_anchor_size = true;
   std::vector<float> aspect_ratios{1.0f};
-  std::vector<float> scales{0.1484375f, 0.2109375f, 0.3359375f, 0.4921875f,
-                            0.75f};
+  float interpolated_scale_aspect_ratio = 1.0f;
   std::vector<int> strides{8, 16, 16, 16};
 };
 
@@ -302,19 +301,52 @@ struct FaceDetectionContext {
   std::vector<Anchor> BuildAnchors() const {
     std::vector<Anchor> anchors_out;
     const AnchorOptions opt;
-    for (size_t i = 0; i < opt.strides.size(); ++i) {
+    const size_t num_layers = opt.strides.size();
+    auto compute_scale = [&](size_t layer) -> float {
+      if (num_layers == 1) {
+        return (opt.min_scale + opt.max_scale) * 0.5f;
+      }
+      return opt.min_scale +
+             (opt.max_scale - opt.min_scale) * layer / (num_layers - 1);
+    };
+    for (size_t i = 0; i < num_layers; ++i) {
       const int stride = opt.strides[i];
-      const float scale = opt.scales[i];
+      const float scale = compute_scale(i);
+      const float scale_next = (i == num_layers - 1)
+                                   ? 1.0f
+                                   : compute_scale(i + 1);
       const int fm_h = (opt.input_height + stride - 1) / stride;
       const int fm_w = (opt.input_width + stride - 1) / stride;
       for (int y = 0; y < fm_h; ++y) {
         for (int x = 0; x < fm_w; ++x) {
-          Anchor a;
-          a.x_center = (x + opt.anchor_offset_x) / fm_w;
-          a.y_center = (y + opt.anchor_offset_y) / fm_h;
-          a.w = opt.fixed_anchor_size ? scale : scale / opt.input_width;
-          a.h = opt.fixed_anchor_size ? scale : scale / opt.input_height;
-          anchors_out.push_back(a);
+          for (float ar : opt.aspect_ratios) {
+            Anchor a;
+            a.x_center = (x + opt.anchor_offset_x) / fm_w;
+            a.y_center = (y + opt.anchor_offset_y) / fm_h;
+            if (opt.fixed_anchor_size) {
+              a.w = scale * std::sqrt(ar);
+              a.h = scale / std::sqrt(ar);
+            } else {
+              a.w = scale * std::sqrt(ar) / opt.input_width;
+              a.h = scale / std::sqrt(ar) / opt.input_height;
+            }
+            anchors_out.push_back(a);
+          }
+          if (opt.interpolated_scale_aspect_ratio > 0.f) {
+            Anchor a;
+            a.x_center = (x + opt.anchor_offset_x) / fm_w;
+            a.y_center = (y + opt.anchor_offset_y) / fm_h;
+            const float interpolated_scale = std::sqrt(scale * scale_next);
+            const float ratio = opt.interpolated_scale_aspect_ratio;
+            if (opt.fixed_anchor_size) {
+              a.w = interpolated_scale * std::sqrt(ratio);
+              a.h = interpolated_scale / std::sqrt(ratio);
+            } else {
+              a.w = interpolated_scale * std::sqrt(ratio) / opt.input_width;
+              a.h = interpolated_scale / std::sqrt(ratio) / opt.input_height;
+            }
+            anchors_out.push_back(a);
+          }
         }
       }
     }

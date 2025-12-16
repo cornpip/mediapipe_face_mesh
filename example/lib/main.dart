@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:mediapipe_face_mesh/mediapipe_face_detection.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 void main() {
@@ -61,6 +62,7 @@ class _MyAppState extends State<MyApp> {
   Future<void> _init() async {
     try {
       final mesh = await MediapipeFaceMesh.create();
+      final detector = await MediapipeFaceDetection.create();
       setState(() {
         _faceMesh = mesh;
         _status = 'Engine ready. Tap the button to run a dummy inference.';

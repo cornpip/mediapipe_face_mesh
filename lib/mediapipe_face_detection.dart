@@ -52,8 +52,8 @@ class FaceDetectionOptions {
   final int maxDetections;
 }
 
-class FaceDetectionEngine {
-  FaceDetectionEngine._(this._context) {
+class MediapipeFaceDetection {
+  MediapipeFaceDetection._(this._context) {
     _fdFinalizer.attach(this, _context, detach: this);
   }
 
@@ -81,7 +81,7 @@ class FaceDetectionEngine {
     return file.path;
   }
 
-  static Future<FaceDetectionEngine> create({
+  static Future<MediapipeFaceDetection> create({
     String? modelAssetPath,
     String? modelFilePath,
     FaceDetectionOptions options = const FaceDetectionOptions(),
@@ -118,7 +118,7 @@ class FaceDetectionEngine {
                 faceBindings.mp_face_detection_last_global_error()) ??
                 'Failed to create face detection context.');
       }
-      return FaceDetectionEngine._(ctx);
+      return MediapipeFaceDetection._(ctx);
     } finally {
       pkg_ffi.calloc.free(optPtr);
       if (libPtr != null) {
