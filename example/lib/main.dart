@@ -46,12 +46,18 @@ class _FaceMeshPainter extends CustomPainter {
 
 class _MyAppState extends State<MyApp> {
   MediapipeFaceMesh? _faceMesh;
+  MediapipeFaceDetection? _faceDetector;
   String _status = 'Initializing...';
   FaceMeshResult? _result;
   Uint8List? _sourcePngBytes;
   Uint8List? _displayBytes;
   int? _displayWidth;
   int? _displayHeight;
+  Uint8List? _cropBytes;
+  Uint8List? _detectSourcePngBytes;
+  Uint8List? _detectBytes;
+  int? _detectWidth;
+  int? _detectHeight;
 
   @override
   void initState() {
@@ -65,6 +71,7 @@ class _MyAppState extends State<MyApp> {
       final detector = await MediapipeFaceDetection.create();
       setState(() {
         _faceMesh = mesh;
+        _faceDetector = detector;
         _status = 'Engine ready. Tap the button to run a dummy inference.';
       });
       debugPrint("!!!!!!!!!!!!!!!!1111");
@@ -80,37 +87,96 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _runOnce() async {
     final mesh = _faceMesh;
+    final detector = _faceDetector;
     if (mesh == null) {
       return;
     }
     try {
-      // Load the bundled PNG asset and convert to RGBA bytes.
-      final ByteData data = await rootBundle.load('assets/img.png');
-      final Uint8List pngBytes =
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-      final img.Image? decoded = img.decodeImage(pngBytes);
-      if (decoded == null) {
-        throw Exception('Failed to decode PNG asset');
+      // Load mesh input image (img.png) and convert to RGBA bytes.
+      final ByteData meshData = await rootBundle.load('assets/img.png');
+      final Uint8List meshPngBytes = meshData.buffer
+          .asUint8List(meshData.offsetInBytes, meshData.lengthInBytes);
+      final img.Image? meshDecoded = img.decodeImage(meshPngBytes);
+      if (meshDecoded == null) {
+        throw Exception('Failed to decode mesh PNG asset');
       }
-      final img.Image rgba =
-          img.copyResize(decoded, width: decoded.width, height: decoded.height);
-      final Uint8List rgbaBytes = Uint8List.fromList(
-          rgba.convert(numChannels: 4).getBytes(order: img.ChannelOrder.rgba));
+      final img.Image meshRgba = img.copyResize(meshDecoded,
+          width: meshDecoded.width, height: meshDecoded.height);
+      final Uint8List meshRgbaBytes = Uint8List.fromList(meshRgba
+          .convert(numChannels: 4)
+          .getBytes(order: img.ChannelOrder.rgba));
 
-      _sourcePngBytes = pngBytes;
-      _displayBytes = rgbaBytes;
-      _displayWidth = rgba.width;
-      _displayHeight = rgba.height;
+      // Load detection input image (img_2.png) and convert to RGBA bytes.
+      Uint8List? detectPngBytes;
+      Uint8List? detectRgbaBytes;
+      img.Image? detectRgbaImg;
+      if (detector != null) {
+        final ByteData detectData = await rootBundle.load('assets/img_2.png');
+        detectPngBytes = detectData.buffer
+            .asUint8List(detectData.offsetInBytes, detectData.lengthInBytes);
+        final img.Image? detectDecoded = img.decodeImage(detectPngBytes);
+        if (detectDecoded == null) {
+          throw Exception('Failed to decode detection PNG asset');
+        }
+        detectRgbaImg = img.copyResize(detectDecoded,
+            width: detectDecoded.width, height: detectDecoded.height);
+        detectRgbaBytes = Uint8List.fromList(detectRgbaImg
+            .convert(numChannels: 4)
+            .getBytes(order: img.ChannelOrder.rgba));
+      }
+
+      _sourcePngBytes = meshPngBytes;
+      _displayBytes = meshRgbaBytes;
+      _displayWidth = meshRgba.width;
+      _displayHeight = meshRgba.height;
+      _detectSourcePngBytes = detectPngBytes;
+      _detectBytes = detectRgbaBytes;
+      _detectWidth = detectRgbaImg?.width;
+      _detectHeight = detectRgbaImg?.height;
 
       final FaceMeshImage image = FaceMeshImage(
-        pixels: rgbaBytes,
-        width: rgba.width,
-        height: rgba.height,
+        pixels: meshRgbaBytes,
+        width: meshRgba.width,
+        height: meshRgba.height,
       );
+      FaceDetectionResult? detectionResult;
+      Uint8List? cropBytes;
+      if (detector != null && detectRgbaBytes != null && detectRgbaImg != null) {
+        final FaceMeshImage detectImage = FaceMeshImage(
+          pixels: detectRgbaBytes,
+          width: detectRgbaImg.width,
+          height: detectRgbaImg.height,
+        );
+        detectionResult = detector.process(detectImage);
+        if (detectionResult.detections.isNotEmpty) {
+          final detection = detectionResult.detections.first;
+          final rect = detection.rect;
+          final int cropWidth = (rect.width * detectRgbaImg.width)
+              .clamp(1.0, detectRgbaImg.width.toDouble())
+              .toInt();
+          final int cropHeight = (rect.height * detectRgbaImg.height)
+              .clamp(1.0, detectRgbaImg.height.toDouble())
+              .toInt();
+          final int left =
+              ((rect.xCenter - rect.width / 2) * detectRgbaImg.width)
+              .clamp(0.0, (detectRgbaImg.width - 1).toDouble())
+              .toInt();
+          final int top =
+              ((rect.yCenter - rect.height / 2) * detectRgbaImg.height)
+              .clamp(0.0, (detectRgbaImg.height - 1).toDouble())
+              .toInt();
+          final int w = math.min(cropWidth, detectRgbaImg.width - left);
+          final int h = math.min(cropHeight, detectRgbaImg.height - top);
+          final img.Image cropped = img.copyCrop(detectRgbaImg,
+              x: left, y: top, width: w, height: h);
+          cropBytes = Uint8List.fromList(img.encodePng(cropped));
+        }
+      }
       final FaceMeshResult result = mesh.process(image);
       debugPrint('First 5 landmarks: ${result.landmarks.take(5).map((lm) => '(${lm.x.toStringAsFixed(3)}, ${lm.y.toStringAsFixed(3)}, ${lm.z.toStringAsFixed(3)})').join(', ')}');
       setState(() {
         _result = result;
+        _cropBytes = cropBytes;
         _status =
             'Landmarks: ${result.landmarks.length}, score: ${result.score.toStringAsFixed(2)}';
       });
@@ -124,6 +190,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     _faceMesh?.close();
+    _faceDetector?.close();
     super.dispose();
   }
 
@@ -213,6 +280,53 @@ class _MyAppState extends State<MyApp> {
                 ),
               ],
               const SizedBox(height: 16),
+              if (_displayBytes != null && _displayWidth != null) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Detect input'),
+                          const SizedBox(height: 8),
+                          AspectRatio(
+                            aspectRatio: _displayWidth! / (_displayHeight ?? 1),
+                            child: Image.memory(
+                              _detectSourcePngBytes ?? _displayBytes!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Detection crop'),
+                          const SizedBox(height: 8),
+                          AspectRatio(
+                            aspectRatio: _displayWidth! / (_displayHeight ?? 1),
+                            child: _cropBytes != null
+                                ? Image.memory(
+                                    _cropBytes!,
+                                    fit: BoxFit.contain,
+                                  )
+                                : Container(
+                                    color: Colors.grey.shade200,
+                                    alignment: Alignment.center,
+                                    child: const Text('No detection'),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
               const Text(
                   'Provide a valid mediapipe_face_mesh.tflite and TensorFlow Lite '
                   'runtime libraries to get real predictions.',
