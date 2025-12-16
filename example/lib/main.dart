@@ -170,6 +170,14 @@ class _MyAppState extends State<MyApp> {
           final img.Image cropped = img.copyCrop(detectRgbaImg,
               x: left, y: top, width: w, height: h);
           cropBytes = Uint8List.fromList(img.encodePng(cropped));
+
+          debugPrint(
+              '[FaceDetection]'
+                  ' rect(xCenter=${rect.xCenter.toStringAsFixed(4)},'
+                  ' yCenter=${rect.yCenter.toStringAsFixed(4)},'
+                  ' w=${rect.width.toStringAsFixed(4)},'
+                  ' h=${rect.height.toStringAsFixed(4)})'
+          );
         }
       }
       final FaceMeshResult result = mesh.process(image);

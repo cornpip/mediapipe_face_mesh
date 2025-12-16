@@ -280,10 +280,10 @@ struct FaceDetectionContext {
     for (size_t i = 0; i < keep.size(); ++i) {
       const Detection& det = detections[keep[i]];
       MpDetection& out = result->detections[i];
-      out.box.x_center = det.x_center / static_cast<float>(image.width);
-      out.box.y_center = det.y_center / static_cast<float>(image.height);
-      out.box.width = det.w / static_cast<float>(image.width);
-      out.box.height = det.h / static_cast<float>(image.height);
+      out.box.x_center = det.x_center / static_cast<float>(input_w);
+      out.box.y_center = det.y_center / static_cast<float>(input_h);
+      out.box.width = det.w / static_cast<float>(input_w);
+      out.box.height = det.h / static_cast<float>(input_h);
       out.score = det.score;
       out.keypoints_count = det.keypoint_count;
       for (int k = 0; k < det.keypoint_count * 2; ++k) {
@@ -291,8 +291,7 @@ struct FaceDetectionContext {
         const bool is_x = (k % 2) == 0;
         out.keypoints[k] =
             det.keypoints[k] /
-            (is_x ? static_cast<float>(image.width)
-                  : static_cast<float>(image.height));
+            (is_x ? static_cast<float>(input_w) : static_cast<float>(input_h));
       }
     }
     return result;
