@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 
 import 'mediapipe_face_mesh_bindings_generated.dart';
 
+part 'src/native_converters.dart';
+
 const String _libName = 'mediapipe_face_mesh';
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
@@ -203,31 +205,16 @@ class MediapipeFaceMesh {
 
   FaceMeshResult process(FaceMeshImage image, {NormalizedRect? roi}) {
     _ensureNotClosed();
-    final imagePtr = pkg_ffi.calloc<MpImage>();
-    final roiPtr = roi != null ? pkg_ffi.calloc<MpNormalizedRect>() : ffi.nullptr;
-    final pixelPtr = pkg_ffi.calloc<ffi.Uint8>(image.pixels.length);
+    final _NativeImage nativeImage = _toNativeImage(image);
+    final ffi.Pointer<MpNormalizedRect> roiPtr =
+        roi != null ? _toNativeRect(roi) : ffi.nullptr;
     FaceMeshResult? processed;
     try {
-      pixelPtr.asTypedList(image.pixels.length).setAll(0, image.pixels);
-      imagePtr.ref
-        ..data = pixelPtr.cast()
-        ..width = image.width
-        ..height = image.height
-        ..bytes_per_row = image.bytesPerRow
-        ..format = image.pixelFormat;
-
-      if (roiPtr != ffi.nullptr) {
-        roiPtr.ref
-          ..x_center = roi!.xCenter
-          ..y_center = roi.yCenter
-          ..width = roi.width
-          ..height = roi.height
-          ..rotation = roi.rotation;
-      }
-
       final ffi.Pointer<MpFaceMeshResult> resultPtr =
           _bindings.mp_face_mesh_process(
-              _context, imagePtr, roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr);
+              _context,
+              nativeImage.image,
+              roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr);
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
             _readCString(_bindings.mp_face_mesh_last_error(_context)) ??
@@ -236,8 +223,8 @@ class MediapipeFaceMesh {
       processed = _copyResult(resultPtr.ref);
       _bindings.mp_face_mesh_release_result(resultPtr);
     } finally {
-      pkg_ffi.calloc.free(pixelPtr);
-      pkg_ffi.calloc.free(imagePtr);
+      pkg_ffi.calloc.free(nativeImage.pixels);
+      pkg_ffi.calloc.free(nativeImage.image);
       if (roiPtr != ffi.nullptr) {
         pkg_ffi.calloc.free(roiPtr);
       }
@@ -281,11 +268,4 @@ class MediapipeFaceMesh {
       throw StateError('Face mesh context already closed.');
     }
   }
-}
-
-String? _readCString(ffi.Pointer<ffi.Char> pointer) {
-  if (pointer == ffi.nullptr) {
-    return null;
-  }
-  return pointer.cast<pkg_ffi.Utf8>().toDartString();
 }

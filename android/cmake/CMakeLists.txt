@@ -9,17 +9,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(mediapipe_face_mesh SHARED
-  "mediapipe_face_mesh.cc"
+  "../../src/mediapipe_face_mesh.cc"
 )
 
 set_target_properties(mediapipe_face_mesh PROPERTIES
-  PUBLIC_HEADER mediapipe_face_mesh.h
+  PUBLIC_HEADER "../../src/mediapipe_face_mesh.h"
   OUTPUT_NAME "mediapipe_face_mesh"
 )
 
 target_compile_definitions(mediapipe_face_mesh PUBLIC DART_SHARED_LIB)
 target_include_directories(mediapipe_face_mesh PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/include
 )
 
 if (ANDROID)
