@@ -78,8 +78,8 @@ typedef struct {
 typedef struct {
   MpDetectionBox box;
   float score;
-  // Optional: first 5 keypoints (eyes, nose, mouth corners) as in mediapipe.
-  float keypoints[10];  // x0,y0,x1,y1,...
+  // Optional: BlazeFace short-range outputs 6 keypoints.
+  float keypoints[12];  // x0,y0,x1,y1,...
   int32_t keypoints_count;
 } MpDetection;
 

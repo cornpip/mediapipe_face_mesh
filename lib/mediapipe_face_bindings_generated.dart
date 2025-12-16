@@ -369,7 +369,7 @@ final class MpDetection extends ffi.Struct {
   external double score;
 
   /// x0,y0,x1,y1,...
-  @ffi.Array.multi([10])
+  @ffi.Array.multi([12])
   external ffi.Array<ffi.Float> keypoints;
 
   @ffi.Int32()
