@@ -22,6 +22,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "tflite_runtime.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
