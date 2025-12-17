@@ -318,6 +318,7 @@ class MediapipeFaceMesh {
     return processed!;
   }
 
+  /// mirrorHorizontal:If the ROI box is mirrored, mirrorHorizontal should be set to true.
   FaceMeshResult processNv21(
     FaceMeshNv21Image image, {
     NormalizedRect? roi,
@@ -325,6 +326,7 @@ class MediapipeFaceMesh {
     double boxScale = 1.0,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
   }) {
     _ensureNotClosed();
     if (roi != null && box != null) {
@@ -365,6 +367,7 @@ class MediapipeFaceMesh {
         nativeImage.image,
         roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
         rotationDegrees,
+        mirrorHorizontal ? 1 : 0,
       );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(

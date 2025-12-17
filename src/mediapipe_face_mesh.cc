@@ -297,7 +297,8 @@ class FaceMeshContext {
 
   MpFaceMeshResult* ProcessNv21(const MpNv21Image& image,
                                const MpNormalizedRect* override_rect,
-                               int rotation_degrees = 0) {
+                               int rotation_degrees = 0,
+                               bool mirror_horizontal = false) {
     if (!interpreter_) {
       SetError("Interpreter is not initialized.");
       return nullptr;
@@ -315,9 +316,11 @@ class FaceMeshContext {
     }
 
     // Reset tracking state when the logical coordinate system changes.
-    if (rot != last_rotation_degrees_) {
+    if (rot != last_rotation_degrees_ ||
+        mirror_horizontal != last_mirror_horizontal_) {
       has_valid_rect_ = false;
       last_rotation_degrees_ = rot;
+      last_mirror_horizontal_ = mirror_horizontal;
     }
 
     const int logical_width = (rot == 90 || rot == 270) ? image.height : image.width;
@@ -333,10 +336,10 @@ class FaceMeshContext {
       rect = DefaultRect();
     }
 
-    const bool needs_transform = rot != 0;
+    const bool needs_transform = rot != 0 || mirror_horizontal;
     if (needs_transform) {
-      if (!PreprocessNv21Rotated(image, rect, rot, logical_width,
-                                 logical_height)) {
+      if (!PreprocessNv21Rotated(image, rect, rot, mirror_horizontal,
+                                 logical_width, logical_height)) {
         return nullptr;
       }
     } else {
@@ -541,6 +544,7 @@ class FaceMeshContext {
   bool PreprocessNv21Rotated(const MpNv21Image& image,
                              const MpNormalizedRect& rect,
                              int rotation_degrees,
+                             bool mirror_horizontal,
                              int rotated_width,
                              int rotated_height) {
     const RectInPixels roi = ToPixelRect(rect, rotated_width, rotated_height);
@@ -573,7 +577,7 @@ class FaceMeshContext {
         const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
         const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
         const RgbPixel pixel = BilinearSampleNv21Rotated(
-            image, source_x, source_y, rotation_degrees,
+            image, source_x, source_y, rotation_degrees, mirror_horizontal,
             rotated_width, rotated_height);
         dst[offset++] = pixel.r / 127.5f - 1.0f;
         dst[offset++] = pixel.g / 127.5f - 1.0f;
@@ -633,6 +637,7 @@ class FaceMeshContext {
                                      float x,
                                      float y,
                                      int rotation_degrees,
+                                     bool mirror_horizontal,
                                      int rotated_width,
                                      int rotated_height) const {
     if (x < 0.0f || y < 0.0f || x > static_cast<float>(rotated_width - 1) ||
@@ -647,13 +652,13 @@ class FaceMeshContext {
     const float dy = y - static_cast<float>(y0);
 
     const RgbPixel p00 = ReadPixelNv21Rotated(
-        image, x0, y0, rotation_degrees, rotated_width);
+        image, x0, y0, rotation_degrees, mirror_horizontal, rotated_width);
     const RgbPixel p10 = ReadPixelNv21Rotated(
-        image, x1, y0, rotation_degrees, rotated_width);
+        image, x1, y0, rotation_degrees, mirror_horizontal, rotated_width);
     const RgbPixel p01 = ReadPixelNv21Rotated(
-        image, x0, y1, rotation_degrees, rotated_width);
+        image, x0, y1, rotation_degrees, mirror_horizontal, rotated_width);
     const RgbPixel p11 = ReadPixelNv21Rotated(
-        image, x1, y1, rotation_degrees, rotated_width);
+        image, x1, y1, rotation_degrees, mirror_horizontal, rotated_width);
 
     const RgbPixel top = Lerp(p00, p10, dx);
     const RgbPixel bottom = Lerp(p01, p11, dx);
@@ -709,6 +714,7 @@ class FaceMeshContext {
   static inline void MapRotatedToRaw(int x_rot,
                                      int y_rot,
                                      int rotation_degrees,
+                                     bool mirror_horizontal,
                                      int raw_width,
                                      int raw_height,
                                      int rotated_width,
@@ -716,6 +722,9 @@ class FaceMeshContext {
                                      int& out_y) {
     int xr = x_rot;
     int yr = y_rot;
+    if (mirror_horizontal) {
+      xr = (rotated_width - 1) - xr;
+    }
     switch (rotation_degrees) {
       case 90:
         out_x = yr;
@@ -743,10 +752,11 @@ class FaceMeshContext {
                                 int x_rot,
                                 int y_rot,
                                 int rotation_degrees,
+                                bool mirror_horizontal,
                                 int rotated_width) const {
     int x_raw = 0;
     int y_raw = 0;
-    MapRotatedToRaw(x_rot, y_rot, rotation_degrees,
+    MapRotatedToRaw(x_rot, y_rot, rotation_degrees, mirror_horizontal,
                     image.width, image.height, rotated_width,
                     x_raw, y_raw);
     return ReadPixelNv21(image, x_raw, y_raw);
@@ -954,6 +964,7 @@ class FaceMeshContext {
   MpNormalizedRect roi_;
   bool has_valid_rect_ = false;
   int last_rotation_degrees_ = 0;
+  bool last_mirror_horizontal_ = false;
   std::string last_error_;
 };
 
@@ -1014,7 +1025,8 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     MpFaceMeshContext* context,
     const MpNv21Image* image,
     const MpNormalizedRect* override_rect,
-    int32_t rotation_degrees) {
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal) {
   if (!context) {
     SetGlobalError("Context is null.");
     return nullptr;
@@ -1023,7 +1035,8 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     SetGlobalError("Image is null.");
     return nullptr;
   }
-  return context->impl.ProcessNv21(*image, override_rect, rotation_degrees);
+  return context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
+                                   mirror_horizontal != 0);
 }
 
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result) {
