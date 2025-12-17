@@ -112,6 +112,42 @@ class FaceMeshImage {
   final int pixelFormat;
 }
 
+/// Holder for NV21 (Y + interleaved VU) camera buffers.
+class FaceMeshNv21Image {
+  FaceMeshNv21Image({
+    required this.yPlane,
+    required this.vuPlane,
+    required this.width,
+    required this.height,
+    int? yBytesPerRow,
+    int? vuBytesPerRow,
+  })  : yBytesPerRow = yBytesPerRow ?? width,
+        vuBytesPerRow = vuBytesPerRow ?? width {
+    if (width <= 0 || height <= 0) {
+      throw ArgumentError('Invalid image size: ${width}x$height');
+    }
+    final int requiredY = this.yBytesPerRow * height;
+    final int requiredVu = this.vuBytesPerRow * (height ~/ 2);
+    if (yPlane.length < requiredY) {
+      throw ArgumentError('Y plane buffer too small (need $requiredY bytes).');
+    }
+    if (vuPlane.length < requiredVu) {
+      throw ArgumentError(
+          'VU plane buffer too small (need $requiredVu bytes).');
+    }
+    if ((height & 1) != 0) {
+      throw ArgumentError('NV21 height must be even.');
+    }
+  }
+
+  final Uint8List yPlane;
+  final Uint8List vuPlane;
+  final int width;
+  final int height;
+  final int yBytesPerRow;
+  final int vuBytesPerRow;
+}
+
 class FaceMeshLandmark {
   FaceMeshLandmark({
     required this.x,
@@ -263,7 +299,8 @@ class MediapipeFaceMesh {
           faceBindings.mp_face_mesh_process(
               _context,
               nativeImage.image,
-              roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr);
+              roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+          );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
             _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
@@ -278,7 +315,75 @@ class MediapipeFaceMesh {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed!;
+    return processed;
+  }
+
+  FaceMeshResult processNv21(
+    FaceMeshNv21Image image, {
+    NormalizedRect? roi,
+    FaceMeshBox? box,
+    double boxScale = 1.0,
+    bool boxMakeSquare = true,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+  }) {
+    _ensureNotClosed();
+    if (roi != null && box != null) {
+      throw ArgumentError('Provide either roi or box, not both.');
+    }
+    if (rotationDegrees != 0 &&
+        rotationDegrees != 90 &&
+        rotationDegrees != 180 &&
+        rotationDegrees != 270) {
+      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
+    }
+    final int logicalWidth =
+        (rotationDegrees == 90 || rotationDegrees == 270)
+            ? image.height
+            : image.width;
+    final int logicalHeight =
+        (rotationDegrees == 90 || rotationDegrees == 270)
+            ? image.width
+            : image.height;
+    final NormalizedRect? effectiveRoi = roi ??
+        (box != null
+            ? _normalizedRectFromBox(
+                box,
+                imageWidth: logicalWidth,
+                imageHeight: logicalHeight,
+                scale: boxScale,
+                makeSquare: boxMakeSquare,
+              )
+            : null);
+    final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
+    final ffi.Pointer<MpNormalizedRect> roiPtr =
+        effectiveRoi != null ? _toNativeRect(effectiveRoi) : ffi.nullptr;
+    FaceMeshResult? processed;
+    try {
+      final ffi.Pointer<MpFaceMeshResult> resultPtr =
+          faceBindings.mp_face_mesh_process_nv21(
+        _context,
+        nativeImage.image,
+        roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+        rotationDegrees,
+        mirrorHorizontal ? 1 : 0,
+      );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+            _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+                'Native face mesh error.');
+      }
+      processed = _copyResult(resultPtr.ref);
+      faceBindings.mp_face_mesh_release_result(resultPtr);
+    } finally {
+      pkg_ffi.calloc.free(nativeImage.yPlane);
+      pkg_ffi.calloc.free(nativeImage.vuPlane);
+      pkg_ffi.calloc.free(nativeImage.image);
+      if (roiPtr != ffi.nullptr) {
+        pkg_ffi.calloc.free(roiPtr);
+      }
+    }
+    return processed;
   }
 
   FaceMeshResult _copyResult(MpFaceMeshResult nativeResult) {

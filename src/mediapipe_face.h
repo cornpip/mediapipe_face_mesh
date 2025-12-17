@@ -29,6 +29,16 @@ typedef struct {
   MpPixelFormat format;
 } MpImage;
 
+// Android camera NV21 input (Y plane + interleaved VU plane).
+typedef struct {
+  const uint8_t* y;
+  const uint8_t* vu;
+  int32_t width;
+  int32_t height;
+  int32_t y_bytes_per_row;
+  int32_t vu_bytes_per_row;
+} MpNv21Image;
+
 typedef struct {
   float x_center;
   float y_center;
@@ -99,6 +109,13 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process(
     MpFaceMeshContext* context,
     const MpImage* image,
     const MpNormalizedRect* override_rect);
+
+FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
+    MpFaceMeshContext* context,
+    const MpNv21Image* image,
+    const MpNormalizedRect* override_rect,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal);
 
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result);
 

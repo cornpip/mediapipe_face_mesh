@@ -88,6 +88,45 @@ class MediapipeFaceBindings {
         )
       >();
 
+  ffi.Pointer<MpFaceMeshResult> mp_face_mesh_process_nv21(
+    ffi.Pointer<MpFaceMeshContext> context,
+    ffi.Pointer<MpNv21Image> image,
+    ffi.Pointer<MpNormalizedRect> override_rect,
+    int rotation_degrees,
+    int mirror_horizontal,
+  ) {
+    return _mp_face_mesh_process_nv21(
+      context,
+      image,
+      override_rect,
+      rotation_degrees,
+      mirror_horizontal,
+    );
+  }
+
+  late final _mp_face_mesh_process_nv21Ptr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceMeshResult> Function(
+            ffi.Pointer<MpFaceMeshContext>,
+            ffi.Pointer<MpNv21Image>,
+            ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Uint8,
+          )
+        >
+      >('mp_face_mesh_process_nv21');
+  late final _mp_face_mesh_process_nv21 = _mp_face_mesh_process_nv21Ptr
+      .asFunction<
+        ffi.Pointer<MpFaceMeshResult> Function(
+          ffi.Pointer<MpFaceMeshContext>,
+          ffi.Pointer<MpNv21Image>,
+          ffi.Pointer<MpNormalizedRect>,
+          int,
+          int,
+        )
+      >();
+
   void mp_face_mesh_release_result(ffi.Pointer<MpFaceMeshResult> result) {
     return _mp_face_mesh_release_result(result);
   }
@@ -268,6 +307,25 @@ final class MpImage extends ffi.Struct {
 
   @ffi.UnsignedInt()
   external int format;
+}
+
+/// Android camera NV21 input (Y plane + interleaved VU plane).
+final class MpNv21Image extends ffi.Struct {
+  external ffi.Pointer<ffi.Uint8> y;
+
+  external ffi.Pointer<ffi.Uint8> vu;
+
+  @ffi.Int32()
+  external int width;
+
+  @ffi.Int32()
+  external int height;
+
+  @ffi.Int32()
+  external int y_bytes_per_row;
+
+  @ffi.Int32()
+  external int vu_bytes_per_row;
 }
 
 final class MpNormalizedRect extends ffi.Struct {

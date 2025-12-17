@@ -10,6 +10,18 @@ class _NativeImage {
   final ffi.Pointer<ffi.Uint8> pixels;
 }
 
+class _NativeNv21Image {
+  _NativeNv21Image({
+    required this.image,
+    required this.yPlane,
+    required this.vuPlane,
+  });
+
+  final ffi.Pointer<MpNv21Image> image;
+  final ffi.Pointer<ffi.Uint8> yPlane;
+  final ffi.Pointer<ffi.Uint8> vuPlane;
+}
+
 _NativeImage _toNativeImage(FaceMeshImage image) {
   final ffi.Pointer<MpImage> imagePtr = pkg_ffi.calloc<MpImage>();
   final ffi.Pointer<ffi.Uint8> pixelPtr =
@@ -22,6 +34,24 @@ _NativeImage _toNativeImage(FaceMeshImage image) {
     ..bytes_per_row = image.bytesPerRow
     ..format = image.pixelFormat;
   return _NativeImage(image: imagePtr, pixels: pixelPtr);
+}
+
+_NativeNv21Image _toNativeNv21Image(FaceMeshNv21Image image) {
+  final ffi.Pointer<MpNv21Image> imagePtr = pkg_ffi.calloc<MpNv21Image>();
+  final ffi.Pointer<ffi.Uint8> yPtr =
+      pkg_ffi.calloc<ffi.Uint8>(image.yPlane.length);
+  yPtr.asTypedList(image.yPlane.length).setAll(0, image.yPlane);
+  final ffi.Pointer<ffi.Uint8> vuPtr =
+      pkg_ffi.calloc<ffi.Uint8>(image.vuPlane.length);
+  vuPtr.asTypedList(image.vuPlane.length).setAll(0, image.vuPlane);
+  imagePtr.ref
+    ..y = yPtr
+    ..vu = vuPtr
+    ..width = image.width
+    ..height = image.height
+    ..y_bytes_per_row = image.yBytesPerRow
+    ..vu_bytes_per_row = image.vuBytesPerRow;
+  return _NativeNv21Image(image: imagePtr, yPlane: yPtr, vuPlane: vuPtr);
 }
 
 ffi.Pointer<MpNormalizedRect> _toNativeRect(NormalizedRect rect) {
