@@ -315,7 +315,7 @@ class MediapipeFaceMesh {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed;
+    return processed!;
   }
 
   FaceMeshResult processNv21(
@@ -325,7 +325,6 @@ class MediapipeFaceMesh {
     double boxScale = 1.0,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
   }) {
     _ensureNotClosed();
     if (roi != null && box != null) {
@@ -366,7 +365,6 @@ class MediapipeFaceMesh {
         nativeImage.image,
         roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
         rotationDegrees,
-        mirrorHorizontal ? 1 : 0,
       );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
@@ -383,7 +381,7 @@ class MediapipeFaceMesh {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed;
+    return processed!;
   }
 
   FaceMeshResult _copyResult(MpFaceMeshResult nativeResult) {

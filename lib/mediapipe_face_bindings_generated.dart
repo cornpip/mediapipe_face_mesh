@@ -93,14 +93,12 @@ class MediapipeFaceBindings {
     ffi.Pointer<MpNv21Image> image,
     ffi.Pointer<MpNormalizedRect> override_rect,
     int rotation_degrees,
-    int mirror_horizontal,
   ) {
     return _mp_face_mesh_process_nv21(
       context,
       image,
       override_rect,
       rotation_degrees,
-      mirror_horizontal,
     );
   }
 
@@ -112,7 +110,6 @@ class MediapipeFaceBindings {
             ffi.Pointer<MpNv21Image>,
             ffi.Pointer<MpNormalizedRect>,
             ffi.Int32,
-            ffi.Uint8,
           )
         >
       >('mp_face_mesh_process_nv21');
@@ -122,7 +119,6 @@ class MediapipeFaceBindings {
           ffi.Pointer<MpFaceMeshContext>,
           ffi.Pointer<MpNv21Image>,
           ffi.Pointer<MpNormalizedRect>,
-          int,
           int,
         )
       >();
