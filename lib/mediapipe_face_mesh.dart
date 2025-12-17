@@ -49,6 +49,42 @@ class NormalizedRect {
       );
 }
 
+/// A bounding box expressed in image pixel coordinates.
+///
+/// This is a convenience container used to derive a [NormalizedRect] ROI for
+/// [MediapipeFaceMesh.process].
+class FaceMeshBox {
+  const FaceMeshBox({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+
+  factory FaceMeshBox.fromLTWH({
+    required double left,
+    required double top,
+    required double width,
+    required double height,
+  }) =>
+      FaceMeshBox(
+        left: left,
+        top: top,
+        right: left + width,
+        bottom: top + height,
+      );
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  double get width => right - left;
+  double get height => bottom - top;
+  double get centerX => (left + right) * 0.5;
+  double get centerY => (top + bottom) * 0.5;
+}
+
 /// Container that holds RGBA/BGRA pixels used as inference input.
 class FaceMeshImage {
   FaceMeshImage({
@@ -188,11 +224,39 @@ class MediapipeFaceMesh {
     return file.path;
   }
 
-  FaceMeshResult process(FaceMeshImage image, {NormalizedRect? roi}) {
+  /// Processes an image and returns face landmarks.
+  ///
+  /// By default, this processes the full frame. To restrict processing to a
+  /// region, provide either:
+  /// - [roi] as a normalized rectangle, or
+  /// - [box] as a pixel-space bounding box (converted to an ROI internally).
+  ///
+  /// When [box] is provided, it is converted into a square ROI by default
+  /// (using the max of width/height) and optionally expanded by [boxScale].
+  FaceMeshResult process(
+    FaceMeshImage image, {
+    NormalizedRect? roi,
+    FaceMeshBox? box,
+    double boxScale = 1.0,
+    bool boxMakeSquare = true,
+  }) {
     _ensureNotClosed();
+    if (roi != null && box != null) {
+      throw ArgumentError('Provide either roi or box, not both.');
+    }
+    final NormalizedRect? effectiveRoi = roi ??
+        (box != null
+            ? _normalizedRectFromBox(
+                box,
+                imageWidth: image.width,
+                imageHeight: image.height,
+                scale: boxScale,
+                makeSquare: boxMakeSquare,
+              )
+            : null);
     final _NativeImage nativeImage = _toNativeImage(image);
     final ffi.Pointer<MpNormalizedRect> roiPtr =
-        roi != null ? _toNativeRect(roi) : ffi.nullptr;
+        effectiveRoi != null ? _toNativeRect(effectiveRoi) : ffi.nullptr;
     FaceMeshResult? processed;
     try {
       final ffi.Pointer<MpFaceMeshResult> resultPtr =
@@ -253,4 +317,54 @@ class MediapipeFaceMesh {
       throw StateError('Face mesh context already closed.');
     }
   }
+}
+
+NormalizedRect _normalizedRectFromBox(
+  FaceMeshBox box, {
+  required int imageWidth,
+  required int imageHeight,
+  double scale = 1.0,
+  bool makeSquare = true,
+}) {
+  if (imageWidth <= 0 || imageHeight <= 0) {
+    throw ArgumentError('Invalid image size: ${imageWidth}x$imageHeight');
+  }
+  if (!(scale > 0)) {
+    throw ArgumentError('scale must be > 0.');
+  }
+  if (!(box.right > box.left) || !(box.bottom > box.top)) {
+    throw ArgumentError('Invalid box: left/top must be < right/bottom.');
+  }
+
+  final double clampedLeft =
+      box.left.clamp(0.0, imageWidth.toDouble()).toDouble();
+  final double clampedTop =
+      box.top.clamp(0.0, imageHeight.toDouble()).toDouble();
+  final double clampedRight =
+      box.right.clamp(0.0, imageWidth.toDouble()).toDouble();
+  final double clampedBottom =
+      box.bottom.clamp(0.0, imageHeight.toDouble()).toDouble();
+
+  final double centerX = (clampedLeft + clampedRight) * 0.5;
+  final double centerY = (clampedTop + clampedBottom) * 0.5;
+
+  double width = (clampedRight - clampedLeft).abs();
+  double height = (clampedBottom - clampedTop).abs();
+
+  if (makeSquare) {
+    final double size = width > height ? width : height;
+    width = size;
+    height = size;
+  }
+
+  width *= scale;
+  height *= scale;
+
+  return NormalizedRect(
+    xCenter: centerX / imageWidth,
+    yCenter: centerY / imageHeight,
+    width: width / imageWidth,
+    height: height / imageHeight,
+    rotation: 0,
+  );
 }
