@@ -18,7 +18,9 @@ A new Flutter project.
   # paths, so Classes contains a forwarder C file that relatively imports
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*', '../src/**/*.{cc,h,mm}'
+  # `.cc` files are pulled in via the ObjC++ forwarders in Classes/ to avoid
+  # double compilation; only headers are exposed here.
+  s.source_files = 'Classes/**/*', '../src/**/*.h'
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
 
