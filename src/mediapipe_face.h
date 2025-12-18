@@ -108,7 +108,9 @@ FFI_PLUGIN_EXPORT void mp_face_mesh_destroy(MpFaceMeshContext* context);
 FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process(
     MpFaceMeshContext* context,
     const MpImage* image,
-    const MpNormalizedRect* override_rect);
+    const MpNormalizedRect* override_rect,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal);
 
 FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     MpFaceMeshContext* context,

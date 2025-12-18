@@ -275,17 +275,33 @@ class MediapipeFaceMesh {
     FaceMeshBox? box,
     double boxScale = 1.0,
     bool boxMakeSquare = true,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
   }) {
     _ensureNotClosed();
     if (roi != null && box != null) {
       throw ArgumentError('Provide either roi or box, not both.');
     }
+    if (rotationDegrees != 0 &&
+        rotationDegrees != 90 &&
+        rotationDegrees != 180 &&
+        rotationDegrees != 270) {
+      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
+    }
+    final int logicalWidth =
+        (rotationDegrees == 90 || rotationDegrees == 270)
+            ? image.height
+            : image.width;
+    final int logicalHeight =
+        (rotationDegrees == 90 || rotationDegrees == 270)
+            ? image.width
+            : image.height;
     final NormalizedRect? effectiveRoi = roi ??
         (box != null
             ? _normalizedRectFromBox(
                 box,
-                imageWidth: image.width,
-                imageHeight: image.height,
+                imageWidth: logicalWidth,
+                imageHeight: logicalHeight,
                 scale: boxScale,
                 makeSquare: boxMakeSquare,
               )
@@ -300,6 +316,8 @@ class MediapipeFaceMesh {
               _context,
               nativeImage.image,
               roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+              rotationDegrees,
+              mirrorHorizontal ? 1 : 0,
           );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(

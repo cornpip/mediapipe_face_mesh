@@ -65,8 +65,16 @@ class MediapipeFaceBindings {
     ffi.Pointer<MpFaceMeshContext> context,
     ffi.Pointer<MpImage> image,
     ffi.Pointer<MpNormalizedRect> override_rect,
+    int rotation_degrees,
+    int mirror_horizontal,
   ) {
-    return _mp_face_mesh_process(context, image, override_rect);
+    return _mp_face_mesh_process(
+      context,
+      image,
+      override_rect,
+      rotation_degrees,
+      mirror_horizontal,
+    );
   }
 
   late final _mp_face_mesh_processPtr =
@@ -76,6 +84,8 @@ class MediapipeFaceBindings {
             ffi.Pointer<MpFaceMeshContext>,
             ffi.Pointer<MpImage>,
             ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Uint8,
           )
         >
       >('mp_face_mesh_process');
@@ -85,6 +95,8 @@ class MediapipeFaceBindings {
           ffi.Pointer<MpFaceMeshContext>,
           ffi.Pointer<MpImage>,
           ffi.Pointer<MpNormalizedRect>,
+          int,
+          int,
         )
       >();
 
