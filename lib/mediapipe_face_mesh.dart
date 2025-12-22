@@ -273,7 +273,7 @@ class MediapipeFaceMesh {
     FaceMeshImage image, {
     NormalizedRect? roi,
     FaceMeshBox? box,
-    double boxScale = 1.0,
+    double boxScale = 1.2,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,

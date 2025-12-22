@@ -1,7 +1,7 @@
 name: mediapipe_face_mesh
-description: "A new Flutter project."
-version: 0.0.1
-homepage:
+description: "mediapipe_face_mesh plugin"
+version: 1.0.0
+homepage: ""
 
 environment:
   sdk: ^3.10.3
