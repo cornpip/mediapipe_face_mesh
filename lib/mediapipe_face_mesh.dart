@@ -4,10 +4,11 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
-import 'package:mediapipe_face_mesh/mediapipe_face_bindings_generated.dart';
-import 'src/bindings.dart';
+import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
+import 'src/native_bindings_loader.dart';
 
 part 'src/native_converters.dart';
+part 'src/face_mesh_utils.dart';
 
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
@@ -184,16 +185,18 @@ class MediapipeFaceMeshException implements Exception {
   String toString() => 'MediapipeFaceMeshException($message)';
 }
 
-class MediapipeFaceMesh {
-  MediapipeFaceMesh._(this._context) {
+class FaceMeshProcessor {
+  FaceMeshProcessor._(this._context) {
     _contextFinalizer.attach(this, _context, detach: this);
   }
+
+  static const double _boxScale = 1.3;
 
   final ffi.Pointer<MpFaceMeshContext> _context;
   bool _closed = false;
 
   /// Creates the native interpreter and loads a model.
-  static Future<MediapipeFaceMesh> create({
+  static Future<FaceMeshProcessor> create({
     String? modelAssetPath,
     String? modelFilePath,
     String? tfliteLibraryPath,
@@ -229,7 +232,7 @@ class MediapipeFaceMesh {
             _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
                 'Failed to create face mesh context.');
       }
-      return MediapipeFaceMesh._(context);
+      return FaceMeshProcessor._(context);
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
@@ -237,27 +240,6 @@ class MediapipeFaceMesh {
         pkg_ffi.malloc.free(libPathPtr);
       }
     }
-  }
-
-  static Future<String> _materializeModel(String? assetPath) async {
-    final String key = assetPath ?? _defaultModelAsset;
-    final ByteData data = await rootBundle.load(key);
-    final Directory cacheDir =
-        Directory('${Directory.systemTemp.path}/mediapipe_face_mesh_cache');
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
-    }
-    final String sanitizedName = key.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    final File file = File('${cacheDir.path}/$sanitizedName');
-    final List<int> bytes =
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-    if (!await file.exists() || await file.length() != bytes.length) {
-      await file.writeAsBytes(
-        bytes,
-        flush: true,
-      );
-    }
-    return file.path;
   }
 
   /// Processes an image and returns face landmarks.
@@ -273,7 +255,7 @@ class MediapipeFaceMesh {
     FaceMeshImage image, {
     NormalizedRect? roi,
     FaceMeshBox? box,
-    double boxScale = 1.2,
+    double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
@@ -341,7 +323,7 @@ class MediapipeFaceMesh {
     FaceMeshNv21Image image, {
     NormalizedRect? roi,
     FaceMeshBox? box,
-    double boxScale = 1.0,
+    double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
@@ -441,54 +423,4 @@ class MediapipeFaceMesh {
       throw StateError('Face mesh context already closed.');
     }
   }
-}
-
-NormalizedRect _normalizedRectFromBox(
-  FaceMeshBox box, {
-  required int imageWidth,
-  required int imageHeight,
-  double scale = 1.0,
-  bool makeSquare = true,
-}) {
-  if (imageWidth <= 0 || imageHeight <= 0) {
-    throw ArgumentError('Invalid image size: ${imageWidth}x$imageHeight');
-  }
-  if (!(scale > 0)) {
-    throw ArgumentError('scale must be > 0.');
-  }
-  if (!(box.right > box.left) || !(box.bottom > box.top)) {
-    throw ArgumentError('Invalid box: left/top must be < right/bottom.');
-  }
-
-  final double clampedLeft =
-      box.left.clamp(0.0, imageWidth.toDouble()).toDouble();
-  final double clampedTop =
-      box.top.clamp(0.0, imageHeight.toDouble()).toDouble();
-  final double clampedRight =
-      box.right.clamp(0.0, imageWidth.toDouble()).toDouble();
-  final double clampedBottom =
-      box.bottom.clamp(0.0, imageHeight.toDouble()).toDouble();
-
-  final double centerX = (clampedLeft + clampedRight) * 0.5;
-  final double centerY = (clampedTop + clampedBottom) * 0.5;
-
-  double width = (clampedRight - clampedLeft).abs();
-  double height = (clampedBottom - clampedTop).abs();
-
-  if (makeSquare) {
-    final double size = width > height ? width : height;
-    width = size;
-    height = size;
-  }
-
-  width *= scale;
-  height *= scale;
-
-  return NormalizedRect(
-    xCenter: centerX / imageWidth,
-    yCenter: centerY / imageHeight,
-    width: width / imageWidth,
-    height: height / imageHeight,
-    rotation: 0,
-  );
 }

@@ -43,7 +43,7 @@ class _FaceMeshPainter extends CustomPainter {
 }
 
 class _MyAppState extends State<MyApp> {
-  MediapipeFaceMesh? _faceMesh;
+  FaceMeshProcessor? _faceMeshProcessor;
   String _status = 'Initializing...';
   FaceMeshResult? _result;
   Uint8List? _sourcePngBytes;
@@ -59,9 +59,9 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _init() async {
     try {
-      final mesh = await MediapipeFaceMesh.create();
+      final mesh = await FaceMeshProcessor.create();
       setState(() {
-        _faceMesh = mesh;
+        _faceMeshProcessor = mesh;
         _status = 'Engine ready. Tap the button to run a dummy inference.';
       });
       debugPrint("!!!!!!!!!!!!!!!!1111");
@@ -76,34 +76,36 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _runOnce() async {
-    final mesh = _faceMesh;
+    final mesh = _faceMeshProcessor;
     if (mesh == null) {
       return;
     }
     try {
-      // Load mesh input image (img.png) and convert to RGBA bytes.
-      final ByteData meshData = await rootBundle.load('assets/img.png');
-      final Uint8List meshPngBytes = meshData.buffer
-          .asUint8List(meshData.offsetInBytes, meshData.lengthInBytes);
-      final img.Image? meshDecoded = img.decodeImage(meshPngBytes);
-      if (meshDecoded == null) {
+      // Load the PNG asset into memory (compressed PNG bytes),
+      // decode it to an image so pixels are available,
+      // then re-encode those pixels into raw RGBA bytes for the native API.
+      final ByteData byteData = await rootBundle.load('assets/img.png');
+      final Uint8List pngByte = byteData.buffer
+          .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      final img.Image? decodedData = img.decodeImage(pngByte);
+      if (decodedData == null) {
         throw Exception('Failed to decode mesh PNG asset');
       }
-      final img.Image meshRgba = img.copyResize(meshDecoded,
-          width: meshDecoded.width, height: meshDecoded.height);
-      final Uint8List meshRgbaBytes = Uint8List.fromList(meshRgba
+      final img.Image rgba = img.copyResize(decodedData,
+          width: decodedData.width, height: decodedData.height);
+      final Uint8List rgbaBytes = Uint8List.fromList(rgba
           .convert(numChannels: 4)
           .getBytes(order: img.ChannelOrder.rgba));
 
-      _sourcePngBytes = meshPngBytes;
-      _displayBytes = meshRgbaBytes;
-      _displayWidth = meshRgba.width;
-      _displayHeight = meshRgba.height;
+      _sourcePngBytes = pngByte;
+      _displayBytes = rgbaBytes;
+      _displayWidth = rgba.width;
+      _displayHeight = rgba.height;
 
       final FaceMeshImage image = FaceMeshImage(
-        pixels: meshRgbaBytes,
-        width: meshRgba.width,
-        height: meshRgba.height,
+        pixels: rgbaBytes,
+        width: rgba.width,
+        height: rgba.height,
       );
       final FaceMeshResult result = mesh.process(image);
       debugPrint('First 5 landmarks: ${result.landmarks.take(5).map((lm) => '(${lm.x.toStringAsFixed(3)}, ${lm.y.toStringAsFixed(3)}, ${lm.z.toStringAsFixed(3)})').join(', ')}');
@@ -121,7 +123,7 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
-    _faceMesh?.close();
+    _faceMeshProcessor?.close();
     super.dispose();
   }
 
@@ -144,7 +146,7 @@ class _MyAppState extends State<MyApp> {
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
-                  onPressed: _faceMesh == null ? null : _runOnce,
+                  onPressed: _faceMeshProcessor == null ? null : _runOnce,
                   child: const Text('Run process()'),
                 ),
                 const SizedBox(height: 12),

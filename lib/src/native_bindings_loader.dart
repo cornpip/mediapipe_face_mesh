@@ -1,7 +1,7 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
 
-import 'package:mediapipe_face_mesh/mediapipe_face_bindings_generated.dart';
+import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
 
 MediapipeFaceBindings? _faceBindings;
 ffi.DynamicLibrary? _faceDylib;
