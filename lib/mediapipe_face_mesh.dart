@@ -1,6 +1,7 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show Offset, Rect, Size;
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'src/native_bindings_loader.dart';
 
 part 'src/native_converters.dart';
 part 'src/face_mesh_utils.dart';
+part 'src/face_mesh_result_utils.dart';
 
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
@@ -315,7 +317,7 @@ class FaceMeshProcessor {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed!;
+    return processed;
   }
 
   /// mirrorHorizontal:If the ROI box is mirrored, mirrorHorizontal should be set to true.
@@ -384,7 +386,7 @@ class FaceMeshProcessor {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed!;
+    return processed;
   }
 
   FaceMeshResult _copyResult(MpFaceMeshResult nativeResult) {
@@ -395,7 +397,7 @@ class FaceMeshProcessor {
             : List<FaceMeshLandmark>.generate(
                 nativeResult.landmarks_count,
                 (int i) {
-                  final MpLandmark lm = landmarkPtr.elementAt(i).ref;
+                  final MpLandmark lm = (landmarkPtr + i).ref;
                   return FaceMeshLandmark(x: lm.x, y: lm.y, z: lm.z);
                 },
               );
