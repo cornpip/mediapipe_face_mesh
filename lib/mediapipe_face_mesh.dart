@@ -199,33 +199,23 @@ class FaceMeshProcessor {
 
   /// Creates the native interpreter and loads a model.
   static Future<FaceMeshProcessor> create({
-    String? modelAssetPath,
-    String? modelFilePath,
-    String? tfliteLibraryPath,
     int threads = 2,
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     bool enableSmoothing = true,
   }) async {
-    final String resolvedModelPath =
-        modelFilePath ?? await _materializeModel(modelAssetPath);
+    final String resolvedModelPath = await _materializeModel();
 
     final optionsPtr = pkg_ffi.calloc<MpFaceMeshCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr =
         resolvedModelPath.toNativeUtf8();
-    ffi.Pointer<pkg_ffi.Utf8>? libPathPtr;
     try {
       optionsPtr.ref
         ..threads = threads
         ..min_detection_confidence = minDetectionConfidence
         ..min_tracking_confidence = minTrackingConfidence
-        ..enable_smoothing = enableSmoothing ? 1 : 0;
-      if (tfliteLibraryPath != null && tfliteLibraryPath.isNotEmpty) {
-        libPathPtr = tfliteLibraryPath.toNativeUtf8();
-        optionsPtr.ref.tflite_library_path = libPathPtr.cast();
-      } else {
-        optionsPtr.ref.tflite_library_path = ffi.nullptr;
-      }
+        ..enable_smoothing = enableSmoothing ? 1 : 0
+        ..tflite_library_path = ffi.nullptr;
 
       final ffi.Pointer<MpFaceMeshContext> context =
           faceBindings.mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
@@ -238,9 +228,6 @@ class FaceMeshProcessor {
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
-      if (libPathPtr != null) {
-        pkg_ffi.malloc.free(libPathPtr);
-      }
     }
   }
 
