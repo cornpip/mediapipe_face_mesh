@@ -35,6 +35,9 @@ Parameter hints:
   Higher values make tracking stricter but can drop faces sooner (default 0.5).
 - `threads`: number of CPU threads used by TensorFlow Lite. Increase it to speed
   up inference on multi-core devices, keeping thermal/power trade-offs in mind.
+- `enableSmoothing`: toggles MediaPipe's temporal smoothing between frames.
+  Keeping it `true` (default) reduces jitter but adds inertia; set `false` for
+  per-frame responsiveness when you don't reuse tracking context.
   
 Always remember to call `close()` on the processor when you are done.
 
@@ -46,9 +49,7 @@ Always remember to call `close()` on the processor when you are done.
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final FaceMeshProcessor processor = await FaceMeshProcessor.create(
-  threads: 4,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.6,
+  threads: 4, // 2 ~ 4
 );
 
 // Convert your source image into an RGBA/BGRA byte buffer.
