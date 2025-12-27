@@ -1,10 +1,8 @@
 # mediapipe_face_mesh
 
 Flutter/FFI bindings around the MediaPipe Face Mesh CPU graph.  
-The package bundles the default MediaPipe `.tflite` model and exposes a simple
-API for running single snapshots or continuous camera streams.
-
-## Highlights
+The plugin bundles the native binaries and a default model, so no extra setup is required.  
+exposes a simple API for running single snapshots or continuous camera streams.
 
 - CPU inference with the TensorFlow Lite C runtime (no GPU dependency).
 - Works with RGBA/BGRA buffers and Android NV21 camera frames.
@@ -12,127 +10,82 @@ API for running single snapshots or continuous camera streams.
 - Stream processor utilities to consume frames sequentially and deliver
   `FaceMeshResult` updates.
 
-## Installation
+## Usage
 
 ```bash
 flutter pub add mediapipe_face_mesh
 ```
 
-The plugin bundles the native binaries and a default model, so no extra setup is
-required. When creating the processor you can adjust:
+### create
+```dart
+import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-- `threads`, `minDetectionConfidence`, `minTrackingConfidence`,
-  `enableSmoothing` to tune performance/accuracy.
+final FaceMeshProcessor processor = await FaceMeshProcessor.create();
+```
 
-The packaged MediaPipe model (`assets/models/mediapipe_face_mesh.tflite`) is
-always used to keep deployments consistent.
+### single image porcessing
+```dart
+          if (Platform.isAndroid) {
+            meshResult = _runFaceMeshOnAndroidNv21(
+              mesh: _faceMeshProcessor,
+              cameraImage: cameraImage,
+              face: faces.first,
+              rotationCompensationDegrees: rotationCompensation,
+            );
+          } else if (Platform.isIOS) {
+            meshResult = _runFaceMeshOnIosBgra(
+              mesh: _faceMeshProcessor,
+              cameraImage: cameraImage,
+              face: faces.first,
+              rotationCompensationDegrees: rotationCompensation,
+            );
+          }
+```
 
-Parameter hints:
+### streaming camera frames
+```dart
+    if (Platform.isAndroid) {
+      _nv21StreamController = StreamController<FaceMeshNv21Image>();
+      _meshStreamSubscription = _faceMeshStreamProcessor
+          .processNv21(
+            _nv21StreamController!.stream,
+            boxResolver: _resolveFaceMeshBoxForNv21,
+            boxScale: 1.2,
+            boxMakeSquare: true,
+            rotationDegrees: rotationDegrees,
+          )
+          .listen(_handleMeshResult, onError: _handleMeshError);
+    } else if (Platform.isIOS) {
+      _bgraStreamController = StreamController<FaceMeshImage>();
+      _meshStreamSubscription = _faceMeshStreamProcessor
+          .processImages(
+            _bgraStreamController!.stream,
+            boxResolver: _resolveFaceMeshBoxForBgra,
+            boxScale: 1.2,
+            boxMakeSquare: true,
+            rotationDegrees: rotationDegrees,
+          )
+          .listen(_handleMeshResult, onError: _handleMeshError);
+    }
+```
+
+## detail
+
+### .create parameter
 
 - `minDetectionConfidence`: threshold for the initial face detector. Lowering it
   reduces missed detections but may increase false positives (default 0.5).
 - `minTrackingConfidence`: threshold for keeping an existing face track alive.
   Higher values make tracking stricter but can drop faces sooner (default 0.5).
 - `threads`: number of CPU threads used by TensorFlow Lite. Increase it to speed
-  up inference on multi-core devices, keeping thermal/power trade-offs in mind.
+  up inference on multi-core devices, keeping thermal/power trade-offs in mind. (default 2)
 - `enableSmoothing`: toggles MediaPipe's temporal smoothing between frames.
   Keeping it `true` (default) reduces jitter but adds inertia; set `false` for
   per-frame responsiveness when you don't reuse tracking context.
   
 Always remember to call `close()` on the processor when you are done.
 
-## Usage
-
-### Single image processing
-
-```dart
-import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
-
-final FaceMeshProcessor processor = await FaceMeshProcessor.create(
-  threads: 4, // 2 ~ 4
-);
-
-// Convert your source image into an RGBA/BGRA byte buffer.
-final FaceMeshImage frame = FaceMeshImage(
-  pixels: rgbaBytes, // Uint8List, length >= width * height * 4
-  width: imageWidth,
-  height: imageHeight,
-  pixelFormat: FaceMeshPixelFormat.rgba,
-);
-
-final FaceMeshResult result = processor.process(
-  frame,
-  // Optionally restrict processing to a face-sized ROI.
-  box: FaceMeshBox.fromLTWH(
-    left: detectedBox.left,
-    top: detectedBox.top,
-    width: detectedBox.width,
-    height: detectedBox.height,
-  ),
-  rotationDegrees: 0,
-  mirrorHorizontal: false,
-);
-
-// Convert landmarks into pixel coordinates.
-final Iterable<Offset> offsets = result.landmarks.asMap().entries.map(
-  (entry) => faceMeshLandmarkOffset(
-    result,
-    entry.value,
-    targetSize: Size(imageWidth.toDouble(), imageHeight.toDouble()),
-  ),
-);
-
-processor.close();
-```
-
-- Pass `FaceMeshImage` for RGBA/BGRA inputs or `FaceMeshNv21Image` for NV21.
-- Provide either `roi` or `box` to limit the search area (or neither for
-  full-frame processing).
-- Use `faceMeshBoundingRect`, `faceMeshLandmarkOffset`, or
-  `faceMeshLandmarksOffsets` to project normalized coordinates into pixels.
-
-### Streaming camera frames
-
-`FaceMeshStreamProcessor` wraps `FaceMeshProcessor` so that each frame is
-processed sequentially. This is useful when working with a continuous camera
-stream (e.g. Android's `CameraController` that yields NV21 buffers).
-
-```dart
-final FaceMeshProcessor processor = await FaceMeshProcessor.create();
-final FaceMeshStreamProcessor streamProcessor =
-    createFaceMeshStreamProcessor(processor);
-
-// `cameraFrames` is a Stream<FaceMeshNv21Image> created from your camera plugin.
-streamProcessor
-    .processNv21(
-      cameraFrames,
-      // Optionally provide a dynamic box per frame.
-      boxResolver: (FaceMeshNv21Image frame) => previousBox,
-      rotationDegrees: 90,
-      mirrorHorizontal: true,
-    )
-    .listen((FaceMeshResult result) {
-      final Rect faceRect = faceMeshBoundingRect(
-        result,
-        targetSize: const Size(720, 1280),
-      );
-      // Update UI or tracking state here.
-    });
-```
-
-Use `processImages` when your stream already emits `FaceMeshImage` buffers.
-The helper validates that exactly one of `roi` or `boxResolver` is provided
-and forwards the rest of the parameters to the underlying processor.
-
 ## Example
 
-A minimal Flutter example that runs inference on an asset lives under
-`example/`. Run it with:
-
-```bash
-cd example
-flutter run
-```
-
-The sample demonstrates loading an asset into `FaceMeshImage`, running a single
-inference, and drawing the resulting landmarks.
+The example demonstrates loading an asset into `FaceMeshImage`, running a single inference, and drawing the resulting landmarks.   
+If you need a camera-based example, check https://github.com/cornpip/flutter_yolo_sample which streams camera frames instead of using an asset.
