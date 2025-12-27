@@ -1,3 +1,3 @@
-## 0.0.1
+## 1.0.0
 
-* TODO: Describe initial release.
+* Initial public release of the MediaPipe Face Mesh FFI plugin for Android and iOS

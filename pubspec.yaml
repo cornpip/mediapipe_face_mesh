@@ -1,7 +1,7 @@
 name: mediapipe_face_mesh
 description: "mediapipe_face_mesh plugin"
 version: 1.0.0
-homepage: ""
+homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:
   sdk: ^3.10.3
