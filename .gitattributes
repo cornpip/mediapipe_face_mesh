@@ -1,1 +1,35 @@
-* text eol=lf
+# Normalize text files to LF while letting Git auto-detect binaries
+* text=auto eol=lf
+
+# Do not touch line endings for binary assets
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.webp -text
+*.tflite -text
+*.ttf -text
+*.otf -text
+*.ico -text
+
+# Common binaries (highly recommended)
+*.pdf -text
+*.zip -text
+*.gz -text
+*.7z -text
+*.mp4 -text
+*.mov -text
+*.bin -text
+*.onnx -text
+*.pt -text
+*.pth -text
+*.npz -text
+*.so -text
+*.dylib -text
+*.a -text
+*.aar -text
+*.jar -text
+*.keystore -text
+*.p12 -text
+*.mobileprovision -text
+*.xcframework -text
