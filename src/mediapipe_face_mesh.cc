@@ -36,7 +36,7 @@
 #define MP_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, MP_LOG_TAG, __VA_ARGS__)
 #else
 #define MP_LOGI(...) std::fprintf(stdout, "[INFO] " __VA_ARGS__)
-#define MP_LOGE(...) std::fprintf(stderr, "[ERROR] " __VA_ARGS__)F
+#define MP_LOGE(...) std::fprintf(stderr, "[ERROR] " __VA_ARGS__)
 #endif
 
 namespace {
