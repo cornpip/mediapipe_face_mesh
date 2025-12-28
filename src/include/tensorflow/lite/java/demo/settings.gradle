@@ -1,0 +1,3 @@
+package src.include.tensorflow.lite.java.demo
+
+include ':app'

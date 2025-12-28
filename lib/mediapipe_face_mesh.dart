@@ -31,6 +31,18 @@ class FaceMeshPixelFormat {
   static const int bgra = 1;
 }
 
+/// Delegate types supported by the native runtime.
+enum FaceMeshDelegate {
+  /// Execute on the built-in CPU interpreter.
+  cpu,
+
+  /// Use the XNNPACK delegate when available.
+  xnnpack,
+
+  /// Use the GPU delegate (V2) when supported by the runtime.
+  gpuV2,
+}
+
 /// Immutable normalized rectangle that MediaPipe uses as ROI input.
 class NormalizedRect {
   /// Builds a normalized rectangle from center, size, and rotation.
@@ -276,6 +288,7 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     bool enableSmoothing = true,
+    FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
   }) async {
     final String resolvedModelPath = await _materializeModel();
 
@@ -287,6 +300,7 @@ class FaceMeshProcessor {
         ..threads = threads
         ..min_detection_confidence = minDetectionConfidence
         ..min_tracking_confidence = minTrackingConfidence
+        ..delegate = delegate.index
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..tflite_library_path = ffi.nullptr;
 

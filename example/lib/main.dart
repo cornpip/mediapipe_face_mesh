@@ -55,7 +55,9 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _init() async {
     try {
-      final mesh = await FaceMeshProcessor.create();
+      final mesh = await FaceMeshProcessor.create(
+        delegate: FaceMeshDelegate.xnnpack
+      );
       setState(() {
         _faceMeshProcessor = mesh;
         _status = 'Engine ready. Tap the button to run a dummy inference.';

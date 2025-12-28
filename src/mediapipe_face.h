@@ -20,6 +20,12 @@ typedef enum {
   MP_PIXEL_FORMAT_BGRA = 1,
 } MpPixelFormat;
 
+typedef enum {
+  MP_DELEGATE_CPU = 0,
+  MP_DELEGATE_XNNPACK = 1,
+  MP_DELEGATE_GPU_V2 = 2,
+} MpDelegateType;
+
 typedef struct {
   const uint8_t* data;
   int32_t width;
@@ -66,6 +72,7 @@ typedef struct {
   int32_t threads;
   float min_detection_confidence;
   float min_tracking_confidence;
+  MpDelegateType delegate;
   uint8_t enable_smoothing;
 } MpFaceMeshCreateOptions;
 

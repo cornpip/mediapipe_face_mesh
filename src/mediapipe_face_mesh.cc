@@ -21,6 +21,8 @@
 #else
 #include "tensorflow/lite/c/c_api.h"
 #endif
+#include "tensorflow/lite/delegates/gpu/delegate.h"
+#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #include <memory>
 #include <string>
 #include <utility>
@@ -120,6 +122,65 @@ class FaceMeshContext {
       return false;
     }
     runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+
+    const MpDelegateType delegate_choice =
+        options ? static_cast<MpDelegateType>(options->delegate)
+                : MP_DELEGATE_CPU;
+    auto AttachDelegate = [&](TfLiteDelegate* created,
+                              TfLiteDelegateDeleter::DeleteFn deleter,
+                              const char* name) {
+      if (!created) {
+        return false;
+      }
+      delegate_.get_deleter().deleter = deleter;
+      delegate_.reset(created);
+      runtime_.InterpreterOptionsAddDelegate(
+          options_.get(),
+          reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
+      MP_LOGI("%s delegate enabled.\n", name);
+      return true;
+    };
+    switch (delegate_choice) {
+      case MP_DELEGATE_XNNPACK: {
+        if (!runtime_.InterpreterOptionsAddDelegate ||
+            !runtime_.XnnpackDelegateOptionsDefault ||
+            !runtime_.XnnpackDelegateCreate || !runtime_.XnnpackDelegateDelete) {
+          MP_LOGI("XNNPACK delegate requested but not available in runtime.\n");
+          break;
+        }
+        TfLiteXNNPackDelegateOptions xnnpack_options =
+            runtime_.XnnpackDelegateOptionsDefault();
+        xnnpack_options.num_threads = threads_;
+        TfLiteDelegate* created_delegate =
+            runtime_.XnnpackDelegateCreate(&xnnpack_options);
+        if (!AttachDelegate(created_delegate, runtime_.XnnpackDelegateDelete,
+                            "XNNPACK")) {
+          MP_LOGE("Failed to create XNNPACK delegate. Falling back to CPU.\n");
+        }
+        break;
+      }
+      case MP_DELEGATE_GPU_V2: {
+        if (!runtime_.InterpreterOptionsAddDelegate ||
+            !runtime_.GpuDelegateV2OptionsDefault ||
+            !runtime_.GpuDelegateV2Create || !runtime_.GpuDelegateV2Delete) {
+          MP_LOGI("GPU delegate (V2) requested but not available in runtime.\n");
+          break;
+        }
+        TfLiteGpuDelegateOptionsV2 gpu_options =
+            runtime_.GpuDelegateV2OptionsDefault();
+        gpu_options.experimental_flags |= TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
+        TfLiteDelegate* created_delegate =
+            runtime_.GpuDelegateV2Create(&gpu_options);
+        if (!AttachDelegate(created_delegate, runtime_.GpuDelegateV2Delete,
+                            "GPU V2")) {
+          MP_LOGE("Failed to create GPU delegate. Falling back to CPU.\n");
+        }
+        break;
+      }
+      case MP_DELEGATE_CPU:
+      default:
+        break;
+    }
 
     interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
     if (!interpreter_) {
@@ -452,10 +513,21 @@ class FaceMeshContext {
     }
   };
 
+  struct TfLiteDelegateDeleter {
+    using DeleteFn = void (*)(TfLiteDelegate*);
+    DeleteFn deleter = nullptr;
+    void operator()(TfLiteDelegate* delegate) const {
+      if (deleter && delegate) {
+        deleter(delegate);
+      }
+    }
+  };
+
   void Shutdown() {
     interpreter_.reset();
     options_.reset();
     model_.reset();
+    delegate_.reset();
     runtime_.Release();
   }
 
@@ -1064,6 +1136,7 @@ class FaceMeshContext {
       nullptr, {&runtime_}};
   std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_{
       nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> delegate_{nullptr, {}};
 
   TfLiteTensor* input_tensor_ = nullptr;
   const TfLiteTensor* output_landmarks_tensor_ = nullptr;
