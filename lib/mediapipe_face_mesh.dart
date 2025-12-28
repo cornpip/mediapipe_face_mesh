@@ -1,7 +1,5 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:ui' show Offset, Rect, Size;
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
@@ -19,16 +17,20 @@ final Finalizer<ffi.Pointer<MpFaceMeshContext>> _contextFinalizer =
     Finalizer<ffi.Pointer<MpFaceMeshContext>>(
         (pointer) => faceBindings.mp_face_mesh_destroy(pointer));
 
-/// Represents the pixel format understood by the native preprocessor.
+/// Integer constants describing the pixel formats understood by the native side.
 class FaceMeshPixelFormat {
   const FaceMeshPixelFormat._();
 
+  /// RGBA (red, green, blue, alpha) ordering expected by MediaPipe.
   static const int rgba = 0;
+
+  /// BGRA ordering for buffers that come directly from some platforms.
   static const int bgra = 1;
 }
 
-/// Immutable description of the normalized rectangle used by MediaPipe.
+/// Immutable normalized rectangle that MediaPipe uses as ROI input.
 class NormalizedRect {
+  /// Builds a normalized rectangle from center, size, and rotation.
   const NormalizedRect({
     required this.xCenter,
     required this.yCenter,
@@ -37,12 +39,22 @@ class NormalizedRect {
     this.rotation = 0,
   });
 
+  /// X coordinate of the rectangle center in normalized space (0..1).
   final double xCenter;
+
+  /// Y coordinate of the rectangle center in normalized space (0..1).
   final double yCenter;
+
+  /// Rectangle width as a fraction of the image width.
   final double width;
+
+  /// Rectangle height as a fraction of the image height.
   final double height;
+
+  /// Clockwise rotation in radians.
   final double rotation;
 
+  /// Creates a rectangle using the native MediaPipe layout.
   factory NormalizedRect.fromNative(MpNormalizedRect rect) => NormalizedRect(
         xCenter: rect.x_center,
         yCenter: rect.y_center,
@@ -52,11 +64,12 @@ class NormalizedRect {
       );
 }
 
-/// A bounding box expressed in image pixel coordinates.
+/// Pixel-space bounding box used to derive a normalized ROI.
 ///
-/// This is a convenience container used to derive a [NormalizedRect] ROI for
-/// [MediapipeFaceMesh.process].
+/// You can use this helper when providing bounding regions to
+/// [FaceMeshProcessor.process] or [FaceMeshProcessor.processNv21].
 class FaceMeshBox {
+  /// Creates a pixel bounding box from explicit edges.
   const FaceMeshBox({
     required this.left,
     required this.top,
@@ -64,6 +77,7 @@ class FaceMeshBox {
     required this.bottom,
   });
 
+  /// Convenience for building a box from top-left/width/height coordinates.
   factory FaceMeshBox.fromLTWH({
     required double left,
     required double top,
@@ -77,19 +91,34 @@ class FaceMeshBox {
         bottom: top + height,
       );
 
+  /// Left coordinate in pixels.
   final double left;
+
+  /// Top coordinate in pixels.
   final double top;
+
+  /// Right coordinate in pixels.
   final double right;
+
+  /// Bottom coordinate in pixels.
   final double bottom;
 
+  /// Width of the rectangle in pixels.
   double get width => right - left;
+
+  /// Height of the rectangle in pixels.
   double get height => bottom - top;
+
+  /// Horizontal center of the rectangle.
   double get centerX => (left + right) * 0.5;
+
+  /// Vertical center of the rectangle.
   double get centerY => (top + bottom) * 0.5;
 }
 
 /// Container that holds RGBA/BGRA pixels used as inference input.
 class FaceMeshImage {
+  /// Creates an RGBA/BGRA image wrapper from raw bytes.
   FaceMeshImage({
     required this.pixels,
     required this.width,
@@ -108,15 +137,25 @@ class FaceMeshImage {
     }
   }
 
+  /// Raw pixel buffer backing this image.
   final Uint8List pixels;
+
+  /// Frame width in pixels.
   final int width;
+
+  /// Frame height in pixels.
   final int height;
+
+  /// Bytes consumed per row (stride).
   final int bytesPerRow;
+
+  /// Pixel format understood by the native layer.
   final int pixelFormat;
 }
 
 /// Holder for NV21 (Y + interleaved VU) camera buffers.
 class FaceMeshNv21Image {
+  /// Creates an NV21 image from Y and interleaved VU planes.
   FaceMeshNv21Image({
     required this.yPlane,
     required this.vuPlane,
@@ -143,27 +182,47 @@ class FaceMeshNv21Image {
     }
   }
 
+  /// Luma plane (full resolution).
   final Uint8List yPlane;
+
+  /// Interleaved VU chroma plane.
   final Uint8List vuPlane;
+
+  /// Frame width in pixels.
   final int width;
+
+  /// Frame height in pixels (must be even).
   final int height;
+
+  /// Row stride for the Y plane.
   final int yBytesPerRow;
+
+  /// Row stride for the VU plane.
   final int vuBytesPerRow;
 }
 
+/// A single 3D landmark returned by MediaPipe.
 class FaceMeshLandmark {
+  /// Builds a landmark from normalized coordinates returned by MediaPipe.
   FaceMeshLandmark({
     required this.x,
     required this.y,
     required this.z,
   });
 
+  /// Horizontal coordinate normalized to [0, 1].
   final double x;
+
+  /// Vertical coordinate normalized to [0, 1].
   final double y;
+
+  /// Depth relative to the camera in canonical MediaPipe units.
   final double z;
 }
 
+/// Aggregates the results of a single face mesh inference.
 class FaceMeshResult {
+  /// Constructs a result using landmark points, ROI and scores.
   FaceMeshResult({
     required this.landmarks,
     required this.rect,
@@ -172,21 +231,35 @@ class FaceMeshResult {
     required this.imageHeight,
   });
 
+  /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
+
+  /// Normalized rectangle covering the detected face.
   final NormalizedRect rect;
+
+  /// Confidence score reported by MediaPipe.
   final double score;
+
+  /// Width of the image used during inference.
   final int imageWidth;
+
+  /// Height of the image used during inference.
   final int imageHeight;
 }
 
+/// Base exception thrown by this plugin when native calls fail.
 class MediapipeFaceMeshException implements Exception {
+  /// Creates an exception with a human-readable [message].
   MediapipeFaceMeshException(this.message);
+
+  /// Cause string returned by the native layer.
   final String message;
 
   @override
   String toString() => 'MediapipeFaceMeshException($message)';
 }
 
+/// High-level wrapper around the native MediaPipe Face Mesh graph.
 class FaceMeshProcessor {
   FaceMeshProcessor._(this._context) {
     _contextFinalizer.attach(this, _context, detach: this);
@@ -307,7 +380,11 @@ class FaceMeshProcessor {
     return processed;
   }
 
-  /// mirrorHorizontal:If the ROI box is mirrored, mirrorHorizontal should be set to true.
+  /// Processes NV21 camera frames captured directly from a camera preview.
+  ///
+  /// Parameters mirror the [process] method although the inputs are provided as
+  /// separate Y and VU planes in NV21 layout. Set [mirrorHorizontal] to true if
+  /// your camera preview is mirrored to avoid flipped outputs.
   FaceMeshResult processNv21(
     FaceMeshNv21Image image, {
     NormalizedRect? roi,
@@ -398,6 +475,7 @@ class FaceMeshProcessor {
     );
   }
 
+  /// Releases the native context and associated resources.
   void close() {
     if (_closed) {
       return;

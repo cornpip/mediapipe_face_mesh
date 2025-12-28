@@ -69,6 +69,15 @@ final FaceMeshProcessor processor = await FaceMeshProcessor.create();
     }
 ```
 
+## Example
+
+The example demonstrates loading an asset into `FaceMeshImage`, running a single inference, and drawing the resulting landmarks.   
+If you need a camera-based example, check https://github.com/cornpip/flutter_vision_ai_demos.git which streams camera frames instead of using an asset.
+
+## Model asset
+
+The plugin ships with `assets/models/mediapipe_face_mesh.tflite`, taken from the Face Landmark model listed in Google’s official collection: https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md.
+
 ## detail
 
 ### .create parameter
@@ -84,8 +93,3 @@ final FaceMeshProcessor processor = await FaceMeshProcessor.create();
   per-frame responsiveness when you don't reuse tracking context.
   
 Always remember to call `close()` on the processor when you are done.
-
-## Example
-
-The example demonstrates loading an asset into `FaceMeshImage`, running a single inference, and drawing the resulting landmarks.   
-If you need a camera-based example, check https://github.com/cornpip/flutter_yolo_sample which streams camera frames instead of using an asset.

@@ -1,5 +1,6 @@
 part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
+/// Pixel-space helpers attached to [FaceMeshResult] instances.
 extension FaceMeshResultPixels on FaceMeshResult {
   /// Returns the face bounding box in pixel coordinates.
   ///

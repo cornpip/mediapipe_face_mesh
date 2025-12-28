@@ -1,6 +1,6 @@
 name: mediapipe_face_mesh
-description: "mediapipe_face_mesh plugin"
-version: 1.0.1
+description: "Flutter plugin delivering MediaPipe Face Mesh inference on Android and iOS, accepting RGBA or NV21 inputs, backed by an FFI core where C/C++ handles TFLite runtime, preprocessing, and execution."
+version: 1.0.2
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:

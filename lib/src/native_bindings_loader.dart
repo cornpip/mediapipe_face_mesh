@@ -13,23 +13,26 @@ void initializeFaceBindings({ffi.DynamicLibrary? dylib, String? libraryPath}) {
   _faceBindings = MediapipeFaceBindings(_faceDylib!);
 }
 
+/// Returns a lazily initialized bindings instance for the native library.
 MediapipeFaceBindings get faceBindings =>
     _faceBindings ??= MediapipeFaceBindings(_faceDylib ??= _openDefaultDylib());
+
+/// Returns the dynamic library handle used to resolve native symbols.
 ffi.DynamicLibrary get faceDylib => _faceDylib ??= _openDefaultDylib();
 
 ffi.DynamicLibrary _openDefaultDylib({String? libraryPath}) {
   if (libraryPath != null && libraryPath.isNotEmpty) {
     return ffi.DynamicLibrary.open(libraryPath);
   }
-  const String _libName = 'mediapipe_face_mesh';
+  const String libName = 'mediapipe_face_mesh';
   if (Platform.isMacOS || Platform.isIOS) {
-    return ffi.DynamicLibrary.open('$_libName.framework/$_libName');
+    return ffi.DynamicLibrary.open('$libName.framework/$libName');
   }
   if (Platform.isAndroid || Platform.isLinux) {
-    return ffi.DynamicLibrary.open('lib$_libName.so');
+    return ffi.DynamicLibrary.open('lib$libName.so');
   }
   if (Platform.isWindows) {
-    return ffi.DynamicLibrary.open('$_libName.dll');
+    return ffi.DynamicLibrary.open('$libName.dll');
   }
   throw UnsupportedError('Unsupported platform ${Platform.operatingSystem}');
 }

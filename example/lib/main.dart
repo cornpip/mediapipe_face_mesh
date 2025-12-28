@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -64,13 +62,11 @@ class _MyAppState extends State<MyApp> {
         _faceMeshProcessor = mesh;
         _status = 'Engine ready. Tap the button to run a dummy inference.';
       });
-      debugPrint("!!!!!!!!!!!!!!!!1111");
     } catch (error) {
       setState(() {
         _status =
             'Initialization failed (expected until a proper TFLite runtime/model is bundled): $error';
       });
-      debugPrint("!!!!!!!!!!!!!!!!2222");
       debugPrint(error.toString());
     }
   }

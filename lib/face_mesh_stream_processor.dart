@@ -3,10 +3,12 @@ import 'dart:ui' show Offset, Rect, Size;
 
 import 'mediapipe_face_mesh.dart';
 
+/// Signature used to derive a bounding box from an incoming frame.
 typedef FaceMeshBoxResolver<T> = FaceMeshBox? Function(T frame);
 
 /// Helper that turns a stream of camera frames into MediaPipe results.
 class FaceMeshStreamProcessor {
+  /// Creates a processor bound to the given synchronous [FaceMeshProcessor].
   FaceMeshStreamProcessor(this._processor);
 
   final FaceMeshProcessor _processor;
