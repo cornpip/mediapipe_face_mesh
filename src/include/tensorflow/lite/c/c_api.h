@@ -1,55 +1,58 @@
+/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
 #ifndef TENSORFLOW_LITE_C_C_API_H_
 #define TENSORFLOW_LITE_C_C_API_H_
 
-#include "tensorflow/lite/c/c_api_types.h"
+/// \file
+///
+/// C API for TensorFlow Lite.
+///
+/// For documentation, see tensorflow/lite/core/c/c_api.h
 
+#include "tensorflow/lite/core/c/c_api.h"
+
+#ifndef DOYXGEN_SKIP
+// For backwards compatibility.
+// Deprecated. Use the names starting with TfLiteOperator instead.
 #ifdef __cplusplus
-extern "C" {
-#endif
-
-// Model
-TFL_CAPI_EXPORT TfLiteModel* TfLiteModelCreateFromFile(const char* model_path);
-TFL_CAPI_EXPORT void TfLiteModelDelete(TfLiteModel* model);
-
-// Interpreter options
-TFL_CAPI_EXPORT TfLiteInterpreterOptions* TfLiteInterpreterOptionsCreate(void);
-TFL_CAPI_EXPORT void TfLiteInterpreterOptionsDelete(
-    TfLiteInterpreterOptions* options);
-TFL_CAPI_EXPORT void TfLiteInterpreterOptionsSetNumThreads(
-    TfLiteInterpreterOptions* options, int32_t num_threads);
-
-// Interpreter lifecycle
-TFL_CAPI_EXPORT TfLiteInterpreter* TfLiteInterpreterCreate(
-    const TfLiteModel* model, const TfLiteInterpreterOptions* optional_options);
-TFL_CAPI_EXPORT void TfLiteInterpreterDelete(TfLiteInterpreter* interpreter);
-TFL_CAPI_EXPORT TfLiteStatus TfLiteInterpreterAllocateTensors(
-    TfLiteInterpreter* interpreter);
-TFL_CAPI_EXPORT TfLiteStatus TfLiteInterpreterInvoke(
-    TfLiteInterpreter* interpreter);
-
-// Interpreter I/O
-TFL_CAPI_EXPORT TfLiteTensor* TfLiteInterpreterGetInputTensor(
-    TfLiteInterpreter* interpreter, int32_t input_index);
-TFL_CAPI_EXPORT const TfLiteTensor* TfLiteInterpreterGetOutputTensor(
-    const TfLiteInterpreter* interpreter, int32_t output_index);
-TFL_CAPI_EXPORT int32_t TfLiteInterpreterGetInputTensorCount(
-    const TfLiteInterpreter* interpreter);
-TFL_CAPI_EXPORT int32_t TfLiteInterpreterGetOutputTensorCount(
-    const TfLiteInterpreter* interpreter);
-
-// Tensor
-TFL_CAPI_EXPORT TfLiteType TfLiteTensorType(const TfLiteTensor* tensor);
-TFL_CAPI_EXPORT int TfLiteTensorNumDims(const TfLiteTensor* tensor);
-TFL_CAPI_EXPORT int TfLiteTensorDim(const TfLiteTensor* tensor, int dim_index);
-TFL_CAPI_EXPORT size_t TfLiteTensorByteSize(const TfLiteTensor* tensor);
-TFL_CAPI_EXPORT void* TfLiteTensorData(const TfLiteTensor* tensor);
-TFL_CAPI_EXPORT TfLiteStatus TfLiteTensorCopyFromBuffer(
-    TfLiteTensor* tensor, const void* input_data, size_t input_data_size);
-TFL_CAPI_EXPORT TfLiteStatus TfLiteTensorCopyToBuffer(
-    const TfLiteTensor* tensor, void* output_data, size_t output_data_size);
-
-#ifdef __cplusplus
-}  // extern "C"
-#endif
+using TfLiteRegistrationExternal = TfLiteOperator;
+// NOLINTBEGIN
+const auto TfLiteRegistrationExternalCreate = TfLiteOperatorCreate;
+const auto TfLiteRegistrationExternalGetBuiltInCode =
+    TfLiteOperatorGetBuiltInCode;
+const auto TfLiteRegistrationExternalGetVersion = TfLiteOperatorGetVersion;
+const auto TfLiteRegistrationExternalDelete = TfLiteOperatorDelete;
+const auto TfLiteRegistrationExternalSetInit = TfLiteOperatorSetInit;
+const auto TfLiteRegistrationExternalSetFree = TfLiteOperatorSetFree;
+const auto TfLiteRegistrationExternalSetPrepare = TfLiteOperatorSetPrepare;
+const auto TfLiteRegistrationExternalSetInvoke = TfLiteOperatorSetInvoke;
+const auto TfLiteRegistrationExternalGetCustomName =
+    TfLiteOperatorGetCustomName;
+// NOLINTEND
+#else
+typedef TfLiteOperator TfLiteRegistrationExternal;
+#define TfLiteRegistrationExternalCreate TfLiteOperatorCreate
+#define TfLiteRegistrationExternalGetBuiltInCode TfLiteOperatorGetBuiltInCode
+#define TfLiteRegistrationExternalGetVersion TfLiteOperatorGetVersion
+#define TfLiteRegistrationExternalDelete TfLiteOperatorDelete
+#define TfLiteRegistrationExternalSetInit TfLiteOperatorSetInit
+#define TfLiteRegistrationExternalSetFree TfLiteOperatorSetFree
+#define TfLiteRegistrationExternalSetPrepare TfLiteOperatorSetPrepare
+#define TfLiteRegistrationExternalSetInvoke TfLiteOperatorSetInvoke
+#define TfLiteRegistrationExternalGetCustomName TfLiteOperatorGetCustomName
+#endif  // __cplusplus
+#endif  // DOYXGEN_SKIP
 
 #endif  // TENSORFLOW_LITE_C_C_API_H_

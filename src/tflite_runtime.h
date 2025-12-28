@@ -21,6 +21,9 @@
 #include <dlfcn.h>
 #endif
 
+#include "tensorflow/lite/delegates/gpu/delegate.h"
+#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
+
 // Lightweight wrapper that loads the TensorFlow Lite C API at runtime.
 class TfLiteRuntime {
  public:
@@ -35,19 +38,30 @@ class TfLiteRuntime {
   using InterpreterDeleteFn = void (*)(TfLiteInterpreter*);
   using InterpreterAllocateTensorsFn = TfLiteStatus (*)(TfLiteInterpreter*);
   using InterpreterInvokeFn = TfLiteStatus (*)(TfLiteInterpreter*);
-  using InterpreterGetInputTensorFn = TfLiteTensor* (*)(TfLiteInterpreter*, int32_t);
+  using InterpreterGetInputTensorFn =
+      TfLiteTensor* (*)(const TfLiteInterpreter*, int32_t);
   using InterpreterGetOutputTensorFn =
       const TfLiteTensor* (*)(const TfLiteInterpreter*, int32_t);
   using InterpreterGetInputTensorCountFn = int32_t (*)(const TfLiteInterpreter*);
   using InterpreterGetOutputTensorCountFn = int32_t (*)(const TfLiteInterpreter*);
   using TensorTypeFn = TfLiteType (*)(const TfLiteTensor*);
-  using TensorNumDimsFn = int (*)(const TfLiteTensor*);
-  using TensorDimFn = int (*)(const TfLiteTensor*, int);
+  using TensorNumDimsFn = int32_t (*)(const TfLiteTensor*);
+  using TensorDimFn = int32_t (*)(const TfLiteTensor*, int32_t);
   using TensorByteSizeFn = size_t (*)(const TfLiteTensor*);
   using TensorDataFn = void* (*)(const TfLiteTensor*);
   using TensorCopyFromBufferFn = TfLiteStatus (*)(TfLiteTensor*, const void*, size_t);
   using TensorCopyToBufferFn =
       TfLiteStatus (*)(const TfLiteTensor*, void*, size_t);
+  using InterpreterOptionsAddDelegateFn =
+      void (*)(TfLiteInterpreterOptions*, TfLiteOpaqueDelegate*);
+  using XnnpackDelegateCreateFn =
+      TfLiteDelegate* (*)(const TfLiteXNNPackDelegateOptions*);
+  using XnnpackDelegateDeleteFn = void (*)(TfLiteDelegate*);
+  using XnnpackDelegateOptionsDefaultFn = TfLiteXNNPackDelegateOptions (*)();
+  using GpuDelegateV2CreateFn =
+      TfLiteDelegate* (*)(const TfLiteGpuDelegateOptionsV2*);
+  using GpuDelegateV2DeleteFn = void (*)(TfLiteDelegate*);
+  using GpuDelegateV2OptionsDefaultFn = TfLiteGpuDelegateOptionsV2 (*)();
 
   TfLiteRuntime() = default;
   ~TfLiteRuntime() { Release(); }
@@ -161,6 +175,13 @@ class TfLiteRuntime {
     TensorData = nullptr;
     TensorCopyFromBuffer = nullptr;
     TensorCopyToBuffer = nullptr;
+    InterpreterOptionsAddDelegate = nullptr;
+    XnnpackDelegateCreate = nullptr;
+    XnnpackDelegateDelete = nullptr;
+    XnnpackDelegateOptionsDefault = nullptr;
+    GpuDelegateV2Create = nullptr;
+    GpuDelegateV2Delete = nullptr;
+    GpuDelegateV2OptionsDefault = nullptr;
   }
 
   std::string error() const { return error_; }
@@ -185,6 +206,13 @@ class TfLiteRuntime {
   TensorDataFn TensorData = nullptr;
   TensorCopyFromBufferFn TensorCopyFromBuffer = nullptr;
   TensorCopyToBufferFn TensorCopyToBuffer = nullptr;
+  InterpreterOptionsAddDelegateFn InterpreterOptionsAddDelegate = nullptr;
+  XnnpackDelegateCreateFn XnnpackDelegateCreate = nullptr;
+  XnnpackDelegateDeleteFn XnnpackDelegateDelete = nullptr;
+  XnnpackDelegateOptionsDefaultFn XnnpackDelegateOptionsDefault = nullptr;
+  GpuDelegateV2CreateFn GpuDelegateV2Create = nullptr;
+  GpuDelegateV2DeleteFn GpuDelegateV2Delete = nullptr;
+  GpuDelegateV2OptionsDefaultFn GpuDelegateV2OptionsDefault = nullptr;
 
  private:
   bool LoadSymbols() {
@@ -197,6 +225,9 @@ class TfLiteRuntime {
         LoadSymbol("TfLiteInterpreterOptionsDelete"));
     InterpreterOptionsSetThreads = reinterpret_cast<InterpreterOptionsSetThreadsFn>(
         LoadSymbol("TfLiteInterpreterOptionsSetNumThreads"));
+    InterpreterOptionsAddDelegate =
+        reinterpret_cast<InterpreterOptionsAddDelegateFn>(
+            LoadSymbol("TfLiteInterpreterOptionsAddDelegate"));
     InterpreterCreate = reinterpret_cast<InterpreterCreateFn>(
         LoadSymbol("TfLiteInterpreterCreate"));
     InterpreterDelete = reinterpret_cast<InterpreterDeleteFn>(
@@ -223,10 +254,23 @@ class TfLiteRuntime {
         LoadSymbol("TfLiteTensorCopyFromBuffer"));
     TensorCopyToBuffer =
         reinterpret_cast<TensorCopyToBufferFn>(LoadSymbol("TfLiteTensorCopyToBuffer"));
+    XnnpackDelegateCreate = reinterpret_cast<XnnpackDelegateCreateFn>(
+        LoadSymbolOptional("TfLiteXNNPackDelegateCreate"));
+    XnnpackDelegateDelete = reinterpret_cast<XnnpackDelegateDeleteFn>(
+        LoadSymbolOptional("TfLiteXNNPackDelegateDelete"));
+    XnnpackDelegateOptionsDefault = reinterpret_cast<XnnpackDelegateOptionsDefaultFn>(
+        LoadSymbolOptional("TfLiteXNNPackDelegateOptionsDefault"));
+    GpuDelegateV2Create = reinterpret_cast<GpuDelegateV2CreateFn>(
+        LoadSymbolOptional("TfLiteGpuDelegateV2Create"));
+    GpuDelegateV2Delete = reinterpret_cast<GpuDelegateV2DeleteFn>(
+        LoadSymbolOptional("TfLiteGpuDelegateV2Delete"));
+    GpuDelegateV2OptionsDefault = reinterpret_cast<GpuDelegateV2OptionsDefaultFn>(
+        LoadSymbolOptional("TfLiteGpuDelegateOptionsV2Default"));
 
     if (!ModelCreateFromFile || !ModelDelete || !InterpreterOptionsCreate ||
-        !InterpreterOptionsDelete || !InterpreterOptionsSetThreads || !InterpreterCreate ||
-        !InterpreterDelete || !InterpreterAllocateTensors || !InterpreterInvoke ||
+        !InterpreterOptionsDelete || !InterpreterOptionsSetThreads ||
+        !InterpreterOptionsAddDelegate || !InterpreterCreate || !InterpreterDelete ||
+        !InterpreterAllocateTensors || !InterpreterInvoke ||
         !InterpreterGetInputTensor || !InterpreterGetOutputTensor ||
         !InterpreterGetInputTensorCount || !InterpreterGetOutputTensorCount || !TensorType ||
         !TensorNumDims || !TensorDim || !TensorByteSize || !TensorData ||
@@ -250,6 +294,17 @@ class TfLiteRuntime {
       error_ = std::string("Failed to load symbol: ") + symbol;
     }
     return address;
+  }
+
+  void* LoadSymbolOptional(const char* symbol) {
+    if (!handle_) {
+      return nullptr;
+    }
+#if defined(_WIN32)
+    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle_), symbol));
+#else
+    return dlsym(handle_, symbol);
+#endif
   }
 
   void* handle_ = nullptr;
