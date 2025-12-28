@@ -1,3 +1,9 @@
+## 1.1.0
+
+* replace bundled `tensorflow/lite` and `tensorflow/compiler` headers with upstream copies
+* add runtime delegate selection (CPU / XNNPACK / GPU V2) and expose the option through the Dart API
+* update README to reflect delegate support and document TensorFlow source folders
+
 ## 1.0.3
 
 * run `dart format .` across the repo
