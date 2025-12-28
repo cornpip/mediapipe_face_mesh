@@ -15,9 +15,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _FaceMeshPainter extends CustomPainter {
-  _FaceMeshPainter({
-    required this.landmarks,
-  });
+  _FaceMeshPainter({required this.landmarks});
 
   final List<FaceMeshLandmark> landmarks;
 
@@ -81,17 +79,22 @@ class _MyAppState extends State<MyApp> {
       // decode it to an image so pixels are available,
       // then re-encode those pixels into raw RGBA bytes for the native API.
       final ByteData byteData = await rootBundle.load('assets/img.png');
-      final Uint8List pngByte = byteData.buffer
-          .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      final Uint8List pngByte = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
       final img.Image? decodedData = img.decodeImage(pngByte);
       if (decodedData == null) {
         throw Exception('Failed to decode mesh PNG asset');
       }
-      final img.Image rgba = img.copyResize(decodedData,
-          width: decodedData.width, height: decodedData.height);
-      final Uint8List rgbaBytes = Uint8List.fromList(rgba
-          .convert(numChannels: 4)
-          .getBytes(order: img.ChannelOrder.rgba));
+      final img.Image rgba = img.copyResize(
+        decodedData,
+        width: decodedData.width,
+        height: decodedData.height,
+      );
+      final Uint8List rgbaBytes = Uint8List.fromList(
+        rgba.convert(numChannels: 4).getBytes(order: img.ChannelOrder.rgba),
+      );
 
       _sourcePngBytes = pngByte;
       _displayBytes = rgbaBytes;
@@ -104,7 +107,9 @@ class _MyAppState extends State<MyApp> {
         height: rgba.height,
       );
       final FaceMeshResult result = mesh.process(image);
-      debugPrint('First 5 landmarks: ${result.landmarks.take(5).map((lm) => '(${lm.x.toStringAsFixed(3)}, ${lm.y.toStringAsFixed(3)}, ${lm.z.toStringAsFixed(3)})').join(', ')}');
+      debugPrint(
+        'First 5 landmarks: ${result.landmarks.take(5).map((lm) => '(${lm.x.toStringAsFixed(3)}, ${lm.y.toStringAsFixed(3)}, ${lm.z.toStringAsFixed(3)})').join(', ')}',
+      );
       setState(() {
         _result = result;
         _status =
@@ -127,19 +132,14 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(
-          title: const Text('MediaPipe Face Mesh'),
-        ),
+        appBar: AppBar(title: const Text('MediaPipe Face Mesh')),
         body: SafeArea(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _status,
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
+                Text(_status, style: Theme.of(context).textTheme.bodyLarge),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: _faceMeshProcessor == null ? null : _runOnce,
@@ -197,7 +197,8 @@ class _MyAppState extends State<MyApp> {
                                       child: IgnorePointer(
                                         child: CustomPaint(
                                           painter: _FaceMeshPainter(
-                                              landmarks: _result!.landmarks),
+                                            landmarks: _result!.landmarks,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -212,9 +213,9 @@ class _MyAppState extends State<MyApp> {
                 ],
                 const SizedBox(height: 16),
                 const Text(
-                    'Provide a valid mediapipe_face_mesh.tflite and TensorFlow Lite '
-                    'runtime libraries to get real predictions.',
-                  ),
+                  'Provide a valid mediapipe_face_mesh.tflite and TensorFlow Lite '
+                  'runtime libraries to get real predictions.',
+                ),
               ],
             ),
           ),

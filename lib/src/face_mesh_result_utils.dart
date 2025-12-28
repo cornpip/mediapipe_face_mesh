@@ -7,10 +7,7 @@ extension FaceMeshResultPixels on FaceMeshResult {
   /// [targetSize] defaults to the dimensions observed during inference.
   /// When [clampToBounds] is true, the rectangle is limited to the provided
   /// size; set it to false to preserve out-of-frame values.
-  Rect boundingRect({
-    Size? targetSize,
-    bool clampToBounds = true,
-  }) {
+  Rect boundingRect({Size? targetSize, bool clampToBounds = true}) {
     final Size size = targetSize ?? _inferenceSize;
     double clampX(double value) =>
         clampToBounds ? value.clamp(0.0, size.width) : value;
@@ -19,10 +16,12 @@ extension FaceMeshResultPixels on FaceMeshResult {
 
     final double rawCenterX = rect.xCenter * size.width;
     final double rawCenterY = rect.yCenter * size.height;
-    final double centerX =
-        clampToBounds ? rawCenterX.clamp(0.0, size.width) : rawCenterX;
-    final double centerY =
-        clampToBounds ? rawCenterY.clamp(0.0, size.height) : rawCenterY;
+    final double centerX = clampToBounds
+        ? rawCenterX.clamp(0.0, size.width)
+        : rawCenterX;
+    final double centerY = clampToBounds
+        ? rawCenterY.clamp(0.0, size.height)
+        : rawCenterY;
     final double halfWidth = rect.width * size.width * 0.5;
     final double halfHeight = rect.height * size.height * 0.5;
 
@@ -54,11 +53,13 @@ extension FaceMeshResultPixels on FaceMeshResult {
     bool clampToBounds = true,
   }) {
     return landmarks
-        .map((FaceMeshLandmark lm) => landmarkAsOffset(
-              lm,
-              targetSize: targetSize,
-              clampToBounds: clampToBounds,
-            ))
+        .map(
+          (FaceMeshLandmark lm) => landmarkAsOffset(
+            lm,
+            targetSize: targetSize,
+            clampToBounds: clampToBounds,
+          ),
+        )
         .toList(growable: false);
   }
 

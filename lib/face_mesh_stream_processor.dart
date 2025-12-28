@@ -83,19 +83,14 @@ class FaceMeshStreamProcessor {
 /// Creates a stream processor for camera/image frames.
 FaceMeshStreamProcessor createFaceMeshStreamProcessor(
   FaceMeshProcessor processor,
-) =>
-    FaceMeshStreamProcessor(processor);
+) => FaceMeshStreamProcessor(processor);
 
 /// Returns the face bounding box in pixel coordinates.
 Rect faceMeshBoundingRect(
   FaceMeshResult result, {
   Size? targetSize,
   bool clampToBounds = true,
-}) =>
-    result.boundingRect(
-      targetSize: targetSize,
-      clampToBounds: clampToBounds,
-    );
+}) => result.boundingRect(targetSize: targetSize, clampToBounds: clampToBounds);
 
 /// Converts a landmark to a pixel-space [Offset].
 Offset faceMeshLandmarkOffset(
@@ -103,20 +98,18 @@ Offset faceMeshLandmarkOffset(
   FaceMeshLandmark landmark, {
   Size? targetSize,
   bool clampToBounds = true,
-}) =>
-    result.landmarkAsOffset(
-      landmark,
-      targetSize: targetSize,
-      clampToBounds: clampToBounds,
-    );
+}) => result.landmarkAsOffset(
+  landmark,
+  targetSize: targetSize,
+  clampToBounds: clampToBounds,
+);
 
 /// Converts all landmarks into pixel-space [Offset]s.
 List<Offset> faceMeshLandmarksOffsets(
   FaceMeshResult result, {
   Size? targetSize,
   bool clampToBounds = true,
-}) =>
-    result.landmarksAsOffsets(
-      targetSize: targetSize,
-      clampToBounds: clampToBounds,
-    );
+}) => result.landmarksAsOffsets(
+  targetSize: targetSize,
+  clampToBounds: clampToBounds,
+);

@@ -1,3 +1,8 @@
+## 1.0.3
+
+* run `dart format .` across the repo
+* shorten `pubspec.yaml` description to satisfy length requirements
+
 ## 1.0.2
 
 * add detailed plugin description and document key public APIs

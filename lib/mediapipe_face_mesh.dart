@@ -7,7 +7,9 @@ import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
 import 'src/native_bindings_loader.dart';
 
 part 'src/native_converters.dart';
+
 part 'src/face_mesh_utils.dart';
+
 part 'src/face_mesh_result_utils.dart';
 
 const String _defaultModelAsset =
@@ -15,7 +17,8 @@ const String _defaultModelAsset =
 
 final Finalizer<ffi.Pointer<MpFaceMeshContext>> _contextFinalizer =
     Finalizer<ffi.Pointer<MpFaceMeshContext>>(
-        (pointer) => faceBindings.mp_face_mesh_destroy(pointer));
+      (pointer) => faceBindings.mp_face_mesh_destroy(pointer),
+    );
 
 /// Integer constants describing the pixel formats understood by the native side.
 class FaceMeshPixelFormat {
@@ -56,12 +59,12 @@ class NormalizedRect {
 
   /// Creates a rectangle using the native MediaPipe layout.
   factory NormalizedRect.fromNative(MpNormalizedRect rect) => NormalizedRect(
-        xCenter: rect.x_center,
-        yCenter: rect.y_center,
-        width: rect.width,
-        height: rect.height,
-        rotation: rect.rotation,
-      );
+    xCenter: rect.x_center,
+    yCenter: rect.y_center,
+    width: rect.width,
+    height: rect.height,
+    rotation: rect.rotation,
+  );
 }
 
 /// Pixel-space bounding box used to derive a normalized ROI.
@@ -83,13 +86,12 @@ class FaceMeshBox {
     required double top,
     required double width,
     required double height,
-  }) =>
-      FaceMeshBox(
-        left: left,
-        top: top,
-        right: left + width,
-        bottom: top + height,
-      );
+  }) => FaceMeshBox(
+    left: left,
+    top: top,
+    right: left + width,
+    bottom: top + height,
+  );
 
   /// Left coordinate in pixels.
   final double left;
@@ -125,11 +127,12 @@ class FaceMeshImage {
     required this.height,
     this.pixelFormat = FaceMeshPixelFormat.rgba,
     int? bytesPerRow,
-  })  : bytesPerRow = bytesPerRow ?? width * 4 {
+  }) : bytesPerRow = bytesPerRow ?? width * 4 {
     final int requiredBytes = this.bytesPerRow * height;
     if (pixels.length < requiredBytes) {
       throw ArgumentError(
-          'Pixel buffer is smaller than required size ($requiredBytes bytes).');
+        'Pixel buffer is smaller than required size ($requiredBytes bytes).',
+      );
     }
     if (pixelFormat != FaceMeshPixelFormat.rgba &&
         pixelFormat != FaceMeshPixelFormat.bgra) {
@@ -163,8 +166,8 @@ class FaceMeshNv21Image {
     required this.height,
     int? yBytesPerRow,
     int? vuBytesPerRow,
-  })  : yBytesPerRow = yBytesPerRow ?? width,
-        vuBytesPerRow = vuBytesPerRow ?? width {
+  }) : yBytesPerRow = yBytesPerRow ?? width,
+       vuBytesPerRow = vuBytesPerRow ?? width {
     if (width <= 0 || height <= 0) {
       throw ArgumentError('Invalid image size: ${width}x$height');
     }
@@ -175,7 +178,8 @@ class FaceMeshNv21Image {
     }
     if (vuPlane.length < requiredVu) {
       throw ArgumentError(
-          'VU plane buffer too small (need $requiredVu bytes).');
+        'VU plane buffer too small (need $requiredVu bytes).',
+      );
     }
     if ((height & 1) != 0) {
       throw ArgumentError('NV21 height must be even.');
@@ -204,11 +208,7 @@ class FaceMeshNv21Image {
 /// A single 3D landmark returned by MediaPipe.
 class FaceMeshLandmark {
   /// Builds a landmark from normalized coordinates returned by MediaPipe.
-  FaceMeshLandmark({
-    required this.x,
-    required this.y,
-    required this.z,
-  });
+  FaceMeshLandmark({required this.x, required this.y, required this.z});
 
   /// Horizontal coordinate normalized to [0, 1].
   final double x;
@@ -280,8 +280,8 @@ class FaceMeshProcessor {
     final String resolvedModelPath = await _materializeModel();
 
     final optionsPtr = pkg_ffi.calloc<MpFaceMeshCreateOptions>();
-    final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr =
-        resolvedModelPath.toNativeUtf8();
+    final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
+        .toNativeUtf8();
     try {
       optionsPtr.ref
         ..threads = threads
@@ -290,12 +290,13 @@ class FaceMeshProcessor {
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..tflite_library_path = ffi.nullptr;
 
-      final ffi.Pointer<MpFaceMeshContext> context =
-          faceBindings.mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
+      final ffi.Pointer<MpFaceMeshContext> context = faceBindings
+          .mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
         throw MediapipeFaceMeshException(
-            _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
-                'Failed to create face mesh context.');
+          _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
+              'Failed to create face mesh context.',
+        );
       }
       return FaceMeshProcessor._(context);
     } finally {
@@ -332,15 +333,14 @@ class FaceMeshProcessor {
         rotationDegrees != 270) {
       throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
     }
-    final int logicalWidth =
-        (rotationDegrees == 90 || rotationDegrees == 270)
-            ? image.height
-            : image.width;
-    final int logicalHeight =
-        (rotationDegrees == 90 || rotationDegrees == 270)
-            ? image.width
-            : image.height;
-    final NormalizedRect? effectiveRoi = roi ??
+    final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
+        ? image.height
+        : image.width;
+    final int logicalHeight = (rotationDegrees == 90 || rotationDegrees == 270)
+        ? image.width
+        : image.height;
+    final NormalizedRect? effectiveRoi =
+        roi ??
         (box != null
             ? _normalizedRectFromBox(
                 box,
@@ -351,22 +351,24 @@ class FaceMeshProcessor {
               )
             : null);
     final _NativeImage nativeImage = _toNativeImage(image);
-    final ffi.Pointer<MpNormalizedRect> roiPtr =
-        effectiveRoi != null ? _toNativeRect(effectiveRoi) : ffi.nullptr;
+    final ffi.Pointer<MpNormalizedRect> roiPtr = effectiveRoi != null
+        ? _toNativeRect(effectiveRoi)
+        : ffi.nullptr;
     FaceMeshResult? processed;
     try {
-      final ffi.Pointer<MpFaceMeshResult> resultPtr =
-          faceBindings.mp_face_mesh_process(
-              _context,
-              nativeImage.image,
-              roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-              rotationDegrees,
-              mirrorHorizontal ? 1 : 0,
+      final ffi.Pointer<MpFaceMeshResult> resultPtr = faceBindings
+          .mp_face_mesh_process(
+            _context,
+            nativeImage.image,
+            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
           );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
-            _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
-                'Native face mesh error.');
+          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+              'Native face mesh error.',
+        );
       }
       processed = _copyResult(resultPtr.ref);
       faceBindings.mp_face_mesh_release_result(resultPtr);
@@ -404,15 +406,14 @@ class FaceMeshProcessor {
         rotationDegrees != 270) {
       throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
     }
-    final int logicalWidth =
-        (rotationDegrees == 90 || rotationDegrees == 270)
-            ? image.height
-            : image.width;
-    final int logicalHeight =
-        (rotationDegrees == 90 || rotationDegrees == 270)
-            ? image.width
-            : image.height;
-    final NormalizedRect? effectiveRoi = roi ??
+    final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
+        ? image.height
+        : image.width;
+    final int logicalHeight = (rotationDegrees == 90 || rotationDegrees == 270)
+        ? image.width
+        : image.height;
+    final NormalizedRect? effectiveRoi =
+        roi ??
         (box != null
             ? _normalizedRectFromBox(
                 box,
@@ -423,22 +424,24 @@ class FaceMeshProcessor {
               )
             : null);
     final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
-    final ffi.Pointer<MpNormalizedRect> roiPtr =
-        effectiveRoi != null ? _toNativeRect(effectiveRoi) : ffi.nullptr;
+    final ffi.Pointer<MpNormalizedRect> roiPtr = effectiveRoi != null
+        ? _toNativeRect(effectiveRoi)
+        : ffi.nullptr;
     FaceMeshResult? processed;
     try {
-      final ffi.Pointer<MpFaceMeshResult> resultPtr =
-          faceBindings.mp_face_mesh_process_nv21(
-        _context,
-        nativeImage.image,
-        roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-        rotationDegrees,
-        mirrorHorizontal ? 1 : 0,
-      );
+      final ffi.Pointer<MpFaceMeshResult> resultPtr = faceBindings
+          .mp_face_mesh_process_nv21(
+            _context,
+            nativeImage.image,
+            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
+          );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
-            _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
-                'Native face mesh error.');
+          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+              'Native face mesh error.',
+        );
       }
       processed = _copyResult(resultPtr.ref);
       faceBindings.mp_face_mesh_release_result(resultPtr);
@@ -457,14 +460,13 @@ class FaceMeshProcessor {
     final ffi.Pointer<MpLandmark> landmarkPtr = nativeResult.landmarks;
     final List<FaceMeshLandmark> landmarks =
         (landmarkPtr == ffi.nullptr || nativeResult.landmarks_count <= 0)
-            ? <FaceMeshLandmark>[]
-            : List<FaceMeshLandmark>.generate(
-                nativeResult.landmarks_count,
-                (int i) {
-                  final MpLandmark lm = (landmarkPtr + i).ref;
-                  return FaceMeshLandmark(x: lm.x, y: lm.y, z: lm.z);
-                },
-              );
+        ? <FaceMeshLandmark>[]
+        : List<FaceMeshLandmark>.generate(nativeResult.landmarks_count, (
+            int i,
+          ) {
+            final MpLandmark lm = (landmarkPtr + i).ref;
+            return FaceMeshLandmark(x: lm.x, y: lm.y, z: lm.z);
+          });
 
     return FaceMeshResult(
       landmarks: landmarks,

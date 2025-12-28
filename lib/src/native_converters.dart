@@ -1,10 +1,7 @@
 part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 class _NativeImage {
-  _NativeImage({
-    required this.image,
-    required this.pixels,
-  });
+  _NativeImage({required this.image, required this.pixels});
 
   final ffi.Pointer<MpImage> image;
   final ffi.Pointer<ffi.Uint8> pixels;
@@ -24,8 +21,9 @@ class _NativeNv21Image {
 
 _NativeImage _toNativeImage(FaceMeshImage image) {
   final ffi.Pointer<MpImage> imagePtr = pkg_ffi.calloc<MpImage>();
-  final ffi.Pointer<ffi.Uint8> pixelPtr =
-      pkg_ffi.calloc<ffi.Uint8>(image.pixels.length);
+  final ffi.Pointer<ffi.Uint8> pixelPtr = pkg_ffi.calloc<ffi.Uint8>(
+    image.pixels.length,
+  );
   pixelPtr.asTypedList(image.pixels.length).setAll(0, image.pixels);
   imagePtr.ref
     ..data = pixelPtr.cast()
@@ -38,11 +36,13 @@ _NativeImage _toNativeImage(FaceMeshImage image) {
 
 _NativeNv21Image _toNativeNv21Image(FaceMeshNv21Image image) {
   final ffi.Pointer<MpNv21Image> imagePtr = pkg_ffi.calloc<MpNv21Image>();
-  final ffi.Pointer<ffi.Uint8> yPtr =
-      pkg_ffi.calloc<ffi.Uint8>(image.yPlane.length);
+  final ffi.Pointer<ffi.Uint8> yPtr = pkg_ffi.calloc<ffi.Uint8>(
+    image.yPlane.length,
+  );
   yPtr.asTypedList(image.yPlane.length).setAll(0, image.yPlane);
-  final ffi.Pointer<ffi.Uint8> vuPtr =
-      pkg_ffi.calloc<ffi.Uint8>(image.vuPlane.length);
+  final ffi.Pointer<ffi.Uint8> vuPtr = pkg_ffi.calloc<ffi.Uint8>(
+    image.vuPlane.length,
+  );
   vuPtr.asTypedList(image.vuPlane.length).setAll(0, image.vuPlane);
   imagePtr.ref
     ..y = yPtr
@@ -55,7 +55,8 @@ _NativeNv21Image _toNativeNv21Image(FaceMeshNv21Image image) {
 }
 
 ffi.Pointer<MpNormalizedRect> _toNativeRect(NormalizedRect rect) {
-  final ffi.Pointer<MpNormalizedRect> roiPtr = pkg_ffi.calloc<MpNormalizedRect>();
+  final ffi.Pointer<MpNormalizedRect> roiPtr = pkg_ffi
+      .calloc<MpNormalizedRect>();
   roiPtr.ref
     ..x_center = rect.xCenter
     ..y_center = rect.yCenter
