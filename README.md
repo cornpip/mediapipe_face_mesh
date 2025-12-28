@@ -80,8 +80,16 @@ If you need a camera-based example, check https://github.com/cornpip/flutter_vis
 
 The plugin ships with `assets/models/mediapipe_face_mesh.tflite`, taken from the Face Landmark model listed in Google’s official collection: https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md.
 
-### TensorFlow Lite
-The `src/include/tensorflow/lite` and `src/include/tensorflow/compiler` directories are copied directly from the official TensorFlow repository: https://github.com/tensorflow/tensorflow/tree/master/tensorflow.
+### Build LiteRT (TensorFlow Lite)
+- Android: [official LiteRT android build guide](https://ai.google.dev/edge/litert/build/android?_gl=1*ut97f0*_up*MQ..*_ga*MTY5OTc2NjM3Mi4xNzY1NzA2NTkz*_ga_P1DBVKWT6V*czE3NjU3MDY1OTMkbzEkZzAkdDE3NjU3MDY1OTMkajYwJGwwJGgzNDMwOTIyOTM)
+- iOS: [official LiteRT ios build guide](https://ai.google.dev/edge/litert/build/ios?_gl=1*1d2hrp5*_up*MQ..*_ga*MTIzNzU5NTgzMy4xNzY2OTQxNzc3*_ga_P1DBVKWT6V*czE3NjY5NDE3NzYkbzEkZzAkdDE3NjY5NDE3NzYkajYwJGwwJGg5MjIwMDQxODc.)
+
+Build outputs expected by this plugin:
+- Android shared libraries under `android/src/main/jniLibs/arm64-v8a` and `android/src/main/jniLibs/x86_64`.
+- iOS framework bundle at `ios/Frameworks/TensorFlowLiteC.framework`.
+
+### TensorFlow Lite Headers
+The `src/include/tensorflow` directories are copied from the official TensorFlow repository: https://github.com/tensorflow/tensorflow/tree/master/tensorflow.
 
 ## detail
 

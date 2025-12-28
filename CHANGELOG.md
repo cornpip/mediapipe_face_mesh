@@ -1,3 +1,7 @@
+## 1.1.1
+
+* document official LiteRT build instructions and expected binary locations in README
+
 ## 1.1.0
 
 * replace bundled `tensorflow/lite` and `tensorflow/compiler` headers with upstream copies
