@@ -277,7 +277,7 @@ class FaceMeshProcessor {
     _contextFinalizer.attach(this, _context, detach: this);
   }
 
-  static const double _boxScale = 1.3;
+  static const double _boxScale = 1.2;
 
   final ffi.Pointer<MpFaceMeshContext> _context;
   bool _closed = false;

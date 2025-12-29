@@ -11,6 +11,8 @@ class FaceMeshStreamProcessor {
   /// Creates a processor bound to the given synchronous [FaceMeshProcessor].
   FaceMeshStreamProcessor(this._processor);
 
+  static const double _boxScale = 1.2;
+
   final FaceMeshProcessor _processor;
 
   /// Processes a stream of [FaceMeshImage] frames sequentially.
@@ -18,11 +20,11 @@ class FaceMeshStreamProcessor {
   /// Provide either a static [roi] or a [boxResolver] callback to define the
   /// region of interest per frame (not both). Every incoming frame is processed
   /// with the same parameters that you would pass to [FaceMeshProcessor.process].
-  Stream<FaceMeshResult> processImages(
+  Stream<FaceMeshResult> process(
     Stream<FaceMeshImage> frames, {
     NormalizedRect? roi,
     FaceMeshBoxResolver<FaceMeshImage>? boxResolver,
-    double boxScale = 1.2,
+    double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
@@ -50,7 +52,7 @@ class FaceMeshStreamProcessor {
     Stream<FaceMeshNv21Image> frames, {
     NormalizedRect? roi,
     FaceMeshBoxResolver<FaceMeshNv21Image>? boxResolver,
-    double boxScale = 1.0,
+    double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,

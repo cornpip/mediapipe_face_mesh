@@ -1,3 +1,9 @@
+## 1.2.0
+
+- improve README usage guidance and stream/camera documentation
+- rename `FaceMeshStreamProcessor.processImages` to `FaceMeshStreamProcessor.process`
+- adjust default `_boxScale` from 1.3 to 1.2 in `mediapipe_face_mesh.dart`
+
 ## 1.1.1
 
 * document official LiteRT build instructions and expected binary locations in README
