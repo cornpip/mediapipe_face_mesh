@@ -57,6 +57,7 @@ class _MyAppState extends State<MyApp> {
     try {
       final mesh = await FaceMeshProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
+        enableRoiTracking: false,
       );
       setState(() {
         _faceMeshProcessor = mesh;

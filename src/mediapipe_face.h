@@ -74,6 +74,7 @@ typedef struct {
   float min_tracking_confidence;
   MpDelegateType delegate;
   uint8_t enable_smoothing;
+  uint8_t enable_roi_tracking;
 } MpFaceMeshCreateOptions;
 
 FFI_PLUGIN_EXPORT MpFaceMeshContext* mp_face_mesh_create(

@@ -96,6 +96,7 @@ class FaceMeshContext {
             ? options->min_tracking_confidence
             : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
+    roi_tracking_enabled_ = !options || options->enable_roi_tracking != 0;
 
     MP_LOGI("Initialize start: model=%s threads=%d\n", model_path.c_str(),
             threads_);
@@ -258,7 +259,7 @@ class FaceMeshContext {
     }
 
     roi_ = DefaultRect();
-    has_valid_rect_ = true;
+    has_valid_rect_ = roi_tracking_enabled_;
     MP_LOGI("Initialize success\n");
     return true;
   }
@@ -291,7 +292,9 @@ class FaceMeshContext {
 
     if (rot != last_rotation_degrees_ ||
         mirror_horizontal != last_mirror_horizontal_) {
-      has_valid_rect_ = false;
+      if (roi_tracking_enabled_) {
+        has_valid_rect_ = false;
+      }
       last_rotation_degrees_ = rot;
       last_mirror_horizontal_ = mirror_horizontal;
     }
@@ -303,8 +306,7 @@ class FaceMeshContext {
     MpNormalizedRect rect;
     if (override_rect) {
       rect = SanitizeRect(*override_rect);
-      has_valid_rect_ = true;
-    } else if (has_valid_rect_) {
+    } else if (roi_tracking_enabled_ && has_valid_rect_) {
       rect = roi_;
     } else {
       rect = DefaultRect();
@@ -375,11 +377,13 @@ class FaceMeshContext {
               output_landmark_count_, min_x, max_x, min_y, max_y);
     }
 
-    if (!override_rect) {
-      UpdateTrackingState(*result, score);
-    } else {
-      roi_ = rect;
-      has_valid_rect_ = true;
+    if (roi_tracking_enabled_) {
+      if (!override_rect) {
+        UpdateTrackingState(*result, score);
+      } else {
+        roi_ = rect;
+        has_valid_rect_ = true;
+      }
     }
 
     return result;
@@ -408,7 +412,9 @@ class FaceMeshContext {
     // Reset tracking state when the logical coordinate system changes.
     if (rot != last_rotation_degrees_ ||
         mirror_horizontal != last_mirror_horizontal_) {
-      has_valid_rect_ = false;
+      if (roi_tracking_enabled_) {
+        has_valid_rect_ = false;
+      }
       last_rotation_degrees_ = rot;
       last_mirror_horizontal_ = mirror_horizontal;
     }
@@ -419,8 +425,7 @@ class FaceMeshContext {
     MpNormalizedRect rect;
     if (override_rect) {
       rect = SanitizeRect(*override_rect);
-      has_valid_rect_ = true;
-    } else if (has_valid_rect_) {
+    } else if (roi_tracking_enabled_ && has_valid_rect_) {
       rect = roi_;
     } else {
       rect = DefaultRect();
@@ -473,11 +478,13 @@ class FaceMeshContext {
       return nullptr;
     }
 
-    if (!override_rect) {
-      UpdateTrackingState(*result, score);
-    } else {
-      roi_ = rect;
-      has_valid_rect_ = true;
+    if (roi_tracking_enabled_) {
+      if (!override_rect) {
+        UpdateTrackingState(*result, score);
+      } else {
+        roi_ = rect;
+        has_valid_rect_ = true;
+      }
     }
 
     return result;
@@ -1150,6 +1157,7 @@ class FaceMeshContext {
   float min_detection_confidence_ = 0.5f;
   float min_tracking_confidence_ = 0.5f;
   bool smoothing_enabled_ = true;
+  bool roi_tracking_enabled_ = true;
 
   std::vector<float> input_buffer_;
   std::vector<float> landmarks_buffer_;

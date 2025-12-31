@@ -4,7 +4,7 @@ description: |
   Bindings for `src/mediapipe_face.h`.
 
   Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
-output: 'lib/mediapipe_face_bindings_generated.dart'
+output: 'lib/src/mediapipe_face_bindings_generated.dart'
 headers:
   entry-points:
     - 'src/mediapipe_face.h'

@@ -23,7 +23,7 @@ flutter pub add mediapipe_face_mesh
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final faceMeshProcessor = await FaceMeshProcessor.create(
-  delegate: FaceMeshDelegate.xnnpack // FaceMeshDelegate.cpu is default
+  delegate: FaceMeshDelegate.xnnpack, // FaceMeshDelegate.cpu is default
 );
 ```
 
@@ -159,6 +159,8 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
 - `enableSmoothing`: toggles MediaPipe's temporal smoothing between frames.
   Keeping it `true` (default) reduces jitter but adds inertia; set `false` for
   per-frame responsiveness when you don't reuse tracking context.
+- `enableRoiTracking`: enables internal ROI tracking between frames. When set
+  to `false`, calls that omit `roi`/`box` always run full-frame inference.
 
 Always remember to call `close()` on the processor when you are done.
 
@@ -197,9 +199,12 @@ result = _faceMeshProcessor.process(
   the returned landmarks already align with mirrored front-camera
   previews.
 
-If both `roi` and `box` are omitted, the entire frame is processed. Passing both
-results in an `ArgumentError`. The same semantics apply to `processNv21`, using
-the NV21 image wrapper instead of an RGBA/BGRA buffer.
+If both `roi` and `box` are omitted, the processor uses its internal ROI
+tracking state (or the full frame if `enableRoiTracking` is disabled). Passing
+both results in an `ArgumentError`. 
+
+The same parameter rules apply to `processNv21`, using the NV21 image wrapper
+instead of an RGBA/BGRA buffer.
 
 ### _faceMeshStreamProcessor.process parameter
 

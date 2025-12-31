@@ -1,3 +1,7 @@
+## 1.2.1
+
+- add `enableRoiTracking` option in `FaceMeshProcessor.create` to control internal ROI tracking between frames
+
 ## 1.2.0
 
 - improve README usage guidance and stream/camera documentation

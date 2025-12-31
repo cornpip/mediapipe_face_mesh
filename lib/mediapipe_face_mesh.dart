@@ -288,6 +288,7 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     bool enableSmoothing = true,
+    bool enableRoiTracking = true,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
   }) async {
     final String resolvedModelPath = await _materializeModel();
@@ -302,6 +303,7 @@ class FaceMeshProcessor {
         ..min_tracking_confidence = minTrackingConfidence
         ..delegate = delegate.index
         ..enable_smoothing = enableSmoothing ? 1 : 0
+        ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..tflite_library_path = ffi.nullptr;
 
       final ffi.Pointer<MpFaceMeshContext> context = faceBindings
@@ -321,10 +323,13 @@ class FaceMeshProcessor {
 
   /// Processes an image and returns face landmarks.
   ///
-  /// By default, this processes the full frame. To restrict processing to a
-  /// region, provide either:
+  /// By default, this processes using the internal ROI tracking state.
+  /// To process the full frame or restrict processing to a region, provide either:
   /// - [roi] as a normalized rectangle, or
   /// - [box] as a pixel-space bounding box (converted to an ROI internally).
+  ///
+  /// To force full-frame inference without passing a region each time, disable
+  /// ROI tracking at creation via [enableRoiTracking].
   ///
   /// When [box] is provided, it is converted into a square ROI by default
   /// (using the max of width/height) and optionally expanded by [boxScale].
