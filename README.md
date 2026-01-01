@@ -12,13 +12,21 @@ Exposes a simple API for running single snapshots or continuous camera streams.
 Note: Face detection is not included.  
 If you need dynamic ROIs, use a face detector (e.g. [google_mlkit_face_detection](https://pub.dev/packages/google_mlkit_face_detection)) before calling this package.
 
-## Usage
+## Install
 
 ```bash
 flutter pub add mediapipe_face_mesh
 ```
 
-### create
+## Usage
+
+two ways to use it:
+1) provide one frame at a time (Single Frame Inference)
+2) provide a stream of frames (Frame Stream Inference)
+
+Both approaches run the same per-frame computation. The only difference is who drives the frame flow: you push each frame manually, or you hand off a stream and receive results as they are emitted.
+
+### Create
 ```
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
@@ -27,7 +35,7 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
 );
 ```
 
-### single image porcessing
+### Single Frame Inference
 ```
       if (Platform.isAndroid) {
         ...
@@ -89,8 +97,10 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
       }
 ```
 
-### streaming camera frames
+### Frame Stream Inference
+The stream approach also uses the `FaceMeshProcessor` object.
 ```
+    _faceMeshStreamProcessor = FaceMeshStreamProcessor(_faceMeshProcessor);
     ...
     if (Platform.isAndroid) {
       _nv21StreamController = StreamController<FaceMeshNv21Image>();
@@ -119,8 +129,17 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
 
 ## Example
 
-The example demonstrates loading an asset into `FaceMeshImage`, running a single inference, and drawing the resulting landmarks.   
-For a camera-based walkthrough, check https://github.com/cornpip/flutter_vision_ai_demos.git. It streams live frames, gets bounding boxes from `google_mlkit_face_detection`, and feeds them into `mediapipe_face_mesh` for landmark inference.
+The __[example included in this package](https://github.com/cornpip/mediapipe_face_mesh/tree/master/example)__ loads assets img and converts it to an RGBA buffer,
+runs a single-frame inference, and draws the resulting landmarks.
+
+<img src="./readme_img/2.png" alt="app_image" width="300"/>
+
+For a camera-based example, see __https://github.com/cornpip/flutter_vision_ai_demos.__  
+It streams live camera frames, obtains face bounding boxes using
+`google_mlkit_face_detection`, and passes them to `mediapipe_face_mesh`
+for landmark inference.
+
+<img src="./readme_img/1.png" alt="app_image" width="300"/>
 
 ## Reference
 
@@ -139,7 +158,7 @@ Build outputs expected by this plugin:
 ### TFLite C API headers
 The `src/include/tensorflow` directories are copied from the official TensorFlow repository: https://github.com/tensorflow/tensorflow/tree/master/tensorflow.
 
-## detail
+## Detail
 
 ### FaceMeshProcessor.create parameter
 
