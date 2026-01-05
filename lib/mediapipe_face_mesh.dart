@@ -77,6 +77,11 @@ class NormalizedRect {
     height: rect.height,
     rotation: rect.rotation,
   );
+
+  @override
+  String toString() =>
+      'NormalizedRect(xCenter: $xCenter, yCenter: $yCenter, width: $width, '
+      'height: $height, rotation: $rotation)';
 }
 
 /// Pixel-space bounding box used to derive a normalized ROI.
@@ -128,6 +133,10 @@ class FaceMeshBox {
 
   /// Vertical center of the rectangle.
   double get centerY => (top + bottom) * 0.5;
+
+  @override
+  String toString() =>
+      'FaceMeshBox(left: $left, top: $top, right: $right, bottom: $bottom)';
 }
 
 /// Container that holds RGBA/BGRA pixels used as inference input.
@@ -166,6 +175,11 @@ class FaceMeshImage {
 
   /// Pixel format understood by the native layer.
   final int pixelFormat;
+
+  @override
+  String toString() =>
+      'FaceMeshImage(width: $width, height: $height, bytesPerRow: $bytesPerRow, '
+      'pixelFormat: $pixelFormat, pixelsLength: ${pixels.length})';
 }
 
 /// Holder for NV21 (Y + interleaved VU) camera buffers.
@@ -215,6 +229,12 @@ class FaceMeshNv21Image {
 
   /// Row stride for the VU plane.
   final int vuBytesPerRow;
+
+  @override
+  String toString() =>
+      'FaceMeshNv21Image(width: $width, height: $height, '
+      'yBytesPerRow: $yBytesPerRow, vuBytesPerRow: $vuBytesPerRow, '
+      'yPlaneLength: ${yPlane.length}, vuPlaneLength: ${vuPlane.length})';
 }
 
 /// A single 3D landmark returned by MediaPipe.
@@ -230,6 +250,9 @@ class FaceMeshLandmark {
 
   /// Depth relative to the camera in canonical MediaPipe units.
   final double z;
+
+  @override
+  String toString() => 'FaceMeshLandmark(x: $x, y: $y, z: $z)';
 }
 
 /// Aggregates the results of a single face mesh inference.
@@ -257,6 +280,11 @@ class FaceMeshResult {
 
   /// Height of the image used during inference.
   final int imageHeight;
+
+  @override
+  String toString() =>
+      'FaceMeshResult(landmarks: ${landmarks.length}, rect: $rect, '
+      'score: $score, imageWidth: $imageWidth, imageHeight: $imageHeight)';
 }
 
 /// Base exception thrown by this plugin when native calls fail.

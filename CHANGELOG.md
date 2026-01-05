@@ -1,3 +1,8 @@
+## 1.2.3
+
+- update README to cover `FaceMeshResult` output fields, normalization rules, and ROI behavior
+- add `toString()` overrides for core value classes (rect, box, image, landmark, result)
+
 ## 1.2.2
 
 - add `enableRoiTracking` option in `FaceMeshProcessor.create` to control internal ROI tracking between frames

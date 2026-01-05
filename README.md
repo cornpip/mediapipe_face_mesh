@@ -253,3 +253,59 @@ each awaited frame with the parameters you provide (or the per-frame `boxResolve
 
 `.processNv21` follows the same flow, but operates on `Stream<FaceMeshNv21Image>` sources 
 and forwards them to `_faceMeshProcessor.processNv21`.
+
+### Output (FaceMeshResult)
+
+```
+class FaceMeshResult {
+  ...
+  /// All face landmarks returned by the native graph.
+  final List<FaceMeshLandmark> landmarks;
+
+  /// Normalized rectangle covering the detected face.
+  final NormalizedRect rect;
+
+  /// Confidence score reported by MediaPipe.
+  final double score;
+
+  /// Width of the image used during inference.
+  final int imageWidth;
+
+  /// Height of the image used during inference.
+  final int imageHeight;
+}
+
+/// A single 3D landmark returned by MediaPipe.
+class FaceMeshLandmark {
+  ...
+  /// Horizontal coordinate normalized to [0, 1].
+  final double x;
+
+  /// Vertical coordinate normalized to [0, 1].
+  final double y;
+
+  /// Depth relative to the camera in canonical MediaPipe units.
+  final double z;
+}
+
+```
+
+- `landmarks`: list of `FaceMeshLandmark` points (468 for the base
+  Face Mesh model). `x`/`y` are normalized relative to the input frame size;
+  values may extend slightly beyond 0..1 because the ROI can be
+  expanded/rotated and the native code clamps to a wider range (-0.5..1.5).
+  `z` is the MediaPipe depth (negative values are closer to the camera in
+  MediaPipe's convention).
+- `rect`: `NormalizedRect` describing the detected face ROI in normalized space
+  relative to the input frame size (`xCenter`, `yCenter`, `width`, `height`,
+  `rotation` in radians, clockwise). `width`/`height` can exceed 1.0 when the
+  ROI is expanded or rotated.
+- `score`: confidence score reported by the native graph (0..1). If the model
+  does not provide a score output tensor, the plugin returns `1.0`.
+- `imageWidth`/`imageHeight`: input frame size used for inference (after applying
+  `rotationDegrees`, so 90/270 swap width/height);
+
+<br>
+<br>
+<br>
+<br>
