@@ -1,3 +1,8 @@
+## 1.2.4
+
+- add MediaPipe face mesh triangulation topology and expose `FaceMeshResult.triangles`.
+- sanitize the cache filename without `RegExp` to avoid the deprecation warning.
+
 ## 1.2.3
 
 - update README to cover `FaceMeshResult` output fields, normalization rules, and ROI behavior

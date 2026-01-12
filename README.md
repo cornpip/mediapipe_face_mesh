@@ -262,6 +262,9 @@ class FaceMeshResult {
   /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
 
+  /// Triangles describing the mesh topology.
+  final List<MpFaceMeshTriangle> triangles;
+
   /// Normalized rectangle covering the detected face.
   final NormalizedRect rect;
 
@@ -288,6 +291,16 @@ class FaceMeshLandmark {
   final double z;
 }
 
+/// Triangle made up of 3 face mesh landmarks.
+class MpFaceMeshTriangle {
+  ...
+  /// Indices into the full landmark list (length 3).
+  final List<int> indices;
+
+  /// Landmark points referenced by [indices] (length 3).
+  final List<FaceMeshLandmark> points;
+}
+
 ```
 
 - `landmarks`: list of `FaceMeshLandmark` points (468 for the base
@@ -296,6 +309,9 @@ class FaceMeshLandmark {
   expanded/rotated and the native code clamps to a wider range (-0.5..1.5).
   `z` is the MediaPipe depth (negative values are closer to the camera in
   MediaPipe's convention).
+- `triangles`: list of `MpFaceMeshTriangle` entries derived from the official
+  MediaPipe face mesh tesselation topology. Each triangle references three
+  landmark indices and their corresponding points.
 - `rect`: `NormalizedRect` describing the detected face ROI in normalized space
   relative to the input frame size (`xCenter`, `yCenter`, `width`, `height`,
   `rotation` in radians, clockwise). `width`/`height` can exceed 1.0 when the

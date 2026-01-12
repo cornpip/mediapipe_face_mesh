@@ -12,6 +12,8 @@ part 'src/face_mesh_utils.dart';
 
 part 'src/face_mesh_result_utils.dart';
 
+part 'src/face_mesh_topology.dart';
+
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
 
@@ -255,6 +257,21 @@ class FaceMeshLandmark {
   String toString() => 'FaceMeshLandmark(x: $x, y: $y, z: $z)';
 }
 
+/// Triangle made up of 3 face mesh landmarks.
+class MpFaceMeshTriangle {
+  /// Builds a triangle from landmark indices and the referenced points.
+  MpFaceMeshTriangle({required this.indices, required this.points});
+
+  /// Indices into the full landmark list (length 3).
+  final List<int> indices;
+
+  /// Landmark points referenced by [indices] (length 3).
+  final List<FaceMeshLandmark> points;
+
+  @override
+  String toString() => 'MpFaceMeshTriangle(indices: $indices)';
+}
+
 /// Aggregates the results of a single face mesh inference.
 class FaceMeshResult {
   /// Constructs a result using landmark points, ROI and scores.
@@ -264,10 +281,14 @@ class FaceMeshResult {
     required this.score,
     required this.imageWidth,
     required this.imageHeight,
-  });
+    List<MpFaceMeshTriangle>? triangles,
+  }) : triangles = triangles ?? _buildTrianglesFromLandmarks(landmarks);
 
   /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
+
+  /// Triangles describing the mesh topology.
+  final List<MpFaceMeshTriangle> triangles;
 
   /// Normalized rectangle covering the detected face.
   final NormalizedRect rect;
@@ -283,8 +304,9 @@ class FaceMeshResult {
 
   @override
   String toString() =>
-      'FaceMeshResult(landmarks: ${landmarks.length}, rect: $rect, '
-      'score: $score, imageWidth: $imageWidth, imageHeight: $imageHeight)';
+      'FaceMeshResult(landmarks: ${landmarks.length}, triangles: '
+      '${triangles.length}, rect: $rect, score: $score, imageWidth: '
+      '$imageWidth, imageHeight: $imageHeight)';
 }
 
 /// Base exception thrown by this plugin when native calls fail.

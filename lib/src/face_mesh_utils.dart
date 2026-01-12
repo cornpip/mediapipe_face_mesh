@@ -9,7 +9,7 @@ Future<String> _materializeModel() async {
   if (!await cacheDir.exists()) {
     await cacheDir.create(recursive: true);
   }
-  final String sanitizedName = key.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+  final String sanitizedName = _sanitizeCacheFilename(key);
   final File file = File('${cacheDir.path}/$sanitizedName');
   final List<int> bytes = data.buffer.asUint8List(
     data.offsetInBytes,
@@ -19,6 +19,21 @@ Future<String> _materializeModel() async {
     await file.writeAsBytes(bytes, flush: true);
   }
   return file.path;
+}
+
+String _sanitizeCacheFilename(String value) {
+  final StringBuffer buffer = StringBuffer();
+  for (final int codeUnit in value.codeUnits) {
+    final bool isDigit = codeUnit >= 48 && codeUnit <= 57;
+    final bool isUpper = codeUnit >= 65 && codeUnit <= 90;
+    final bool isLower = codeUnit >= 97 && codeUnit <= 122;
+    final bool isAllowedSymbol =
+        codeUnit == 46 || codeUnit == 95 || codeUnit == 45;
+    buffer.writeCharCode(
+      (isDigit || isUpper || isLower || isAllowedSymbol) ? codeUnit : 95,
+    );
+  }
+  return buffer.toString();
 }
 
 NormalizedRect _normalizedRectFromBox(
