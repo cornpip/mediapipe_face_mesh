@@ -1,11 +1,18 @@
 name: mediapipe_face_mesh
-description: "Real-time face mesh detection for Flutter — 468 3D landmarks with triangulation, ROI tracking, and camera stream support on Android & iOS."
-version: 1.2.5
+description: "Real-time face mesh detection for Flutter — 3D landmarks support on Android & iOS."
+version: 1.2.6
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:
   sdk: ^3.10.3
   flutter: '>=3.3.0'
+
+topics:
+  - mediapipe
+  - face-mesh
+  - litert
+  - tflite
+  - ffi
 
 dependencies:
   flutter:

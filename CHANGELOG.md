@@ -1,3 +1,7 @@
+## 1.2.6
+
+- add pub.dev topics and update package description
+
 ## 1.2.5
 
 - rewrite example app: live camera demo using `google_mlkit_face_detection` + `FaceMeshStreamProcessor`
