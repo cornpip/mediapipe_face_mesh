@@ -1,6 +1,6 @@
 name: mediapipe_face_mesh
-description: "Flutter plugin for MediaPipe Face Mesh inference on Android/iOS, supporting RGBA and NV21 inputs via an FFI-powered TFLite core."
-version: 1.2.4
+description: "Real-time face mesh detection for Flutter — 468 3D landmarks with triangulation, ROI tracking, and camera stream support on Android & iOS."
+version: 1.2.5
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:

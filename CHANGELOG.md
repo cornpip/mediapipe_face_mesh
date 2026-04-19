@@ -1,3 +1,9 @@
+## 1.2.5
+
+- rewrite example app: live camera demo using `google_mlkit_face_detection` + `FaceMeshStreamProcessor`
+- render face mesh as polygon wireframe via `result.triangles` (`MpFaceMeshTriangle`)
+- clean up README
+
 ## 1.2.4
 
 - add MediaPipe face mesh triangulation topology and expose `FaceMeshResult.triangles`.

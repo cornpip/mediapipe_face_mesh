@@ -1,0 +1,80 @@
+import 'dart:io' show Platform;
+
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
+
+class FaceMeshPainter extends CustomPainter {
+  FaceMeshPainter({
+    required this.result,
+    required this.rotationCompensation,
+    required this.lensDirection,
+    this.strokeColor = Colors.greenAccent,
+    this.strokeWidth = 0.4,
+  });
+
+  final FaceMeshResult result;
+  final int rotationCompensation;
+  final CameraLensDirection lensDirection;
+  final Color strokeColor;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = strokeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    for (final triangle in result.triangles) {
+      final p0 = _map(triangle.points[0], size);
+      final p1 = _map(triangle.points[1], size);
+      final p2 = _map(triangle.points[2], size);
+
+      final path = Path()
+        ..moveTo(p0.dx, p0.dy)
+        ..lineTo(p1.dx, p1.dy)
+        ..lineTo(p2.dx, p2.dy)
+        ..close();
+
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  Offset _map(FaceMeshLandmark lm, Size size) {
+    double x = lm.x;
+    double y = lm.y;
+
+    switch (rotationCompensation) {
+      case 90:
+        x = 1.0 - lm.y;
+        y = lm.x;
+        break;
+      case 180:
+        x = 1.0 - lm.x;
+        y = 1.0 - lm.y;
+        break;
+      case 270:
+        x = lm.y;
+        y = 1.0 - lm.x;
+        break;
+      default:
+        break;
+    }
+
+    if (!Platform.isIOS && lensDirection == CameraLensDirection.front) {
+      x = 1.0 - x;
+    }
+
+    return Offset(x.clamp(0.0, 1.0) * size.width, y.clamp(0.0, 1.0) * size.height);
+  }
+
+  @override
+  bool shouldRepaint(covariant FaceMeshPainter oldDelegate) {
+    return oldDelegate.result != result ||
+        oldDelegate.rotationCompensation != rotationCompensation ||
+        oldDelegate.lensDirection != lensDirection ||
+        oldDelegate.strokeColor != strokeColor ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
+}
