@@ -6,6 +6,9 @@ import 'mediapipe_face_mesh.dart';
 /// Signature used to derive a bounding box from an incoming frame.
 typedef FaceMeshBoxResolver<T> = FaceMeshBox? Function(T frame);
 
+/// Signature used to derive a normalized ROI from an incoming frame.
+typedef FaceMeshRoiResolver<T> = NormalizedRect? Function(T frame);
+
 /// Helper that turns a stream of camera frames into MediaPipe results.
 class FaceMeshStreamProcessor {
   /// Creates a processor bound to the given synchronous [FaceMeshProcessor].
@@ -23,18 +26,20 @@ class FaceMeshStreamProcessor {
   Stream<FaceMeshResult> process(
     Stream<FaceMeshImage> frames, {
     NormalizedRect? roi,
+    FaceMeshRoiResolver<FaceMeshImage>? roiResolver,
     FaceMeshBoxResolver<FaceMeshImage>? boxResolver,
     double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
   }) async* {
-    _validateResolvers<FaceMeshImage>(roi, boxResolver);
+    _validateResolvers<FaceMeshImage>(roi, roiResolver, boxResolver);
     await for (final FaceMeshImage frame in frames) {
+      final NormalizedRect? dynamicRoi = roiResolver?.call(frame);
       final FaceMeshBox? dynamicBox = boxResolver?.call(frame);
       yield _processor.process(
         frame,
-        roi: roi,
+        roi: dynamicRoi ?? roi,
         box: dynamicBox,
         boxScale: boxScale,
         boxMakeSquare: boxMakeSquare,
@@ -51,18 +56,20 @@ class FaceMeshStreamProcessor {
   Stream<FaceMeshResult> processNv21(
     Stream<FaceMeshNv21Image> frames, {
     NormalizedRect? roi,
+    FaceMeshRoiResolver<FaceMeshNv21Image>? roiResolver,
     FaceMeshBoxResolver<FaceMeshNv21Image>? boxResolver,
     double boxScale = _boxScale,
     bool boxMakeSquare = true,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
   }) async* {
-    _validateResolvers<FaceMeshNv21Image>(roi, boxResolver);
+    _validateResolvers<FaceMeshNv21Image>(roi, roiResolver, boxResolver);
     await for (final FaceMeshNv21Image frame in frames) {
+      final NormalizedRect? dynamicRoi = roiResolver?.call(frame);
       final FaceMeshBox? dynamicBox = boxResolver?.call(frame);
       yield _processor.processNv21(
         frame,
-        roi: roi,
+        roi: dynamicRoi ?? roi,
         box: dynamicBox,
         boxScale: boxScale,
         boxMakeSquare: boxMakeSquare,
@@ -74,10 +81,15 @@ class FaceMeshStreamProcessor {
 
   void _validateResolvers<T>(
     NormalizedRect? roi,
+    FaceMeshRoiResolver<T>? roiResolver,
     FaceMeshBoxResolver<T>? boxResolver,
   ) {
-    if (roi != null && boxResolver != null) {
-      throw ArgumentError('Provide either roi or boxResolver, not both.');
+    if ((roi != null && roiResolver != null) ||
+        (roi != null && boxResolver != null) ||
+        (roiResolver != null && boxResolver != null)) {
+      throw ArgumentError(
+        'Provide only one of roi, roiResolver, or boxResolver.',
+      );
     }
   }
 }

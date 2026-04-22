@@ -1,7 +1,14 @@
 part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 Future<String> _materializeModel() async {
-  const String key = _defaultModelAsset;
+  return _materializeAsset(_defaultModelAsset);
+}
+
+Future<String> _materializeDetectorModel() async {
+  return _materializeAsset(_defaultDetectorModelAsset);
+}
+
+Future<String> _materializeAsset(String key) async {
   final ByteData data = await rootBundle.load(key);
   final Directory cacheDir = Directory(
     '${Directory.systemTemp.path}/mediapipe_face_mesh_cache',

@@ -4,14 +4,19 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:mediapipe_face_mesh/face_mesh_stream_processor.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 import '../../paint/detection_painter.dart';
 import 'paint/face_mesh_painter.dart';
 
-class MediaPipeFacePage extends StatefulWidget {
-  const MediaPipeFacePage({
+/// Legacy ML Kit face-detection demo page kept for comparison testing.
+///
+/// Note: `example/pubspec.yaml` must include `google_mlkit_face_detection`
+/// before this file can be used in the example app.
+class MediaPipeFacePageMlkit extends StatefulWidget {
+  const MediaPipeFacePageMlkit({
     super.key,
     required this.cameras,
     this.useStreamProcessor = true,
@@ -21,12 +26,12 @@ class MediaPipeFacePage extends StatefulWidget {
   final bool useStreamProcessor;
 
   @override
-  State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
+  State<MediaPipeFacePageMlkit> createState() => _MediaPipeFacePageMlkitState();
 }
 
-class _MediaPipeFacePageState extends State<MediaPipeFacePage>
+class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     with WidgetsBindingObserver {
-  static const double _boxScale = 1.4;
+  static const double _boxScale = 1.2;
 
   static const Map<DeviceOrientation, int> _deviceOrientationDegrees = {
     DeviceOrientation.portraitUp: 0,
@@ -54,17 +59,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   List<Detection> _detections = const [];
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
-  late final FaceDetectorProcessor _faceDetector;
+  late final FaceDetector _faceDetector;
   late final FaceMeshProcessor _faceMeshProcessor;
   late final FaceMeshStreamProcessor _faceMeshStreamProcessor;
   StreamController<FaceMeshNv21Image>? _nv21StreamController;
   StreamController<FaceMeshImage>? _bgraStreamController;
   StreamSubscription<FaceMeshResult>? _meshStreamSubscription;
-  FaceDetection? _latestFaceDetection;
-  Size? _latestDetectionImageSize;
+  Rect? _latestFaceBoundingBox;
   int? _lastRotationCompensation;
   int? _meshStreamRotation;
   bool _isMeshStreamBusy = false;
+  final _MlkitInputImageConverter _inputImageConverter =
+      _MlkitInputImageConverter();
 
   @override
   void initState() {
@@ -80,9 +86,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
       _resolveCameraIndices();
 
-      _faceDetector = await FaceDetectorProcessor.create(
-        delegate: FaceMeshDelegate.xnnpack,
-        maxResults: 1,
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(
+          enableContours: true,
+          enableClassification: true,
+          performanceMode: FaceDetectorMode.fast,
+        ),
       );
 
       final faceMeshProcessor = await FaceMeshProcessor.create(
@@ -222,8 +231,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _clearDetections() {
     _detections = const [];
     _isProcessingFrame = false;
-    _latestFaceDetection = null;
-    _latestDetectionImageSize = null;
+    _latestFaceBoundingBox = null;
     _lastRotationCompensation = null;
   }
 
@@ -351,7 +359,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MediaPipe Face Mesh'),
+        title: const Text('MediaPipe Face Mesh (ML Kit)'),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -386,7 +394,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     final controller = _cameraController;
     final isControllerReady = controller?.value.isInitialized == true;
     final previewSize = isControllerReady ? controller!.value.previewSize : null;
-    // Native sensor ratio (landscape sensor → height/width < 1).
     final nativeAspectRatio = (previewSize != null && previewSize.width != 0)
         ? previewSize.height / previewSize.width
         : 3 / 4;
@@ -397,7 +404,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       builder: (context) {
         final displayWidth = MediaQuery.of(context).size.width * 0.9;
         const displayAspectRatio = 3 / 4;
-        // Inner SizedBox keeps the camera's native ratio so it renders correctly.
         final nativeHeight = displayWidth / nativeAspectRatio;
 
         return SizedBox(
@@ -407,7 +413,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Camera feed clipped to display ratio
                 ClipRect(
                   child: FittedBox(
                     fit: BoxFit.cover,
@@ -460,7 +465,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                     ),
                   ),
                 ),
-                // Chips outside ClipRect so they're always visible
                 if (isCameraAvailable)
                   Positioned(
                     top: 12,
@@ -543,7 +547,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                     color: Colors.black,
                   ),
                   label: Text(
-                      _isDetectionActive ? 'Stop Detect' : 'Start Detect'),
+                    _isDetectionActive ? 'Stop Detect' : 'Start Detect',
+                  ),
                 ),
               ),
             ],
@@ -751,76 +756,70 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         return;
       }
 
-      final FaceDetectionResult detectionResult;
-      if (Platform.isAndroid) {
-        final nv21Image = _buildNv21Image(cameraImage: cameraImage);
-        if (nv21Image == null) {
-          return;
-        }
-        detectionResult = _faceDetector.processNv21(
-          nv21Image,
-          rotationDegrees: rotationCompensation,
-        );
-      } else if (Platform.isIOS) {
-        final bgraImage = _buildBgraImage(cameraImage: cameraImage);
-        if (bgraImage == null) {
-          return;
-        }
-        detectionResult = _faceDetector.process(
-          bgraImage,
-          rotationDegrees: rotationCompensation,
-        );
-      } else {
+      final inputImageRotation =
+          InputImageRotationValue.fromRawValue(rotationCompensation);
+      if (inputImageRotation == null) {
         return;
       }
+
+      final inputImage = _inputImageConverter.fromCameraImage(
+        image: cameraImage,
+        controller: controller,
+        camera: _currentCamera,
+        inputImageRotation: inputImageRotation,
+      );
+      if (inputImage == null) {
+        return;
+      }
+
+      final faces = await _faceDetector.processImage(inputImage);
       if (!mounted || !_isCameraActive || !_isDetectionActive) {
         return;
       }
 
-      final FaceDetection? primaryDetection = detectionResult.primaryDetection;
-      _latestFaceDetection = primaryDetection;
-      _latestDetectionImageSize = Size(
-        detectionResult.imageWidth.toDouble(),
-        detectionResult.imageHeight.toDouble(),
-      );
+      _latestFaceBoundingBox =
+          faces.isNotEmpty ? faces.first.boundingBox : null;
       _lastRotationCompensation = rotationCompensation;
 
       FaceMeshResult? meshResult;
       if (!widget.useStreamProcessor) {
-        if (_isMeshActive && primaryDetection != null) {
+        if (_isMeshActive && faces.isNotEmpty) {
           if (Platform.isAndroid) {
             meshResult = _runFaceMeshOnAndroidNv21(
               cameraImage: cameraImage,
-              detection: primaryDetection,
+              face: faces.first,
               rotationCompensationDegrees: rotationCompensation,
             );
           } else if (Platform.isIOS) {
             meshResult = _runFaceMeshOnIosBgra(
               cameraImage: cameraImage,
-              detection: primaryDetection,
+              face: faces.first,
               rotationCompensationDegrees: rotationCompensation,
             );
           }
         }
-      } else if (_isMeshActive && primaryDetection != null) {
+      } else if (_isMeshActive && faces.isNotEmpty) {
         _enqueueMeshFrame(
           cameraImage: cameraImage,
           rotationCompensationDegrees: rotationCompensation,
         );
       }
 
-      final detections = detectionResult.detections.map((detection) {
+      final imageSize =
+          Size(cameraImage.width.toDouble(), cameraImage.height.toDouble());
+      final adjustedSize = _adjustedImageSize(imageSize, inputImageRotation);
+      final detections = faces.map((face) {
+        final b = face.boundingBox;
         return Detection(
           boundingBox: Rect.fromLTRB(
-            detection.left.clamp(0.0, 1.0),
-            detection.top.clamp(0.0, 1.0),
-            detection.right.clamp(0.0, 1.0),
-            detection.bottom.clamp(0.0, 1.0),
+            (b.left / adjustedSize.width).clamp(0.0, 1.0),
+            (b.top / adjustedSize.height).clamp(0.0, 1.0),
+            (b.right / adjustedSize.width).clamp(0.0, 1.0),
+            (b.bottom / adjustedSize.height).clamp(0.0, 1.0),
           ),
-          confidence: detection.score,
-          bboxLabel: 'Face',
-          roiLabel: 'ROI',
-          rotatedRect: detection.expandedFaceRect,
+          confidence: 1.0,
+          bboxLabel:
+              face.trackingId != null ? 'Face #${face.trackingId}' : 'Face',
         );
       }).toList();
 
@@ -830,7 +829,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           if (!widget.useStreamProcessor && _isMeshActive) {
             _meshResult = meshResult;
             _meshRotationCompensation = meshResult != null ? 0 : null;
-          } else if (!_isMeshActive || primaryDetection == null) {
+          } else if (!_isMeshActive || faces.isEmpty) {
             _meshResult = null;
             _meshRotationCompensation = null;
           }
@@ -843,6 +842,14 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _errorMessage ??= '$error';
       }
     }
+  }
+
+  Size _adjustedImageSize(Size imageSize, InputImageRotation rotation) {
+    if (rotation == InputImageRotation.rotation90deg ||
+        rotation == InputImageRotation.rotation270deg) {
+      return Size(imageSize.height, imageSize.width);
+    }
+    return imageSize;
   }
 
   FaceMeshNv21Image? _buildNv21Image({required CameraImage cameraImage}) {
@@ -908,7 +915,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   FaceMeshResult? _runFaceMeshOnAndroidNv21({
     required CameraImage cameraImage,
-    required FaceDetection detection,
+    required Face face,
     required int rotationCompensationDegrees,
   }) {
     final nv21 = _buildNv21Image(cameraImage: cameraImage);
@@ -916,9 +923,31 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       return null;
     }
 
+    final inputRotation =
+        InputImageRotationValue.fromRawValue(rotationCompensationDegrees);
+    if (inputRotation == null) {
+      return null;
+    }
+
+    final adjustedSize = _adjustedImageSize(
+      Size(cameraImage.width.toDouble(), cameraImage.height.toDouble()),
+      inputRotation,
+    );
+    final clamped = Rect.fromLTRB(
+      face.boundingBox.left.clamp(0.0, adjustedSize.width),
+      face.boundingBox.top.clamp(0.0, adjustedSize.height),
+      face.boundingBox.right.clamp(0.0, adjustedSize.width),
+      face.boundingBox.bottom.clamp(0.0, adjustedSize.height),
+    );
+
     return _faceMeshProcessor.processNv21(
       nv21,
-      box: _detectionToBox(detection),
+      box: FaceMeshBox.fromLTWH(
+        left: clamped.left,
+        top: clamped.top,
+        width: clamped.width,
+        height: clamped.height,
+      ),
       boxScale: _boxScale,
       boxMakeSquare: true,
       rotationDegrees: rotationCompensationDegrees,
@@ -927,7 +956,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   FaceMeshResult? _runFaceMeshOnIosBgra({
     required CameraImage cameraImage,
-    required FaceDetection detection,
+    required Face face,
     required int rotationCompensationDegrees,
   }) {
     final image = _buildBgraImage(cameraImage: cameraImage);
@@ -935,9 +964,31 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       return null;
     }
 
+    final inputRotation =
+        InputImageRotationValue.fromRawValue(rotationCompensationDegrees);
+    if (inputRotation == null) {
+      return null;
+    }
+
+    final adjustedSize = _adjustedImageSize(
+      Size(cameraImage.width.toDouble(), cameraImage.height.toDouble()),
+      inputRotation,
+    );
+    final clamped = Rect.fromLTRB(
+      face.boundingBox.left.clamp(0.0, adjustedSize.width),
+      face.boundingBox.top.clamp(0.0, adjustedSize.height),
+      face.boundingBox.right.clamp(0.0, adjustedSize.width),
+      face.boundingBox.bottom.clamp(0.0, adjustedSize.height),
+    );
+
     return _faceMeshProcessor.process(
       image,
-      box: _detectionToBox(detection),
+      box: FaceMeshBox.fromLTWH(
+        left: clamped.left,
+        top: clamped.top,
+        width: clamped.width,
+        height: clamped.height,
+      ),
       boxScale: _boxScale,
       boxMakeSquare: true,
       rotationDegrees: rotationCompensationDegrees,
@@ -965,29 +1016,39 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     required int height,
     required int? rotationDegrees,
   }) {
-    final detection = _latestFaceDetection;
-    final detectionImageSize = _latestDetectionImageSize;
-    if (detection == null ||
-        detectionImageSize == null ||
-        rotationDegrees == null) {
+    final bbox = _latestFaceBoundingBox;
+    if (bbox == null || rotationDegrees == null) {
       return null;
     }
-    final bool swapAxes = rotationDegrees == 90 || rotationDegrees == 270;
-    final double logicalWidth = swapAxes ? height.toDouble() : width.toDouble();
-    final double logicalHeight =
-        swapAxes ? width.toDouble() : height.toDouble();
-    if ((detectionImageSize.width - logicalWidth).abs() > 0.5 ||
-        (detectionImageSize.height - logicalHeight).abs() > 0.5) {
+
+    final inputRotation = InputImageRotationValue.fromRawValue(rotationDegrees);
+    if (inputRotation == null) {
       return null;
     }
-    return _detectionToBox(detection);
+
+    final adjustedSize = _adjustedImageSize(
+      Size(width.toDouble(), height.toDouble()),
+      inputRotation,
+    );
+    final clamped = Rect.fromLTRB(
+      bbox.left.clamp(0.0, adjustedSize.width),
+      bbox.top.clamp(0.0, adjustedSize.height),
+      bbox.right.clamp(0.0, adjustedSize.width),
+      bbox.bottom.clamp(0.0, adjustedSize.height),
+    );
+    return FaceMeshBox.fromLTWH(
+      left: clamped.left,
+      top: clamped.top,
+      width: clamped.width,
+      height: clamped.height,
+    );
   }
 
   void _enqueueMeshFrame({
     required CameraImage cameraImage,
     required int rotationCompensationDegrees,
   }) {
-    if (_latestFaceDetection == null || _isMeshStreamBusy) {
+    if (_latestFaceBoundingBox == null || _isMeshStreamBusy) {
       return;
     }
     _startMeshStreamIfNeeded(rotationDegrees: rotationCompensationDegrees);
@@ -1012,17 +1073,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _isMeshStreamBusy = true;
       controller.add(frame);
     }
-  }
-
-  FaceMeshBox _detectionToBox(FaceDetection detection) {
-    final Size? imageSize = _latestDetectionImageSize;
-    if (imageSize == null) {
-      throw StateError('Detection image size is not available.');
-    }
-    return detection.toBox(
-      imageWidth: imageSize.width.round(),
-      imageHeight: imageSize.height.round(),
-    );
   }
 
   int? _rotationCompensationDegrees({required CameraController controller}) {
@@ -1078,8 +1128,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
     } on CameraException catch (error) {
       if (mounted) {
-        setState(() => _errorMessage =
-            'Detection start error: ${error.description ?? error.code}');
+        setState(() {
+          _errorMessage =
+              'Detection start error: ${error.description ?? error.code}';
+        });
       }
     }
   }
@@ -1127,5 +1179,38 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _startMeshStreamIfNeeded(rotationDegrees: rotation);
       }
     }
+  }
+}
+
+class _MlkitInputImageConverter {
+  InputImage? fromCameraImage({
+    required CameraImage image,
+    required CameraController controller,
+    required CameraDescription camera,
+    required InputImageRotation inputImageRotation,
+  }) {
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+
+    final isValidFormat = format != null &&
+        ((Platform.isAndroid && format == InputImageFormat.nv21) ||
+            (Platform.isIOS && format == InputImageFormat.bgra8888));
+
+    if (!isValidFormat) {
+      return null;
+    }
+    if (image.planes.length != 1) {
+      return null;
+    }
+
+    final plane = image.planes.first;
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: inputImageRotation,
+        format: format,
+        bytesPerRow: plane.bytesPerRow,
+      ),
+    );
   }
 }
