@@ -294,7 +294,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .processNv21(
             _nv21StreamController!.stream,
-            boxResolver: _resolveFaceMeshBoxForNv21,
+            boxResolver: _resolveFaceMeshBox,
             boxScale: _boxScale,
             boxMakeSquare: true,
             rotationDegrees: rotationDegrees,
@@ -305,7 +305,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .process(
             _bgraStreamController!.stream,
-            boxResolver: _resolveFaceMeshBoxForBgra,
+            boxResolver: _resolveFaceMeshBox,
             boxScale: _boxScale,
             boxMakeSquare: true,
             rotationDegrees: rotationDegrees,
@@ -889,24 +889,19 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     return imageSize;
   }
 
-  FaceMeshBox? _resolveFaceMeshBoxForNv21(FaceMeshNv21Image frame) {
-    return _resolveFaceMeshBox(
-      width: frame.width,
-      height: frame.height,
-    );
-  }
+  FaceMeshBox? _resolveFaceMeshBox(dynamic frame) {
+    final int width;
+    final int height;
+    if (frame is FaceMeshNv21Image) {
+      width = frame.width;
+      height = frame.height;
+    } else if (frame is FaceMeshImage) {
+      width = frame.width;
+      height = frame.height;
+    } else {
+      return null;
+    }
 
-  FaceMeshBox? _resolveFaceMeshBoxForBgra(FaceMeshImage frame) {
-    return _resolveFaceMeshBox(
-      width: frame.width,
-      height: frame.height,
-    );
-  }
-
-  FaceMeshBox? _resolveFaceMeshBox({
-    required int width,
-    required int height,
-  }) {
     final snapshot = _latestDetectionSnapshot;
     final Rect? bbox = snapshot?.primaryBoundingBox;
     final int? rotationDegrees = snapshot?.rotationDegrees;

@@ -291,7 +291,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .processNv21(
             _nv21StreamController!.stream,
-            roiResolver: _resolveFaceMeshRoiForNv21,
+            roiResolver: _resolveFaceMeshRoi,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleMeshResult, onError: _handleMeshError);
@@ -300,7 +300,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .process(
             _bgraStreamController!.stream,
-            roiResolver: _resolveFaceMeshRoiForBgra,
+            roiResolver: _resolveFaceMeshRoi,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleMeshResult, onError: _handleMeshError);
@@ -922,24 +922,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     );
   }
 
-  NormalizedRect? _resolveFaceMeshRoiForNv21(FaceMeshNv21Image frame) {
-    return _resolveFaceMeshRoi(
-      width: frame.width,
-      height: frame.height,
-    );
-  }
+  NormalizedRect? _resolveFaceMeshRoi(dynamic frame) {
+    final int width;
+    final int height;
+    if (frame is FaceMeshNv21Image) {
+      width = frame.width;
+      height = frame.height;
+    } else if (frame is FaceMeshImage) {
+      width = frame.width;
+      height = frame.height;
+    } else {
+      return null;
+    }
 
-  NormalizedRect? _resolveFaceMeshRoiForBgra(FaceMeshImage frame) {
-    return _resolveFaceMeshRoi(
-      width: frame.width,
-      height: frame.height,
-    );
-  }
-
-  NormalizedRect? _resolveFaceMeshRoi({
-    required int width,
-    required int height,
-  }) {
     final snapshot = _latestDetectionSnapshot;
     if (snapshot == null) {
       return null;

@@ -1,3 +1,10 @@
+## 1.3.0
+
+- add `FaceDetectorProcessor` with bundled MediaPipe short-range face detection model
+- support detector-driven ROI flow for face mesh inference and expose `FaceDetection` / `FaceDetectionResult`
+- refactor example app to include both MediaPipe and ML Kit detection flows
+- update README and change license to BSD 3-Clause
+
 ## 1.2.6
 
 - add pub.dev topics and update package description
