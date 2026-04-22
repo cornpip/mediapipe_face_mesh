@@ -345,7 +345,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MediaPipe Face Mesh'),
+        title: const Text('Mediapipe Det + Mediapipe Mesh'),
+        titleTextStyle: const TextStyle(
+          color: Colors.black,
+          fontSize: 16,
+        ),
         centerTitle: true,
       ),
       body: SafeArea(
@@ -430,6 +434,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                   lensDirection:
                                       controller.description.lensDirection,
                                   showConfidence: false,
+                                  showFaceBox: false,
                                 ),
                               ),
                             ),

@@ -359,7 +359,11 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MediaPipe Face Mesh (ML Kit)'),
+        title: const Text('MLKit Det + Mediapipe Mesh'),
+        titleTextStyle: const TextStyle(
+          color: Colors.black,
+          fontSize: 16,
+        ),
         centerTitle: true,
       ),
       body: SafeArea(

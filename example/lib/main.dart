@@ -37,7 +37,7 @@ class ExampleHomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Face Example'),
+        title: const Text('Face Mesh Example'),
         centerTitle: true,
       ),
       body: Padding(

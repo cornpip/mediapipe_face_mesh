@@ -26,11 +26,15 @@ class DetectionPainter extends CustomPainter {
     required this.detections,
     required this.lensDirection,
     this.showConfidence = true,
+    this.showFaceBox = true,
+    this.showRoiBox = true,
   });
 
   final List<Detection> detections;
   final CameraLensDirection lensDirection;
   final bool showConfidence;
+  final bool showFaceBox;
+  final bool showRoiBox;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -51,18 +55,20 @@ class DetectionPainter extends CustomPainter {
         mirroredBox.right * size.width,
         mirroredBox.bottom * size.height,
       );
-      canvas.drawRect(rawRect, rawBoxPaint);
-      _paintLabel(
-        canvas,
-        anchorRect: rawRect,
-        label: showConfidence
-            ? '${detection.bboxLabel} ${(detection.confidence * 100).toStringAsFixed(1)}%'
-            : detection.bboxLabel,
-        color: Colors.amberAccent,
-      );
+      if (showFaceBox) {
+        canvas.drawRect(rawRect, rawBoxPaint);
+        _paintLabel(
+          canvas,
+          anchorRect: rawRect,
+          label: showConfidence
+              ? '${detection.bboxLabel} ${(detection.confidence * 100).toStringAsFixed(1)}%'
+              : detection.bboxLabel,
+          color: Colors.amberAccent,
+        );
+      }
 
       final rotatedRect = detection.rotatedRect;
-      if (rotatedRect != null) {
+      if (showRoiBox && rotatedRect != null) {
         final path = _buildRotatedRectPath(rotatedRect, size);
         canvas.drawPath(path, roiPaint);
         _paintLabel(
@@ -178,6 +184,8 @@ class DetectionPainter extends CustomPainter {
   bool shouldRepaint(covariant DetectionPainter oldDelegate) {
     return oldDelegate.detections != detections ||
         oldDelegate.lensDirection != lensDirection ||
-        oldDelegate.showConfidence != showConfidence;
+        oldDelegate.showConfidence != showConfidence ||
+        oldDelegate.showFaceBox != showFaceBox ||
+        oldDelegate.showRoiBox != showRoiBox;
   }
 }
