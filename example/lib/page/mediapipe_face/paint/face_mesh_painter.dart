@@ -11,6 +11,8 @@ class FaceMeshPainter extends CustomPainter {
     required this.lensDirection,
     this.strokeColor = Colors.greenAccent,
     this.strokeWidth = 0.4,
+    this.dotRadius = 1.5,
+    this.drawDots = false,
   });
 
   final FaceMeshResult result;
@@ -18,26 +20,39 @@ class FaceMeshPainter extends CustomPainter {
   final CameraLensDirection lensDirection;
   final Color strokeColor;
   final double strokeWidth;
+  final double dotRadius;
+  final bool drawDots;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = strokeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth;
+    if (drawDots) {
+      final paint = Paint()
+        ..color = strokeColor
+        ..style = PaintingStyle.fill;
 
-    for (final triangle in result.triangles) {
-      final p0 = _map(triangle.points[0], size);
-      final p1 = _map(triangle.points[1], size);
-      final p2 = _map(triangle.points[2], size);
+      for (final lm in result.landmarks) {
+        final p = _map(lm, size);
+        canvas.drawCircle(p, dotRadius, paint);
+      }
+    } else {
+      final paint = Paint()
+        ..color = strokeColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth;
 
-      final path = Path()
-        ..moveTo(p0.dx, p0.dy)
-        ..lineTo(p1.dx, p1.dy)
-        ..lineTo(p2.dx, p2.dy)
-        ..close();
+      for (final triangle in result.triangles) {
+        final p0 = _map(triangle.points[0], size);
+        final p1 = _map(triangle.points[1], size);
+        final p2 = _map(triangle.points[2], size);
 
-      canvas.drawPath(path, paint);
+        final path = Path()
+          ..moveTo(p0.dx, p0.dy)
+          ..lineTo(p1.dx, p1.dy)
+          ..lineTo(p2.dx, p2.dy)
+          ..close();
+
+        canvas.drawPath(path, paint);
+      }
     }
   }
 
@@ -75,6 +90,8 @@ class FaceMeshPainter extends CustomPainter {
         oldDelegate.rotationCompensation != rotationCompensation ||
         oldDelegate.lensDirection != lensDirection ||
         oldDelegate.strokeColor != strokeColor ||
-        oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.dotRadius != dotRadius ||
+        oldDelegate.drawDots != drawDots;
   }
 }

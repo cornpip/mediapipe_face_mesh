@@ -101,5 +101,5 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 
 `B` depends on the `google_mlkit_face_detection` flutter package for face detection.
 
-<img src="./readme_img/1.png" alt="app_image_1" width="300"/>
 <img src="./readme_img/2.png" alt="app_image_2" width="300"/>
+<img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
