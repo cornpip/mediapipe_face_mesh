@@ -9,6 +9,7 @@ import 'package:mediapipe_face_mesh/face_mesh_stream_processor.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 import '../../paint/detection_painter.dart';
+import '../../utils/face_mesh_camera_image_adapter.dart';
 import 'paint/face_mesh_painter.dart';
 
 class _MlkitDetectionSnapshot {
@@ -888,67 +889,6 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     return imageSize;
   }
 
-  FaceMeshNv21Image? _buildNv21Image({required CameraImage cameraImage}) {
-    if (!Platform.isAndroid) {
-      return null;
-    }
-    final planes = cameraImage.planes;
-    if (planes.isEmpty) {
-      return null;
-    }
-
-    Uint8List yPlane;
-    Uint8List vuPlane;
-    int yBytesPerRow;
-    int vuBytesPerRow;
-
-    if (planes.length >= 2) {
-      yPlane = planes[0].bytes;
-      vuPlane = planes[1].bytes;
-      yBytesPerRow = planes[0].bytesPerRow;
-      vuBytesPerRow = planes[1].bytesPerRow;
-    } else {
-      final plane = planes.first;
-      final rowStride = plane.bytesPerRow;
-      final ySize = rowStride * cameraImage.height;
-      final vuSize = rowStride * ((cameraImage.height + 1) ~/ 2);
-      if (plane.bytes.length < ySize + vuSize) {
-        return null;
-      }
-      yPlane = Uint8List.sublistView(plane.bytes, 0, ySize);
-      vuPlane = Uint8List.sublistView(plane.bytes, ySize, ySize + vuSize);
-      yBytesPerRow = rowStride;
-      vuBytesPerRow = rowStride;
-    }
-
-    return FaceMeshNv21Image(
-      yPlane: yPlane,
-      vuPlane: vuPlane,
-      width: cameraImage.width,
-      height: cameraImage.height,
-      yBytesPerRow: yBytesPerRow,
-      vuBytesPerRow: vuBytesPerRow,
-    );
-  }
-
-  FaceMeshImage? _buildBgraImage({required CameraImage cameraImage}) {
-    if (!Platform.isIOS) {
-      return null;
-    }
-    final planes = cameraImage.planes;
-    if (planes.isEmpty) {
-      return null;
-    }
-    final plane = planes.first;
-    return FaceMeshImage(
-      pixels: plane.bytes,
-      width: cameraImage.width,
-      height: cameraImage.height,
-      bytesPerRow: plane.bytesPerRow,
-      pixelFormat: FaceMeshPixelFormat.bgra,
-    );
-  }
-
   FaceMeshBox? _resolveFaceMeshBoxForNv21(FaceMeshNv21Image frame) {
     return _resolveFaceMeshBox(
       width: frame.width,
@@ -1029,7 +969,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
 
   void _pushNv21FrameToMeshStage(CameraImage cameraImage) {
     final controller = _nv21StreamController;
-    final frame = _buildNv21Image(cameraImage: cameraImage);
+    final frame = FaceMeshCameraImageAdapter.toNv21(cameraImage);
     if (controller == null || controller.isClosed || frame == null) {
       return;
     }
@@ -1039,7 +979,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
 
   void _pushBgraFrameToMeshStage(CameraImage cameraImage) {
     final controller = _bgraStreamController;
-    final frame = _buildBgraImage(cameraImage: cameraImage);
+    final frame = FaceMeshCameraImageAdapter.toBgra(cameraImage);
     if (controller == null || controller.isClosed || frame == null) {
       return;
     }

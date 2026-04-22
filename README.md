@@ -99,8 +99,7 @@ The example included in this package provides two example flows:
 A. MediaPipe Face Detector + MediaPipe Face Mesh  
 B. ML Kit Face Detector + MediaPipe Face Mesh
 
-`A` has better inference performance (higher FPS). It currently supports the short-range model only.
+`B` depends on the `google_mlkit_face_detection` flutter package for face detection.
 
 <img src="./readme_img/1.png" alt="app_image_1" width="300"/>
 <img src="./readme_img/2.png" alt="app_image_2" width="300"/>
-
