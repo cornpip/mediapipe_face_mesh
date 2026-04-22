@@ -73,6 +73,7 @@ typedef struct {
   int32_t threads;
   float min_detection_confidence;
   float min_tracking_confidence;
+  float min_face_presence_confidence;
   MpDelegateType delegate;
   uint8_t enable_smoothing;
   uint8_t enable_roi_tracking;

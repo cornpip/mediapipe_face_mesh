@@ -473,6 +473,9 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
   @ffi.Float()
   external double min_tracking_confidence;
 
+  @ffi.Float()
+  external double min_face_presence_confidence;
+
   @ffi.UnsignedInt()
   external int delegate;
 
