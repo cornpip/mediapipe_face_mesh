@@ -62,6 +62,15 @@ struct TensorTransform {
   float scaled_height = 0.0f;
 };
 
+struct ProjectionMatrix {
+  float m00 = 1.0f;
+  float m01 = 0.0f;
+  float m02 = 0.0f;
+  float m10 = 0.0f;
+  float m11 = 1.0f;
+  float m12 = 0.0f;
+};
+
 struct RgbPixel {
   float r = 0.0f;
   float g = 0.0f;
@@ -729,7 +738,7 @@ class FaceDetectorContext {
       for (const auto& corner : kBoxCorners) {
         float image_x = 0.0f;
         float image_y = 0.0f;
-        if (!TensorToImage(corner[0], corner[1], &image_x, &image_y)) {
+        if (!ProjectTensorPoint(corner[0], corner[1], &image_x, &image_y)) {
           continue;
         }
         min_x = std::min(min_x, image_x);
@@ -760,7 +769,7 @@ class FaceDetectorContext {
             raw[coord_index + 1] / 128.0f * anchor.height + anchor.y_center;
         float image_x = 0.0f;
         float image_y = 0.0f;
-        if (TensorToImage(keypoint_x, keypoint_y, &image_x, &image_y)) {
+        if (ProjectTensorPoint(keypoint_x, keypoint_y, &image_x, &image_y)) {
           detection.keypoints[keypoint_index * 2] =
               Clamp(image_x / last_image_width_, 0.0f, 1.0f);
           detection.keypoints[keypoint_index * 2 + 1] =
@@ -901,23 +910,55 @@ class FaceDetectorContext {
     return transform;
   }
 
-  bool TensorToImage(float x_norm,
-                     float y_norm,
-                     float* image_x,
-                     float* image_y) const {
-    if (!image_x || !image_y || last_transform_.scale <= 0.0f) {
-      return false;
+  void UpdateProjectionMatrix() {
+    if (last_transform_.scale <= 0.0f || last_image_width_ <= 0 ||
+        last_image_height_ <= 0) {
+      last_projection_ = ProjectionMatrix{};
+      return;
     }
-    const float tensor_x = x_norm * input_width_;
-    const float tensor_y = y_norm * input_height_;
-    const float roi_x = (tensor_x - last_transform_.pad_x) / last_transform_.scale;
-    const float roi_y = (tensor_y - last_transform_.pad_y) / last_transform_.scale;
-    const float local_x = roi_x - last_transform_.roi_width * 0.5f;
-    const float local_y = roi_y - last_transform_.roi_height * 0.5f;
+
+    const float inv_image_width = 1.0f / last_image_width_;
+    const float inv_image_height = 1.0f / last_image_height_;
+    const float inv_scale = 1.0f / last_transform_.scale;
     const float cos_r = std::cos(last_transform_.rotation);
     const float sin_r = std::sin(last_transform_.rotation);
-    *image_x = cos_r * local_x - sin_r * local_y + last_transform_.center_x;
-    *image_y = sin_r * local_x + cos_r * local_y + last_transform_.center_y;
+    const float half_roi_width = last_transform_.roi_width * 0.5f;
+    const float half_roi_height = last_transform_.roi_height * 0.5f;
+
+    const float bx =
+        (-last_transform_.pad_x) * inv_scale - half_roi_width;
+    const float by =
+        (-last_transform_.pad_y) * inv_scale - half_roi_height;
+    const float cx =
+        cos_r * bx - sin_r * by + last_transform_.center_x;
+    const float cy =
+        sin_r * bx + cos_r * by + last_transform_.center_y;
+
+    last_projection_.m00 =
+        cos_r * input_width_ * inv_scale * inv_image_width;
+    last_projection_.m01 =
+        -sin_r * input_height_ * inv_scale * inv_image_width;
+    last_projection_.m02 = cx * inv_image_width;
+    last_projection_.m10 =
+        sin_r * input_width_ * inv_scale * inv_image_height;
+    last_projection_.m11 =
+        cos_r * input_height_ * inv_scale * inv_image_height;
+    last_projection_.m12 = cy * inv_image_height;
+  }
+
+  bool ProjectTensorPoint(float x_norm,
+                          float y_norm,
+                          float* image_x,
+                          float* image_y) const {
+    if (!image_x || !image_y) {
+      return false;
+    }
+    *image_x = (last_projection_.m00 * x_norm + last_projection_.m01 * y_norm +
+                last_projection_.m02) *
+               last_image_width_;
+    *image_y = (last_projection_.m10 * x_norm + last_projection_.m11 * y_norm +
+                last_projection_.m12) *
+               last_image_height_;
     return true;
   }
 
@@ -930,6 +971,7 @@ class FaceDetectorContext {
     last_transform_ = CreateTensorTransform(roi);
     last_image_width_ = image.width;
     last_image_height_ = image.height;
+    UpdateProjectionMatrix();
     const float cos_r = std::cos(last_transform_.rotation);
     const float sin_r = std::sin(last_transform_.rotation);
 
@@ -979,6 +1021,7 @@ class FaceDetectorContext {
     last_transform_ = CreateTensorTransform(roi);
     last_image_width_ = rotated_width;
     last_image_height_ = rotated_height;
+    UpdateProjectionMatrix();
     const float cos_r = std::cos(last_transform_.rotation);
     const float sin_r = std::sin(last_transform_.rotation);
 
@@ -1025,6 +1068,7 @@ class FaceDetectorContext {
     last_transform_ = CreateTensorTransform(roi);
     last_image_width_ = image.width;
     last_image_height_ = image.height;
+    UpdateProjectionMatrix();
     const float cos_r = std::cos(last_transform_.rotation);
     const float sin_r = std::sin(last_transform_.rotation);
 
@@ -1074,6 +1118,7 @@ class FaceDetectorContext {
     last_transform_ = CreateTensorTransform(roi);
     last_image_width_ = rotated_width;
     last_image_height_ = rotated_height;
+    UpdateProjectionMatrix();
     const float cos_r = std::cos(last_transform_.rotation);
     const float sin_r = std::sin(last_transform_.rotation);
 
@@ -1354,6 +1399,7 @@ class FaceDetectorContext {
   float min_suppression_threshold_ = 0.3f;
 
   std::string last_error_;
+  ProjectionMatrix last_projection_;
   TensorTransform last_transform_;
   std::vector<float> input_buffer_;
   std::vector<float> boxes_buffer_;
