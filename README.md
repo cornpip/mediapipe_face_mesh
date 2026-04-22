@@ -49,6 +49,7 @@ delegates options:
 If the requested delegate is unavailable or fails to initialize, back to CPU inference.
 
 ### Stream Inference
+
 ```dart
 final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
 NormalizedRect? latestRoi;
@@ -81,16 +82,38 @@ final detectionResult = faceDetector.processNv21(
   nv21Image,
   rotationDegrees: rotationDegrees,
 );
-final roi = detectionResult.primaryDetection?.expandedFaceRect;
+final detection = detectionResult.primaryDetection;
 
-if (roi != null) {
+if (detection != null) {
+  final box = detection.toBox(
+    imageWidth: detectionResult.imageWidth,
+    imageHeight: detectionResult.imageHeight,
+  );
+
   final result = faceMeshProcessor.processNv21(
     nv21Image,
-    roi: roi,
+    box: box,
+    boxScale: 1.2,
+    boxMakeSquare: true,
     rotationDegrees: rotationDegrees,
   );
 }
 ```
+
+**Face Mesh accepts ROI input in two ways.**
+
+For single-frame inference, use `roi` or `box`.
+For stream inference, the same distinction applies through `roiResolver` and `boxResolver`.
+
+- `roi`
+  pass the final `NormalizedRect` directly.
+  Use this when you already have a rotation-aware ROI such as `expandedFaceRect`.
+- `box`
+  pass a `FaceMeshBox`, which is converted internally into a normalized ROI.
+  This path applies clamping, `boxScale`, and `boxMakeSquare`, and produces an axis-aligned ROI (`rotation == 0`).
+
+If both `roi` and `box` are provided, an `ArgumentError` is thrown
+
 
 ## Example
 
