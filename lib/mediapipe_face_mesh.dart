@@ -479,20 +479,43 @@ class MediapipeFaceMeshException implements Exception {
 
 /// High-level wrapper around the native MediaPipe Face Detection model.
 class FaceDetectorProcessor {
-  FaceDetectorProcessor._(this._context) {
+  FaceDetectorProcessor._(
+    this._context, {
+    required double? defaultRoiScaleX,
+    required double? defaultRoiScaleY,
+    required double defaultRoiShiftX,
+    required double defaultRoiShiftY,
+  }) : _defaultRoiScaleX = defaultRoiScaleX,
+       _defaultRoiScaleY = defaultRoiScaleY,
+       _defaultRoiShiftX = defaultRoiShiftX,
+       _defaultRoiShiftY = defaultRoiShiftY {
     _detectorContextFinalizer.attach(this, _context, detach: this);
   }
 
   final ffi.Pointer<MpFaceDetectorContext> _context;
+  final double? _defaultRoiScaleX;
+  final double? _defaultRoiScaleY;
+  final double _defaultRoiShiftX;
+  final double _defaultRoiShiftY;
   bool _closed = false;
 
   /// Creates the native face detector and loads the bundled short-range model.
+  ///
+  /// Commonly adjusted options:
+  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [maxResults] limits the number of detections returned per frame.
+  /// - [roiScaleX], [roiScaleY], [roiShiftX], and [roiShiftY] control how
+  ///   the detector-generated [FaceDetection.expandedFaceRect] is produced.
   static Future<FaceDetectorProcessor> create({
     int threads = 2,
     double minDetectionConfidence = 0.5,
     double minSuppressionThreshold = 0.3,
     int maxResults = 1,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    double? roiScaleX,
+    double? roiScaleY,
+    double roiShiftX = 0.0,
+    double roiShiftY = 0.0,
   }) async {
     final String resolvedModelPath = await _materializeDetectorModel();
 
@@ -516,7 +539,13 @@ class FaceDetectorProcessor {
               'Failed to create face detector context.',
         );
       }
-      return FaceDetectorProcessor._(context);
+      return FaceDetectorProcessor._(
+        context,
+        defaultRoiScaleX: roiScaleX,
+        defaultRoiScaleY: roiScaleY,
+        defaultRoiShiftX: roiShiftX,
+        defaultRoiShiftY: roiShiftY,
+      );
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
@@ -531,17 +560,26 @@ class FaceDetectorProcessor {
     bool mirrorHorizontal = false,
     double? roiScaleX,
     double? roiScaleY,
-    double roiShiftX = 0.0,
-    double roiShiftY = 0.0,
+    double? roiShiftX,
+    double? roiShiftY,
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
+    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
+    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
     final _NativeImage nativeImage = _toNativeImage(image);
     final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
         ? _toNativeRect(roi)
         : ffi.nullptr;
     final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
-        _toNativeRoiTransform(roiScaleX, roiScaleY, roiShiftX, roiShiftY);
+        _toNativeRoiTransform(
+          resolvedRoiScaleX,
+          resolvedRoiScaleY,
+          resolvedRoiShiftX,
+          resolvedRoiShiftY,
+        );
     FaceDetectionResult? processed;
     try {
       final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
@@ -578,17 +616,26 @@ class FaceDetectorProcessor {
     bool mirrorHorizontal = false,
     double? roiScaleX,
     double? roiScaleY,
-    double roiShiftX = 0.0,
-    double roiShiftY = 0.0,
+    double? roiShiftX,
+    double? roiShiftY,
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
+    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
+    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
     final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
     final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
         ? _toNativeRect(roi)
         : ffi.nullptr;
     final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
-        _toNativeRoiTransform(roiScaleX, roiScaleY, roiShiftX, roiShiftY);
+        _toNativeRoiTransform(
+          resolvedRoiScaleX,
+          resolvedRoiScaleY,
+          resolvedRoiShiftX,
+          resolvedRoiShiftY,
+        );
     FaceDetectionResult? processed;
     try {
       final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
@@ -621,18 +668,18 @@ class FaceDetectorProcessor {
   ffi.Pointer<MpRoiTransformOptions> _toNativeRoiTransform(
     double? scaleX,
     double? scaleY,
-    double shiftX,
-    double shiftY,
+    double? shiftX,
+    double? shiftY,
   ) {
-    if (scaleX == null && scaleY == null && shiftX == 0.0 && shiftY == 0.0) {
+    if (scaleX == null && scaleY == null && shiftX == null && shiftY == null) {
       return ffi.nullptr;
     }
     final ffi.Pointer<MpRoiTransformOptions> ptr =
         pkg_ffi.calloc<MpRoiTransformOptions>();
     ptr.ref.scale_x = (scaleX ?? 1.5).toDouble();
     ptr.ref.scale_y = (scaleY ?? 1.5).toDouble();
-    ptr.ref.shift_x = shiftX;
-    ptr.ref.shift_y = shiftY;
+    ptr.ref.shift_x = shiftX ?? 0.0;
+    ptr.ref.shift_y = shiftY ?? 0.0;
     return ptr;
   }
 
@@ -701,6 +748,12 @@ class FaceMeshProcessor {
   bool _closed = false;
 
   /// Creates the native interpreter and loads a model.
+  ///
+  /// Commonly adjusted options:
+  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [enableSmoothing] reduces landmark jitter across frames.
+  /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
+  ///   are omitted in later [process] or [processNv21] calls.
   static Future<FaceMeshProcessor> create({
     int threads = 2,
     double minDetectionConfidence = 0.5,

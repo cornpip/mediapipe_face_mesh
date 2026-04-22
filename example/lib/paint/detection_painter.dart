@@ -28,6 +28,8 @@ class DetectionPainter extends CustomPainter {
     this.showConfidence = true,
     this.showFaceBox = true,
     this.showRoiBox = true,
+    this.faceBoxColor = Colors.amberAccent,
+    this.roiBoxColor = Colors.lightGreenAccent,
   });
 
   final List<Detection> detections;
@@ -35,15 +37,17 @@ class DetectionPainter extends CustomPainter {
   final bool showConfidence;
   final bool showFaceBox;
   final bool showRoiBox;
+  final Color faceBoxColor;
+  final Color roiBoxColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     final rawBoxPaint = Paint()
-      ..color = Colors.amberAccent
+      ..color = faceBoxColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
     final roiPaint = Paint()
-      ..color = Colors.lightGreenAccent
+      ..color = roiBoxColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.0;
 
@@ -63,7 +67,7 @@ class DetectionPainter extends CustomPainter {
           label: showConfidence
               ? '${detection.bboxLabel} ${(detection.confidence * 100).toStringAsFixed(1)}%'
               : detection.bboxLabel,
-          color: Colors.amberAccent,
+          color: faceBoxColor,
         );
       }
 
@@ -75,7 +79,7 @@ class DetectionPainter extends CustomPainter {
           canvas,
           anchorRect: _rotatedRectBounds(rotatedRect, size),
           label: detection.roiLabel,
-          color: Colors.lightGreenAccent,
+          color: roiBoxColor,
         );
       }
     }
@@ -186,6 +190,8 @@ class DetectionPainter extends CustomPainter {
         oldDelegate.lensDirection != lensDirection ||
         oldDelegate.showConfidence != showConfidence ||
         oldDelegate.showFaceBox != showFaceBox ||
-        oldDelegate.showRoiBox != showRoiBox;
+        oldDelegate.showRoiBox != showRoiBox ||
+        oldDelegate.faceBoxColor != faceBoxColor ||
+        oldDelegate.roiBoxColor != roiBoxColor;
   }
 }

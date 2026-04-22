@@ -10,15 +10,49 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 import '../../paint/detection_painter.dart';
 import 'paint/face_mesh_painter.dart';
 
+class _DetectionSnapshot {
+  const _DetectionSnapshot({
+    required this.result,
+    required this.rotationDegrees,
+  });
+
+  final FaceDetectionResult result;
+  final int rotationDegrees;
+
+  FaceDetection? get primaryDetection => result.primaryDetection;
+
+  Size get imageSize => Size(
+    result.imageWidth.toDouble(),
+    result.imageHeight.toDouble(),
+  );
+
+  NormalizedRect? get primaryRoi => primaryDetection?.expandedFaceRect;
+
+  List<Detection> get overlayDetections {
+    return result.detections.map((detection) {
+      return Detection(
+        boundingBox: Rect.fromLTRB(
+          detection.left.clamp(0.0, 1.0),
+          detection.top.clamp(0.0, 1.0),
+          detection.right.clamp(0.0, 1.0),
+          detection.bottom.clamp(0.0, 1.0),
+        ),
+        confidence: detection.score,
+        bboxLabel: 'Face',
+        roiLabel: 'ROI',
+        rotatedRect: detection.expandedFaceRect,
+      );
+    }).toList();
+  }
+}
+
 class MediaPipeFacePage extends StatefulWidget {
   const MediaPipeFacePage({
     super.key,
     required this.cameras,
-    this.useStreamProcessor = true,
   });
 
   final List<CameraDescription> cameras;
-  final bool useStreamProcessor;
 
   @override
   State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
@@ -26,6 +60,9 @@ class MediaPipeFacePage extends StatefulWidget {
 
 class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     with WidgetsBindingObserver {
+  static const String _shortRangeModel = 'short_range';
+  static const String _fullRangeDenseModel = 'full_range_dense';
+  static const String _fullRangeSparseModel = 'full_range_sparse';
   static const Map<DeviceOrientation, int> _deviceOrientationDegrees = {
     DeviceOrientation.portraitUp: 0,
     DeviceOrientation.landscapeLeft: 90,
@@ -58,11 +95,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   StreamController<FaceMeshNv21Image>? _nv21StreamController;
   StreamController<FaceMeshImage>? _bgraStreamController;
   StreamSubscription<FaceMeshResult>? _meshStreamSubscription;
-  FaceDetection? _latestFaceDetection;
-  Size? _latestDetectionImageSize;
-  int? _lastRotationCompensation;
+  _DetectionSnapshot? _latestDetectionSnapshot;
   int? _meshStreamRotation;
   bool _isMeshStreamBusy = false;
+  String _selectedModel = _shortRangeModel;
 
   @override
   void initState() {
@@ -81,6 +117,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _faceDetector = await FaceDetectorProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
         maxResults: 1,
+        roiScaleY: 1.7,
+        roiShiftY: -0.2,
       );
 
       final faceMeshProcessor = await FaceMeshProcessor.create(
@@ -220,9 +258,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _clearDetections() {
     _detections = const [];
     _isProcessingFrame = false;
-    _latestFaceDetection = null;
-    _latestDetectionImageSize = null;
-    _lastRotationCompensation = null;
+    _latestDetectionSnapshot = null;
   }
 
   void _clearMesh() {
@@ -241,7 +277,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _isMeshStreamBusy = false;
   }
 
-  void _startMeshStreamIfNeeded({required int rotationDegrees}) {
+  void _ensureMeshStageReady({required int rotationDegrees}) {
     if (_meshStreamSubscription != null &&
         _meshStreamRotation == rotationDegrees) {
       return;
@@ -360,7 +396,17 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 : Column(
                     children: [
                       Center(child: _buildCameraPreview(isCameraAvailable)),
-                      _buildControlButtons(),
+                      SizedBox(height: 10,),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              _buildModelSelector(),
+                              _buildControlButtons(),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
       ),
@@ -492,6 +538,42 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           color: Colors.white,
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+
+  Widget _buildModelSelector() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+      child: DropdownButtonFormField<String>(
+        initialValue: _selectedModel,
+        decoration: const InputDecoration(
+          labelText: 'Detection Model',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: const [
+          DropdownMenuItem<String>(
+            value: _shortRangeModel,
+            child: Text('Short-range'),
+          ),
+          DropdownMenuItem<String>(
+            value: _fullRangeDenseModel,
+            enabled: false,
+            child: Text('Full-range (dense) - Planned', style: TextStyle(color: Colors.black38),),
+          ),
+          DropdownMenuItem<String>(
+            value: _fullRangeSparseModel,
+            enabled: false,
+            child: Text('Full-range (sparse) - Planned', style: TextStyle(color: Colors.black38),),
+          ),
+        ],
+        onChanged: (value) {
+          if (value == null || value == _selectedModel) {
+            return;
+          }
+          setState(() => _selectedModel = value);
+        },
       ),
     );
   }
@@ -734,113 +816,26 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       return;
     }
     _isProcessingFrame = true;
-    _runFaceDetection(cameraImage, _cameraController!).whenComplete(() {
+    _handleCameraFrame(cameraImage, _cameraController!).whenComplete(() {
       _isProcessingFrame = false;
     });
   }
 
-  Future<void> _runFaceDetection(
+  Future<void> _handleCameraFrame(
     CameraImage cameraImage,
     CameraController controller,
   ) async {
     try {
-      final rotationCompensation =
-          _rotationCompensationDegrees(controller: controller);
-      if (rotationCompensation == null) {
-        return;
-      }
-
-      final FaceDetectionResult detectionResult;
-      if (Platform.isAndroid) {
-        final nv21Image = _buildNv21Image(cameraImage: cameraImage);
-        if (nv21Image == null) {
-          return;
-        }
-        detectionResult = _faceDetector.processNv21(
-          nv21Image,
-          rotationDegrees: rotationCompensation,
-          roiScaleX: 1.5,
-          roiScaleY: 1.7,
-          roiShiftY: -0.2,
-        );
-      } else if (Platform.isIOS) {
-        final bgraImage = _buildBgraImage(cameraImage: cameraImage);
-        if (bgraImage == null) {
-          return;
-        }
-        detectionResult = _faceDetector.process(
-          bgraImage,
-          rotationDegrees: rotationCompensation,
-          roiScaleX: 1.5,
-          roiScaleY: 1.7,
-          roiShiftY: -0.2,
-        );
-      } else {
-        return;
-      }
-      if (!mounted || !_isCameraActive || !_isDetectionActive) {
-        return;
-      }
-
-      final FaceDetection? primaryDetection = detectionResult.primaryDetection;
-      _latestFaceDetection = primaryDetection;
-      _latestDetectionImageSize = Size(
-        detectionResult.imageWidth.toDouble(),
-        detectionResult.imageHeight.toDouble(),
+      final snapshot = _runDetectionStage(
+        cameraImage: cameraImage,
+        controller: controller,
       );
-      _lastRotationCompensation = rotationCompensation;
-
-      FaceMeshResult? meshResult;
-      if (!widget.useStreamProcessor) {
-        if (_isMeshActive && primaryDetection != null) {
-          if (Platform.isAndroid) {
-            meshResult = _runFaceMeshOnAndroidNv21(
-              cameraImage: cameraImage,
-              detection: primaryDetection,
-              rotationCompensationDegrees: rotationCompensation,
-            );
-          } else if (Platform.isIOS) {
-            meshResult = _runFaceMeshOnIosBgra(
-              cameraImage: cameraImage,
-              detection: primaryDetection,
-              rotationCompensationDegrees: rotationCompensation,
-            );
-          }
-        }
-      } else if (_isMeshActive && primaryDetection != null) {
-        _enqueueMeshFrame(
-          cameraImage: cameraImage,
-          rotationCompensationDegrees: rotationCompensation,
-        );
+      if (snapshot == null || !_isDetectionStageActive()) {
+        return;
       }
 
-      final detections = detectionResult.detections.map((detection) {
-        return Detection(
-          boundingBox: Rect.fromLTRB(
-            detection.left.clamp(0.0, 1.0),
-            detection.top.clamp(0.0, 1.0),
-            detection.right.clamp(0.0, 1.0),
-            detection.bottom.clamp(0.0, 1.0),
-          ),
-          confidence: detection.score,
-          bboxLabel: 'Face',
-          roiLabel: 'ROI',
-          rotatedRect: detection.expandedFaceRect,
-        );
-      }).toList();
-
-      if (mounted) {
-        setState(() {
-          _detections = detections;
-          if (!widget.useStreamProcessor && _isMeshActive) {
-            _meshResult = meshResult;
-            _meshRotationCompensation = meshResult != null ? 0 : null;
-          } else if (!_isMeshActive || primaryDetection == null) {
-            _meshResult = null;
-            _meshRotationCompensation = null;
-          }
-        });
-      }
+      _applyDetectionStage(snapshot);
+      _runMeshStage(cameraImage: cameraImage, snapshot: snapshot);
     } catch (error) {
       if (mounted) {
         setState(() => _errorMessage ??= '$error');
@@ -848,6 +843,82 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _errorMessage ??= '$error';
       }
     }
+  }
+
+  bool _isDetectionStageActive() {
+    return mounted && _isCameraActive && _isDetectionActive;
+  }
+
+  _DetectionSnapshot? _runDetectionStage({
+    required CameraImage cameraImage,
+    required CameraController controller,
+  }) {
+    final rotationCompensation =
+        _rotationCompensationDegrees(controller: controller);
+    if (rotationCompensation == null) {
+      return null;
+    }
+
+    final FaceDetectionResult detectionResult;
+    if (Platform.isAndroid) {
+      final nv21Image = _buildNv21Image(cameraImage: cameraImage);
+      if (nv21Image == null) {
+        return null;
+      }
+      detectionResult = _faceDetector.processNv21(
+        nv21Image,
+        rotationDegrees: rotationCompensation,
+      );
+    } else if (Platform.isIOS) {
+      final bgraImage = _buildBgraImage(cameraImage: cameraImage);
+      if (bgraImage == null) {
+        return null;
+      }
+      detectionResult = _faceDetector.process(
+        bgraImage,
+        rotationDegrees: rotationCompensation,
+      );
+    } else {
+      return null;
+    }
+
+    return _DetectionSnapshot(
+      result: detectionResult,
+      rotationDegrees: rotationCompensation,
+    );
+  }
+
+  void _applyDetectionStage(_DetectionSnapshot snapshot) {
+    _latestDetectionSnapshot = snapshot;
+
+    if (mounted) {
+      setState(() {
+        _detections = snapshot.overlayDetections;
+        if (!_isMeshActive || snapshot.primaryDetection == null) {
+          _meshResult = null;
+          _meshRotationCompensation = null;
+        }
+      });
+    } else {
+      _detections = snapshot.overlayDetections;
+      if (!_isMeshActive || snapshot.primaryDetection == null) {
+        _meshResult = null;
+        _meshRotationCompensation = null;
+      }
+    }
+  }
+
+  void _runMeshStage({
+    required CameraImage cameraImage,
+    required _DetectionSnapshot snapshot,
+  }) {
+    if (!_isMeshActive || snapshot.primaryRoi == null) {
+      return;
+    }
+    _pushFrameToMeshStage(
+      cameraImage: cameraImage,
+      rotationDegrees: snapshot.rotationDegrees,
+    );
   }
 
   FaceMeshNv21Image? _buildNv21Image({required CameraImage cameraImage}) {
@@ -911,43 +982,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     );
   }
 
-  FaceMeshResult? _runFaceMeshOnAndroidNv21({
-    required CameraImage cameraImage,
-    required FaceDetection detection,
-    required int rotationCompensationDegrees,
-  }) {
-    final nv21 = _buildNv21Image(cameraImage: cameraImage);
-    if (nv21 == null) {
-      return null;
-    }
-    return _faceMeshProcessor.processNv21(
-      nv21,
-      roi: detection.expandedFaceRect,
-      rotationDegrees: rotationCompensationDegrees,
-    );
-  }
-
-  FaceMeshResult? _runFaceMeshOnIosBgra({
-    required CameraImage cameraImage,
-    required FaceDetection detection,
-    required int rotationCompensationDegrees,
-  }) {
-    final image = _buildBgraImage(cameraImage: cameraImage);
-    if (image == null) {
-      return null;
-    }
-    return _faceMeshProcessor.process(
-      image,
-      roi: detection.expandedFaceRect,
-      rotationDegrees: rotationCompensationDegrees,
-    );
-  }
-
   NormalizedRect? _resolveFaceMeshRoiForNv21(FaceMeshNv21Image frame) {
     return _resolveFaceMeshRoi(
       width: frame.width,
       height: frame.height,
-      rotationDegrees: _meshStreamRotation,
     );
   }
 
@@ -955,62 +993,71 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return _resolveFaceMeshRoi(
       width: frame.width,
       height: frame.height,
-      rotationDegrees: _meshStreamRotation,
     );
   }
 
   NormalizedRect? _resolveFaceMeshRoi({
     required int width,
     required int height,
-    required int? rotationDegrees,
   }) {
-    final detection = _latestFaceDetection;
-    final detectionImageSize = _latestDetectionImageSize;
-    if (detection == null ||
-        detectionImageSize == null ||
-        rotationDegrees == null) {
+    final snapshot = _latestDetectionSnapshot;
+    if (snapshot == null) {
       return null;
     }
+    final rotationDegrees = snapshot.rotationDegrees;
     final bool swapAxes = rotationDegrees == 90 || rotationDegrees == 270;
     final double logicalWidth = swapAxes ? height.toDouble() : width.toDouble();
     final double logicalHeight =
         swapAxes ? width.toDouble() : height.toDouble();
-    if ((detectionImageSize.width - logicalWidth).abs() > 0.5 ||
-        (detectionImageSize.height - logicalHeight).abs() > 0.5) {
+    if ((snapshot.imageSize.width - logicalWidth).abs() > 0.5 ||
+        (snapshot.imageSize.height - logicalHeight).abs() > 0.5) {
       return null;
     }
-    return detection.expandedFaceRect;
+    return snapshot.primaryRoi;
   }
 
-  void _enqueueMeshFrame({
+  void _pushFrameToMeshStage({
     required CameraImage cameraImage,
-    required int rotationCompensationDegrees,
+    required int rotationDegrees,
   }) {
-    if (_latestFaceDetection == null || _isMeshStreamBusy) {
+    if (_latestDetectionSnapshot == null || _isMeshStreamBusy) {
       return;
     }
-    _startMeshStreamIfNeeded(rotationDegrees: rotationCompensationDegrees);
-    if (!_isMeshActive) {
+    if (!_isMeshActive ||
+        !_ensureMeshStageInputReady(rotationDegrees: rotationDegrees)) {
       return;
     }
 
     if (Platform.isAndroid) {
-      final controller = _nv21StreamController;
-      final frame = _buildNv21Image(cameraImage: cameraImage);
-      if (controller == null || controller.isClosed || frame == null) {
-        return;
-      }
-      _isMeshStreamBusy = true;
-      controller.add(frame);
+      _pushNv21FrameToMeshStage(cameraImage);
     } else if (Platform.isIOS) {
-      final controller = _bgraStreamController;
-      final frame = _buildBgraImage(cameraImage: cameraImage);
-      if (controller == null || controller.isClosed || frame == null) {
-        return;
-      }
-      _isMeshStreamBusy = true;
-      controller.add(frame);
+      _pushBgraFrameToMeshStage(cameraImage);
     }
+  }
+
+  bool _ensureMeshStageInputReady({required int rotationDegrees}) {
+    _ensureMeshStageReady(rotationDegrees: rotationDegrees);
+    return _meshStreamSubscription != null;
+  }
+
+  void _pushNv21FrameToMeshStage(CameraImage cameraImage) {
+    final controller = _nv21StreamController;
+    final frame = _buildNv21Image(cameraImage: cameraImage);
+    if (controller == null || controller.isClosed || frame == null) {
+      return;
+    }
+    _isMeshStreamBusy = true;
+    controller.add(frame);
+  }
+
+  void _pushBgraFrameToMeshStage(CameraImage cameraImage) {
+    final controller = _bgraStreamController;
+    final frame = _buildBgraImage(cameraImage: cameraImage);
+    if (controller == null || controller.isClosed || frame == null) {
+      return;
+    }
+    _isMeshStreamBusy = true;
+    controller.add(frame);
   }
 
   int? _rotationCompensationDegrees({required CameraController controller}) {
@@ -1109,11 +1156,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _clearMesh();
     }
 
-    if (widget.useStreamProcessor) {
-      final rotation = _lastRotationCompensation;
-      if (rotation != null) {
-        _startMeshStreamIfNeeded(rotationDegrees: rotation);
-      }
+    final rotation = _latestDetectionSnapshot?.rotationDegrees;
+    if (rotation != null) {
+      _ensureMeshStageReady(rotationDegrees: rotation);
     }
   }
 }
