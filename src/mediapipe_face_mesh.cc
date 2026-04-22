@@ -602,9 +602,9 @@ class FaceMeshContext {
         const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
         const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
         const RgbPixel pixel = BilinearSample(image, source_x, source_y);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -648,9 +648,9 @@ class FaceMeshContext {
         const RgbPixel pixel = BilinearSampleRotated(
             image, source_x, source_y, rotation_degrees, mirror_horizontal,
             rotated_width, rotated_height);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -687,9 +687,9 @@ class FaceMeshContext {
         const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
         const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
         const RgbPixel pixel = BilinearSampleNv21(image, source_x, source_y);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -733,9 +733,9 @@ class FaceMeshContext {
         const RgbPixel pixel = BilinearSampleNv21Rotated(
             image, source_x, source_y, rotation_degrees, mirror_horizontal,
             rotated_width, rotated_height);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;

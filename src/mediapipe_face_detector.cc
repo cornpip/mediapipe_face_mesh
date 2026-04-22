@@ -458,7 +458,8 @@ class FaceDetectorContext {
   MpFaceDetectorResult* Process(const MpImage& image,
                                 const MpNormalizedRect* override_rect,
                                 int rotation_degrees = 0,
-                                bool mirror_horizontal = false) {
+                                bool mirror_horizontal = false,
+                                const MpRoiTransformOptions* roi_transform = nullptr) {
     if (!interpreter_) {
       SetError("Interpreter is not initialized.");
       return nullptr;
@@ -497,13 +498,14 @@ class FaceDetectorContext {
       }
     }
 
-    return InvokeAndDecode(logical_width, logical_height, rect);
+    return InvokeAndDecode(logical_width, logical_height, rect, roi_transform);
   }
 
   MpFaceDetectorResult* ProcessNv21(const MpNv21Image& image,
                                     const MpNormalizedRect* override_rect,
                                     int rotation_degrees = 0,
-                                    bool mirror_horizontal = false) {
+                                    bool mirror_horizontal = false,
+                                    const MpRoiTransformOptions* roi_transform = nullptr) {
     if (!interpreter_) {
       SetError("Interpreter is not initialized.");
       return nullptr;
@@ -538,7 +540,7 @@ class FaceDetectorContext {
       }
     }
 
-    return InvokeAndDecode(logical_width, logical_height, rect);
+    return InvokeAndDecode(logical_width, logical_height, rect, roi_transform);
   }
 
   const char* last_error() const { return last_error_.c_str(); }
@@ -625,7 +627,8 @@ class FaceDetectorContext {
 
   MpFaceDetectorResult* InvokeAndDecode(int logical_width,
                                         int logical_height,
-                                        const MpNormalizedRect& rect) {
+                                        const MpNormalizedRect& rect,
+                                        const MpRoiTransformOptions* roi_transform = nullptr) {
     const size_t input_bytes = input_buffer_.size() * sizeof(float);
     if (runtime_.TensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
                                       input_bytes) != kTfLiteOk) {
@@ -651,7 +654,7 @@ class FaceDetectorContext {
 
     std::vector<DecodedDetection> detections = DecodeDetections(rect);
     if (detections.empty()) {
-      return BuildResult(logical_width, logical_height, detections);
+      return BuildResult(logical_width, logical_height, detections, roi_transform);
     }
 
     std::sort(detections.begin(), detections.end(),
@@ -687,7 +690,7 @@ class FaceDetectorContext {
       }
     }
 
-    return BuildResult(logical_width, logical_height, selected);
+    return BuildResult(logical_width, logical_height, selected, roi_transform);
   }
 
   std::vector<DecodedDetection> DecodeDetections(
@@ -786,7 +789,8 @@ class FaceDetectorContext {
   MpFaceDetectorResult* BuildResult(
       int image_width,
       int image_height,
-      const std::vector<DecodedDetection>& detections) {
+      const std::vector<DecodedDetection>& detections,
+      const MpRoiTransformOptions* roi_transform = nullptr) {
     MpFaceDetectorResult* result = new MpFaceDetectorResult();
     if (!result) {
       SetError("Unable to allocate detector result.");
@@ -815,8 +819,12 @@ class FaceDetectorContext {
       std::memcpy(result->detections[i].keypoints, detections[i].keypoints.data(),
                   sizeof(result->detections[i].keypoints));
       const RectInPixels face_rect = DetectionToRect(detections[i]);
+      const float roi_sx = roi_transform ? roi_transform->scale_x : 1.5f;
+      const float roi_sy = roi_transform ? roi_transform->scale_y : 1.5f;
+      const float roi_dx = roi_transform ? roi_transform->shift_x : 0.0f;
+      const float roi_dy = roi_transform ? roi_transform->shift_y : 0.0f;
       const RectInPixels expanded_face_rect =
-          TransformRect(face_rect, 1.5f, 1.5f, true);
+          TransformRect(face_rect, roi_sx, roi_sy, true, roi_dx, roi_dy);
       result->detections[i].face_rect =
           ToNormalizedRect(face_rect, image_width, image_height);
       result->detections[i].expanded_face_rect =
@@ -859,7 +867,7 @@ class FaceDetectorContext {
     const float dx = right_eye_x - left_eye_x;
     const float dy = right_eye_y - left_eye_y;
     if (std::abs(dx) > 1e-6f || std::abs(dy) > 1e-6f) {
-      rect.rotation = NormalizeAngle(-std::atan2(dy, dx));
+      rect.rotation = NormalizeAngle(std::atan2(dy, dx));
     }
     return rect;
   }
@@ -1450,14 +1458,15 @@ MpFaceDetectorResult* mp_face_detector_process(
     const MpImage* image,
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
-    uint8_t mirror_horizontal) {
+    uint8_t mirror_horizontal,
+    const MpRoiTransformOptions* roi_transform) {
   if (!context || !image) {
     GlobalFaceDetectorError() = "Detector context or image is null.";
     return nullptr;
   }
   MpFaceDetectorResult* result =
       context->impl.Process(*image, override_rect, rotation_degrees,
-                            mirror_horizontal != 0);
+                            mirror_horizontal != 0, roi_transform);
   if (!result) {
     GlobalFaceDetectorError() = context->impl.last_error();
   } else {
@@ -1471,14 +1480,15 @@ MpFaceDetectorResult* mp_face_detector_process_nv21(
     const MpNv21Image* image,
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
-    uint8_t mirror_horizontal) {
+    uint8_t mirror_horizontal,
+    const MpRoiTransformOptions* roi_transform) {
   if (!context || !image) {
     GlobalFaceDetectorError() = "Detector context or image is null.";
     return nullptr;
   }
   MpFaceDetectorResult* result =
       context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
-                                mirror_horizontal != 0);
+                                mirror_horizontal != 0, roi_transform);
   if (!result) {
     GlobalFaceDetectorError() = context->impl.last_error();
   } else {

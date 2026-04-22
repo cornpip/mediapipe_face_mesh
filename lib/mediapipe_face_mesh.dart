@@ -1,5 +1,6 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
@@ -85,6 +86,51 @@ class NormalizedRect {
     height: rect.height,
     rotation: rect.rotation,
   );
+
+  /// Returns a new [NormalizedRect] with scale, shift, and optional squaring
+  /// applied — mirroring the C++ `RectTransformationCalculator` logic.
+  ///
+  /// All shifts and scales operate in the **face's own coordinate system**
+  /// (i.e. rotated by [rotation]), so the result is correct even for tilted
+  /// faces.
+  ///
+  /// Parameters:
+  /// - [scaleX] / [scaleY]: multiply width / height (default 1.0, no change).
+  /// - [squareLong]: if true, both sides are set to `max(width, height)` before
+  ///   scaling (equivalent to MediaPipe's `square_long: true`).
+  /// - [shiftX] / [shiftY]: shift the center in the face's local axes,
+  ///   expressed as a fraction of the **original** (pre-scale) width / height.
+  ///   Negative [shiftY] moves toward the top of the head.
+  NormalizedRect transform({
+    double scaleX = 1.0,
+    double scaleY = 1.0,
+    bool squareLong = false,
+    double shiftX = 0.0,
+    double shiftY = 0.0,
+  }) {
+    double outWidth = width;
+    double outHeight = height;
+    if (squareLong) {
+      final longSide = outWidth > outHeight ? outWidth : outHeight;
+      outWidth = longSide;
+      outHeight = longSide;
+    }
+
+    final cosR = math.cos(rotation);
+    final sinR = math.sin(rotation);
+
+    // Shift uses the original (pre-squareLong) dimensions, matching C++.
+    final newCenterX = xCenter + width * shiftX * cosR - height * shiftY * sinR;
+    final newCenterY = yCenter + width * shiftX * sinR + height * shiftY * cosR;
+
+    return NormalizedRect(
+      xCenter: newCenterX,
+      yCenter: newCenterY,
+      width: outWidth * scaleX,
+      height: outHeight * scaleY,
+      rotation: rotation,
+    );
+  }
 
   @override
   String toString() =>
@@ -483,6 +529,10 @@ class FaceDetectorProcessor {
     NormalizedRect? roi,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double roiShiftX = 0.0,
+    double roiShiftY = 0.0,
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
@@ -490,6 +540,8 @@ class FaceDetectorProcessor {
     final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
         ? _toNativeRect(roi)
         : ffi.nullptr;
+    final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
+        _toNativeRoiTransform(roiScaleX, roiScaleY, roiShiftX, roiShiftY);
     FaceDetectionResult? processed;
     try {
       final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
@@ -499,6 +551,7 @@ class FaceDetectorProcessor {
             roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
             rotationDegrees,
             mirrorHorizontal ? 1 : 0,
+            roiTransformPtr,
           );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
@@ -511,9 +564,8 @@ class FaceDetectorProcessor {
     } finally {
       pkg_ffi.calloc.free(nativeImage.pixels);
       pkg_ffi.calloc.free(nativeImage.image);
-      if (roiPtr != ffi.nullptr) {
-        pkg_ffi.calloc.free(roiPtr);
-      }
+      if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
+      if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
     }
     return processed;
   }
@@ -524,6 +576,10 @@ class FaceDetectorProcessor {
     NormalizedRect? roi,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double roiShiftX = 0.0,
+    double roiShiftY = 0.0,
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
@@ -531,6 +587,8 @@ class FaceDetectorProcessor {
     final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
         ? _toNativeRect(roi)
         : ffi.nullptr;
+    final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
+        _toNativeRoiTransform(roiScaleX, roiScaleY, roiShiftX, roiShiftY);
     FaceDetectionResult? processed;
     try {
       final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
@@ -540,6 +598,7 @@ class FaceDetectorProcessor {
             roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
             rotationDegrees,
             mirrorHorizontal ? 1 : 0,
+            roiTransformPtr,
           );
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
@@ -553,11 +612,28 @@ class FaceDetectorProcessor {
       pkg_ffi.calloc.free(nativeImage.yPlane);
       pkg_ffi.calloc.free(nativeImage.vuPlane);
       pkg_ffi.calloc.free(nativeImage.image);
-      if (roiPtr != ffi.nullptr) {
-        pkg_ffi.calloc.free(roiPtr);
-      }
+      if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
+      if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
     }
     return processed;
+  }
+
+  ffi.Pointer<MpRoiTransformOptions> _toNativeRoiTransform(
+    double? scaleX,
+    double? scaleY,
+    double shiftX,
+    double shiftY,
+  ) {
+    if (scaleX == null && scaleY == null && shiftX == 0.0 && shiftY == 0.0) {
+      return ffi.nullptr;
+    }
+    final ffi.Pointer<MpRoiTransformOptions> ptr =
+        pkg_ffi.calloc<MpRoiTransformOptions>();
+    ptr.ref.scale_x = (scaleX ?? 1.5).toDouble();
+    ptr.ref.scale_y = (scaleY ?? 1.5).toDouble();
+    ptr.ref.shift_x = shiftX;
+    ptr.ref.shift_y = shiftY;
+    return ptr;
   }
 
   FaceDetectionResult _copyResult(MpFaceDetectorResult nativeResult) {

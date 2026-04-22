@@ -26,8 +26,6 @@ class MediaPipeFacePage extends StatefulWidget {
 
 class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     with WidgetsBindingObserver {
-  static const double _boxScale = 1.4;
-
   static const Map<DeviceOrientation, int> _deviceOrientationDegrees = {
     DeviceOrientation.portraitUp: 0,
     DeviceOrientation.landscapeLeft: 90,
@@ -256,9 +254,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .processNv21(
             _nv21StreamController!.stream,
-            boxResolver: _resolveFaceMeshBoxForNv21,
-            boxScale: _boxScale,
-            boxMakeSquare: true,
+            roiResolver: _resolveFaceMeshRoiForNv21,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleMeshResult, onError: _handleMeshError);
@@ -267,9 +263,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _meshStreamSubscription = _faceMeshStreamProcessor
           .process(
             _bgraStreamController!.stream,
-            boxResolver: _resolveFaceMeshBoxForBgra,
-            boxScale: _boxScale,
-            boxMakeSquare: true,
+            roiResolver: _resolveFaceMeshRoiForBgra,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleMeshResult, onError: _handleMeshError);
@@ -760,6 +754,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         detectionResult = _faceDetector.processNv21(
           nv21Image,
           rotationDegrees: rotationCompensation,
+          roiScaleX: 1.5,
+          roiScaleY: 1.7,
+          roiShiftY: -0.2,
         );
       } else if (Platform.isIOS) {
         final bgraImage = _buildBgraImage(cameraImage: cameraImage);
@@ -769,6 +766,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         detectionResult = _faceDetector.process(
           bgraImage,
           rotationDegrees: rotationCompensation,
+          roiScaleX: 1.5,
+          roiScaleY: 1.7,
+          roiShiftY: -0.2,
         );
       } else {
         return;
@@ -915,12 +915,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (nv21 == null) {
       return null;
     }
-
     return _faceMeshProcessor.processNv21(
       nv21,
-      box: _detectionToBox(detection),
-      boxScale: _boxScale,
-      boxMakeSquare: true,
+      roi: detection.expandedFaceRect,
       rotationDegrees: rotationCompensationDegrees,
     );
   }
@@ -934,33 +931,30 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (image == null) {
       return null;
     }
-
     return _faceMeshProcessor.process(
       image,
-      box: _detectionToBox(detection),
-      boxScale: _boxScale,
-      boxMakeSquare: true,
+      roi: detection.expandedFaceRect,
       rotationDegrees: rotationCompensationDegrees,
     );
   }
 
-  FaceMeshBox? _resolveFaceMeshBoxForNv21(FaceMeshNv21Image frame) {
-    return _resolveFaceMeshBox(
+  NormalizedRect? _resolveFaceMeshRoiForNv21(FaceMeshNv21Image frame) {
+    return _resolveFaceMeshRoi(
       width: frame.width,
       height: frame.height,
       rotationDegrees: _meshStreamRotation,
     );
   }
 
-  FaceMeshBox? _resolveFaceMeshBoxForBgra(FaceMeshImage frame) {
-    return _resolveFaceMeshBox(
+  NormalizedRect? _resolveFaceMeshRoiForBgra(FaceMeshImage frame) {
+    return _resolveFaceMeshRoi(
       width: frame.width,
       height: frame.height,
       rotationDegrees: _meshStreamRotation,
     );
   }
 
-  FaceMeshBox? _resolveFaceMeshBox({
+  NormalizedRect? _resolveFaceMeshRoi({
     required int width,
     required int height,
     required int? rotationDegrees,
@@ -980,7 +974,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         (detectionImageSize.height - logicalHeight).abs() > 0.5) {
       return null;
     }
-    return _detectionToBox(detection);
+    return detection.expandedFaceRect;
   }
 
   void _enqueueMeshFrame({
@@ -1012,17 +1006,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _isMeshStreamBusy = true;
       controller.add(frame);
     }
-  }
-
-  FaceMeshBox _detectionToBox(FaceDetection detection) {
-    final Size? imageSize = _latestDetectionImageSize;
-    if (imageSize == null) {
-      throw StateError('Detection image size is not available.');
-    }
-    return detection.toBox(
-      imageWidth: imageSize.width.round(),
-      imageHeight: imageSize.height.round(),
-    );
   }
 
   int? _rotationCompensationDegrees({required CameraController controller}) {

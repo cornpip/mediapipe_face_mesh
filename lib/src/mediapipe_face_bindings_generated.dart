@@ -222,6 +222,7 @@ class MediapipeFaceBindings {
     ffi.Pointer<MpNormalizedRect> override_rect,
     int rotation_degrees,
     int mirror_horizontal,
+    ffi.Pointer<MpRoiTransformOptions> roi_transform,
   ) {
     return _mp_face_detector_process(
       context,
@@ -229,6 +230,7 @@ class MediapipeFaceBindings {
       override_rect,
       rotation_degrees,
       mirror_horizontal,
+      roi_transform,
     );
   }
 
@@ -241,6 +243,7 @@ class MediapipeFaceBindings {
             ffi.Pointer<MpNormalizedRect>,
             ffi.Int32,
             ffi.Uint8,
+            ffi.Pointer<MpRoiTransformOptions>,
           )
         >
       >('mp_face_detector_process');
@@ -252,6 +255,7 @@ class MediapipeFaceBindings {
           ffi.Pointer<MpNormalizedRect>,
           int,
           int,
+          ffi.Pointer<MpRoiTransformOptions>,
         )
       >();
 
@@ -261,6 +265,7 @@ class MediapipeFaceBindings {
     ffi.Pointer<MpNormalizedRect> override_rect,
     int rotation_degrees,
     int mirror_horizontal,
+    ffi.Pointer<MpRoiTransformOptions> roi_transform,
   ) {
     return _mp_face_detector_process_nv21(
       context,
@@ -268,6 +273,7 @@ class MediapipeFaceBindings {
       override_rect,
       rotation_degrees,
       mirror_horizontal,
+      roi_transform,
     );
   }
 
@@ -280,6 +286,7 @@ class MediapipeFaceBindings {
             ffi.Pointer<MpNormalizedRect>,
             ffi.Int32,
             ffi.Uint8,
+            ffi.Pointer<MpRoiTransformOptions>,
           )
         >
       >('mp_face_detector_process_nv21');
@@ -291,6 +298,7 @@ class MediapipeFaceBindings {
           ffi.Pointer<MpNormalizedRect>,
           int,
           int,
+          ffi.Pointer<MpRoiTransformOptions>,
         )
       >();
 
@@ -529,4 +537,18 @@ final class MpFaceDetectorCreateOptions extends ffi.Struct {
 
   @ffi.UnsignedInt()
   external int delegate;
+}
+
+final class MpRoiTransformOptions extends ffi.Struct {
+  @ffi.Float()
+  external double scale_x;
+
+  @ffi.Float()
+  external double scale_y;
+
+  @ffi.Float()
+  external double shift_x;
+
+  @ffi.Float()
+  external double shift_y;
 }

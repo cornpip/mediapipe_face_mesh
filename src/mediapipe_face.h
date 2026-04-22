@@ -105,6 +105,13 @@ typedef struct {
   MpDelegateType delegate;
 } MpFaceDetectorCreateOptions;
 
+typedef struct {
+  float scale_x;
+  float scale_y;
+  float shift_x;
+  float shift_y;
+} MpRoiTransformOptions;
+
 FFI_PLUGIN_EXPORT MpFaceMeshContext* mp_face_mesh_create(
     const char* model_path, const MpFaceMeshCreateOptions* options);
 
@@ -141,14 +148,16 @@ FFI_PLUGIN_EXPORT MpFaceDetectorResult* mp_face_detector_process(
     const MpImage* image,
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
-    uint8_t mirror_horizontal);
+    uint8_t mirror_horizontal,
+    const MpRoiTransformOptions* roi_transform);
 
 FFI_PLUGIN_EXPORT MpFaceDetectorResult* mp_face_detector_process_nv21(
     MpFaceDetectorContext* context,
     const MpNv21Image* image,
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
-    uint8_t mirror_horizontal);
+    uint8_t mirror_horizontal,
+    const MpRoiTransformOptions* roi_transform);
 
 FFI_PLUGIN_EXPORT void mp_face_detector_release_result(
     MpFaceDetectorResult* result);
