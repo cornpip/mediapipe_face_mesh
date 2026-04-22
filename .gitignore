@@ -33,3 +33,4 @@ migrate_working_dir/
 /coverage/
 .codex
 /.claude
+SECRET_AGENTS_RULE.md
