@@ -13,6 +13,7 @@ Reference: [MediaPipe TFLite models](https://github.com/google-ai-edge/mediapipe
 
 - Android(arm64-v8a, x86_64)
 - iOS
+- Dart SDK: `>=3.8.1 <4.0.0`
 
 ## Install
 

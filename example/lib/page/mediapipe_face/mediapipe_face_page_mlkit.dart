@@ -38,7 +38,9 @@ class _MlkitDetectionSnapshot {
           (box.bottom / adjustedImageSize.height).clamp(0.0, 1.0),
         ),
         confidence: 1.0,
-        bboxLabel: face.trackingId != null ? 'Face #${face.trackingId}' : 'Face',
+        bboxLabel: face.trackingId != null
+            ? 'Face #${face.trackingId}'
+            : 'Face',
       );
     }).toList();
   }
@@ -49,10 +51,7 @@ class _MlkitDetectionSnapshot {
 /// Note: `example/pubspec.yaml` must include `google_mlkit_face_detection`
 /// before this file can be used in the example app.
 class MediaPipeFacePageMlkit extends StatefulWidget {
-  const MediaPipeFacePageMlkit({
-    super.key,
-    required this.cameras,
-  });
+  const MediaPipeFacePageMlkit({super.key, required this.cameras});
 
   final List<CameraDescription> cameras;
 
@@ -74,6 +73,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
 
   CameraController? _cameraController;
   String? _errorMessage;
+  String? _warningMessage;
   bool _isInitializing = true;
   bool _isCameraActive = false;
   bool _isCameraBusy = false;
@@ -188,8 +188,9 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
       description,
       ResolutionPreset.veryHigh,
       enableAudio: false,
-      imageFormatGroup:
-          Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
+      imageFormatGroup: Platform.isIOS
+          ? ImageFormatGroup.bgra8888
+          : ImageFormatGroup.nv21,
     );
     _cameraController = controller;
 
@@ -263,6 +264,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     _detections = const [];
     _isProcessingFrame = false;
     _latestDetectionSnapshot = null;
+    _warningMessage = null;
   }
 
   void _clearMesh() {
@@ -390,23 +392,31 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     return Scaffold(
       appBar: AppBar(
         title: const Text('MLKit Det + Mediapipe Mesh'),
-        titleTextStyle: const TextStyle(
-          color: Colors.black,
-          fontSize: 16,
-        ),
+        titleTextStyle: const TextStyle(color: Colors.black, fontSize: 16),
         centerTitle: true,
       ),
       body: SafeArea(
         child: _errorMessage != null
             ? _buildErrorView()
             : _isInitializing
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-                    children: [
-                      Center(child: _buildCameraPreview(isCameraAvailable)),
-                      _buildControlButtons(),
-                    ],
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Center(child: _buildCameraPreview(isCameraAvailable)),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_warningMessage != null)
+                            _buildWarningRow(_warningMessage!),
+                          _buildControlButtons(),
+                        ],
+                      ),
+                    ),
                   ),
+                ],
+              ),
       ),
     );
   }
@@ -427,7 +437,9 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
   Widget _buildCameraPreview(bool isCameraAvailable) {
     final controller = _cameraController;
     final isControllerReady = controller?.value.isInitialized == true;
-    final previewSize = isControllerReady ? controller!.value.previewSize : null;
+    final previewSize = isControllerReady
+        ? controller!.value.previewSize
+        : null;
     final nativeAspectRatio = (previewSize != null && previewSize.width != 0)
         ? previewSize.height / previewSize.width
         : 3 / 4;
@@ -502,11 +514,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
                   ),
                 ),
                 if (isCameraAvailable)
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: _infoChip(fpsText),
-                  ),
+                  Positioned(top: 12, right: 12, child: _infoChip(fpsText)),
                 Positioned(
                   bottom: 12,
                   left: 12,
@@ -532,6 +540,37 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWarningRow(String message) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade100,
+          border: Border.all(color: Colors.amber.shade700),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.amber.shade900,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -570,8 +609,8 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
                 child: ElevatedButton.icon(
                   onPressed:
                       (!_isCameraActive || _isCameraBusy || !isControllerReady)
-                          ? null
-                          : _toggleDetection,
+                      ? null
+                      : _toggleDetection,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isDetectionActive
                         ? Colors.orangeAccent
@@ -594,15 +633,17 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: (!_isCameraActive ||
+                  onPressed:
+                      (!_isCameraActive ||
                           _isCameraBusy ||
                           !isControllerReady ||
                           !_isDetectionActive)
                       ? null
                       : _toggleMesh,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _isMeshActive ? Colors.purpleAccent : Colors.purple,
+                    backgroundColor: _isMeshActive
+                        ? Colors.purpleAccent
+                        : Colors.purple,
                     foregroundColor: Colors.black,
                   ),
                   icon: Icon(
@@ -615,7 +656,8 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: (widget.cameras.length < 2 ||
+                  onPressed:
+                      (widget.cameras.length < 2 ||
                           _isChangingCamera ||
                           _isCameraBusy ||
                           !_isCameraActive ||
@@ -813,8 +855,9 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
     required CameraImage cameraImage,
     required CameraController controller,
   }) async {
-    final rotationCompensation =
-        _rotationCompensationDegrees(controller: controller);
+    final rotationCompensation = _rotationCompensationDegrees(
+      controller: controller,
+    );
     if (rotationCompensation == null) {
       return null;
     }
@@ -833,8 +876,10 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
       inputImageRotation: inputImageRotation,
     );
     if (inputImage == null) {
+      _setWarningMessage(_unsupportedFormatMessage(cameraImage));
       return null;
     }
+    _setWarningMessage(null);
 
     final faces = await _faceDetector.processImage(inputImage);
     final adjustedImageSize = _adjustedImageSize(
@@ -846,6 +891,24 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
       rotationDegrees: rotationCompensation,
       adjustedImageSize: adjustedImageSize,
     );
+  }
+
+  void _setWarningMessage(String? message) {
+    if (_warningMessage == message) {
+      return;
+    }
+    if (mounted) {
+      setState(() => _warningMessage = message);
+    } else {
+      _warningMessage = message;
+    }
+  }
+
+  String _unsupportedFormatMessage(CameraImage image) {
+    final format =
+        InputImageFormatValue.fromRawValue(image.format.raw)?.name ??
+        '${image.format.raw}';
+    return 'Unsupported camera image format: $format, planes=${image.planes.length}.';
   }
 
   void _applyDetectionStage(_MlkitDetectionSnapshot snapshot) {
@@ -1054,7 +1117,9 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
 
     if (!_isDetectionActive) {
       if (mounted) {
-        setState(() => _errorMessage ??= 'Start Detect first to get a face ROI.');
+        setState(
+          () => _errorMessage ??= 'Start Detect first to get a face ROI.',
+        );
       }
       return;
     }
@@ -1096,13 +1161,64 @@ class _MlkitInputImageConverter {
   }) {
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
 
-    final isValidFormat = format != null &&
-        ((Platform.isAndroid && format == InputImageFormat.nv21) ||
-            (Platform.isIOS && format == InputImageFormat.bgra8888));
+    switch (format) {
+      case InputImageFormat.yuv_420_888:
+        if (!Platform.isAndroid) {
+          return null;
+        }
+        return _fromAndroidYuv420888(
+          image: image,
+          inputImageRotation: inputImageRotation,
+        );
+      case InputImageFormat.nv21:
+        if (!Platform.isAndroid) {
+          return null;
+        }
+        return _fromSinglePlaneImage(
+          image: image,
+          inputImageRotation: inputImageRotation,
+          format: InputImageFormat.nv21,
+        );
+      case InputImageFormat.bgra8888:
+        if (!Platform.isIOS) {
+          return null;
+        }
+        return _fromSinglePlaneImage(
+          image: image,
+          inputImageRotation: inputImageRotation,
+          format: InputImageFormat.bgra8888,
+        );
+      case InputImageFormat.yv12:
+      case InputImageFormat.yuv420:
+      case null:
+        return null;
+    }
+  }
 
-    if (!isValidFormat) {
+  InputImage? _fromAndroidYuv420888({
+    required CameraImage image,
+    required InputImageRotation inputImageRotation,
+  }) {
+    final nv21Image = FaceMeshCameraImageAdapter.toNv21(image);
+    if (nv21Image == null) {
       return null;
     }
+    return InputImage.fromBytes(
+      bytes: _combineNv21Bytes(nv21Image),
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: inputImageRotation,
+        format: InputImageFormat.nv21,
+        bytesPerRow: image.width,
+      ),
+    );
+  }
+
+  InputImage? _fromSinglePlaneImage({
+    required CameraImage image,
+    required InputImageRotation inputImageRotation,
+    required InputImageFormat format,
+  }) {
     if (image.planes.length != 1) {
       return null;
     }
@@ -1117,5 +1233,12 @@ class _MlkitInputImageConverter {
         bytesPerRow: plane.bytesPerRow,
       ),
     );
+  }
+
+  Uint8List _combineNv21Bytes(FaceMeshNv21Image image) {
+    final bytes = Uint8List(image.yPlane.length + image.vuPlane.length);
+    bytes.setAll(0, image.yPlane);
+    bytes.setAll(image.yPlane.length, image.vuPlane);
+    return bytes;
   }
 }
