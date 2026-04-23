@@ -178,9 +178,177 @@ class MediapipeFaceBindings {
   late final _mp_face_mesh_last_global_error =
       _mp_face_mesh_last_global_errorPtr
           .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  ffi.Pointer<MpFaceDetectorContext> mp_face_detector_create(
+    ffi.Pointer<ffi.Char> model_path,
+    ffi.Pointer<MpFaceDetectorCreateOptions> options,
+  ) {
+    return _mp_face_detector_create(model_path, options);
+  }
+
+  late final _mp_face_detector_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceDetectorContext> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<MpFaceDetectorCreateOptions>,
+          )
+        >
+      >('mp_face_detector_create');
+  late final _mp_face_detector_create = _mp_face_detector_createPtr
+      .asFunction<
+        ffi.Pointer<MpFaceDetectorContext> Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<MpFaceDetectorCreateOptions>,
+        )
+      >();
+
+  void mp_face_detector_destroy(ffi.Pointer<MpFaceDetectorContext> context) {
+    return _mp_face_detector_destroy(context);
+  }
+
+  late final _mp_face_detector_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<MpFaceDetectorContext>)
+        >
+      >('mp_face_detector_destroy');
+  late final _mp_face_detector_destroy = _mp_face_detector_destroyPtr
+      .asFunction<void Function(ffi.Pointer<MpFaceDetectorContext>)>();
+
+  ffi.Pointer<MpFaceDetectorResult> mp_face_detector_process(
+    ffi.Pointer<MpFaceDetectorContext> context,
+    ffi.Pointer<MpImage> image,
+    ffi.Pointer<MpNormalizedRect> override_rect,
+    int rotation_degrees,
+    int mirror_horizontal,
+    ffi.Pointer<MpRoiTransformOptions> roi_transform,
+  ) {
+    return _mp_face_detector_process(
+      context,
+      image,
+      override_rect,
+      rotation_degrees,
+      mirror_horizontal,
+      roi_transform,
+    );
+  }
+
+  late final _mp_face_detector_processPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceDetectorResult> Function(
+            ffi.Pointer<MpFaceDetectorContext>,
+            ffi.Pointer<MpImage>,
+            ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Uint8,
+            ffi.Pointer<MpRoiTransformOptions>,
+          )
+        >
+      >('mp_face_detector_process');
+  late final _mp_face_detector_process = _mp_face_detector_processPtr
+      .asFunction<
+        ffi.Pointer<MpFaceDetectorResult> Function(
+          ffi.Pointer<MpFaceDetectorContext>,
+          ffi.Pointer<MpImage>,
+          ffi.Pointer<MpNormalizedRect>,
+          int,
+          int,
+          ffi.Pointer<MpRoiTransformOptions>,
+        )
+      >();
+
+  ffi.Pointer<MpFaceDetectorResult> mp_face_detector_process_nv21(
+    ffi.Pointer<MpFaceDetectorContext> context,
+    ffi.Pointer<MpNv21Image> image,
+    ffi.Pointer<MpNormalizedRect> override_rect,
+    int rotation_degrees,
+    int mirror_horizontal,
+    ffi.Pointer<MpRoiTransformOptions> roi_transform,
+  ) {
+    return _mp_face_detector_process_nv21(
+      context,
+      image,
+      override_rect,
+      rotation_degrees,
+      mirror_horizontal,
+      roi_transform,
+    );
+  }
+
+  late final _mp_face_detector_process_nv21Ptr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceDetectorResult> Function(
+            ffi.Pointer<MpFaceDetectorContext>,
+            ffi.Pointer<MpNv21Image>,
+            ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Uint8,
+            ffi.Pointer<MpRoiTransformOptions>,
+          )
+        >
+      >('mp_face_detector_process_nv21');
+  late final _mp_face_detector_process_nv21 = _mp_face_detector_process_nv21Ptr
+      .asFunction<
+        ffi.Pointer<MpFaceDetectorResult> Function(
+          ffi.Pointer<MpFaceDetectorContext>,
+          ffi.Pointer<MpNv21Image>,
+          ffi.Pointer<MpNormalizedRect>,
+          int,
+          int,
+          ffi.Pointer<MpRoiTransformOptions>,
+        )
+      >();
+
+  void mp_face_detector_release_result(
+    ffi.Pointer<MpFaceDetectorResult> result,
+  ) {
+    return _mp_face_detector_release_result(result);
+  }
+
+  late final _mp_face_detector_release_resultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpFaceDetectorResult>)>
+      >('mp_face_detector_release_result');
+  late final _mp_face_detector_release_result =
+      _mp_face_detector_release_resultPtr
+          .asFunction<void Function(ffi.Pointer<MpFaceDetectorResult>)>();
+
+  ffi.Pointer<ffi.Char> mp_face_detector_last_error(
+    ffi.Pointer<MpFaceDetectorContext> context,
+  ) {
+    return _mp_face_detector_last_error(context);
+  }
+
+  late final _mp_face_detector_last_errorPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceDetectorContext>)
+        >
+      >('mp_face_detector_last_error');
+  late final _mp_face_detector_last_error = _mp_face_detector_last_errorPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpFaceDetectorContext>)
+      >();
+
+  ffi.Pointer<ffi.Char> mp_face_detector_last_global_error() {
+    return _mp_face_detector_last_global_error();
+  }
+
+  late final _mp_face_detector_last_global_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_face_detector_last_global_error',
+      );
+  late final _mp_face_detector_last_global_error =
+      _mp_face_detector_last_global_errorPtr
+          .asFunction<ffi.Pointer<ffi.Char> Function()>();
 }
 
 final class MpFaceMeshContext extends ffi.Opaque {}
+
+final class MpFaceDetectorContext extends ffi.Opaque {}
 
 enum MpPixelFormat {
   MP_PIXEL_FORMAT_RGBA(0),
@@ -305,6 +473,9 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
   @ffi.Float()
   external double min_tracking_confidence;
 
+  @ffi.Float()
+  external double min_face_presence_confidence;
+
   @ffi.UnsignedInt()
   external int delegate;
 
@@ -313,4 +484,74 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
 
   @ffi.Uint8()
   external int enable_roi_tracking;
+}
+
+final class MpDetection extends ffi.Struct {
+  @ffi.Float()
+  external double left;
+
+  @ffi.Float()
+  external double top;
+
+  @ffi.Float()
+  external double right;
+
+  @ffi.Float()
+  external double bottom;
+
+  @ffi.Float()
+  external double score;
+
+  @ffi.Array.multi([12])
+  external ffi.Array<ffi.Float> keypoints;
+
+  external MpNormalizedRect face_rect;
+
+  external MpNormalizedRect expanded_face_rect;
+}
+
+final class MpFaceDetectorResult extends ffi.Struct {
+  external ffi.Pointer<MpDetection> detections;
+
+  @ffi.Int32()
+  external int detections_count;
+
+  @ffi.Int32()
+  external int image_width;
+
+  @ffi.Int32()
+  external int image_height;
+}
+
+final class MpFaceDetectorCreateOptions extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> tflite_library_path;
+
+  @ffi.Int32()
+  external int threads;
+
+  @ffi.Float()
+  external double min_detection_confidence;
+
+  @ffi.Float()
+  external double min_suppression_threshold;
+
+  @ffi.Int32()
+  external int max_results;
+
+  @ffi.UnsignedInt()
+  external int delegate;
+}
+
+final class MpRoiTransformOptions extends ffi.Struct {
+  @ffi.Float()
+  external double scale_x;
+
+  @ffi.Float()
+  external double scale_y;
+
+  @ffi.Float()
+  external double shift_x;
+
+  @ffi.Float()
+  external double shift_y;
 }

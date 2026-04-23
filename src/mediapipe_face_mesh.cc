@@ -95,6 +95,10 @@ class FaceMeshContext {
         (options && options->min_tracking_confidence > 0.f)
             ? options->min_tracking_confidence
             : 0.5f;
+    min_face_presence_confidence_ =
+        (options && options->min_face_presence_confidence > 0.f)
+            ? options->min_face_presence_confidence
+            : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
     roi_tracking_enabled_ = !options || options->enable_roi_tracking != 0;
 
@@ -344,42 +348,37 @@ class FaceMeshContext {
       return nullptr;
     }
 
-    float score = 1.0f;
+    float raw_score = 0.0f;
     if (output_score_tensor_) {
-      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &score,
+      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
                                       sizeof(float)) != kTfLiteOk) {
         SetError("Unable to read confidence output.");
         return nullptr;
       }
     }
+    const float face_presence_score =
+        1.0f / (1.0f + std::exp(-raw_score));
 
     MpFaceMeshResult* result =
-        BuildResultFromSize(logical_width, logical_height, rect, score);
+        BuildResultFromSize(logical_width, logical_height, rect,
+                            face_presence_score);
     if (!result) {
       return nullptr;
     }
 
-    // Debug: log raw landmark ranges before normalization.
-    if (!landmarks_buffer_.empty()) {
-      float min_x = landmarks_buffer_[0];
-      float max_x = landmarks_buffer_[0];
-      float min_y = landmarks_buffer_[1];
-      float max_y = landmarks_buffer_[1];
-      for (int i = 0; i < output_landmark_count_; ++i) {
-        const float rx = landmarks_buffer_[i * 3];
-        const float ry = landmarks_buffer_[i * 3 + 1];
-        min_x = std::min(min_x, rx);
-        max_x = std::max(max_x, rx);
-        min_y = std::min(min_y, ry);
-        max_y = std::max(max_y, ry);
+    if (face_presence_score < min_face_presence_confidence_) {
+      result->landmarks_count = 0;
+      delete[] result->landmarks;
+      result->landmarks = nullptr;
+      if (roi_tracking_enabled_ && !override_rect) {
+        has_valid_rect_ = false;
       }
-      MP_LOGI("Raw landmarks: count=%d min_x=%.3f max_x=%.3f min_y=%.3f max_y=%.3f\n",
-              output_landmark_count_, min_x, max_x, min_y, max_y);
+      return result;
     }
 
     if (roi_tracking_enabled_) {
       if (!override_rect) {
-        UpdateTrackingState(*result, score);
+        UpdateTrackingState(*result, face_presence_score);
       } else {
         roi_ = rect;
         has_valid_rect_ = true;
@@ -463,24 +462,37 @@ class FaceMeshContext {
       return nullptr;
     }
 
-    float score = 1.0f;
+    float raw_score = 0.0f;
     if (output_score_tensor_) {
-      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &score,
+      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
                                       sizeof(float)) != kTfLiteOk) {
         SetError("Unable to read confidence output.");
         return nullptr;
       }
     }
+    const float face_presence_score =
+        1.0f / (1.0f + std::exp(-raw_score));
 
     MpFaceMeshResult* result =
-        BuildResultFromSize(logical_width, logical_height, rect, score);
+        BuildResultFromSize(logical_width, logical_height, rect,
+                            face_presence_score);
     if (!result) {
       return nullptr;
     }
 
+    if (face_presence_score < min_face_presence_confidence_) {
+      result->landmarks_count = 0;
+      delete[] result->landmarks;
+      result->landmarks = nullptr;
+      if (roi_tracking_enabled_ && !override_rect) {
+        has_valid_rect_ = false;
+      }
+      return result;
+    }
+
     if (roi_tracking_enabled_) {
       if (!override_rect) {
-        UpdateTrackingState(*result, score);
+        UpdateTrackingState(*result, face_presence_score);
       } else {
         roi_ = rect;
         has_valid_rect_ = true;
@@ -602,9 +614,9 @@ class FaceMeshContext {
         const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
         const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
         const RgbPixel pixel = BilinearSample(image, source_x, source_y);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -648,9 +660,9 @@ class FaceMeshContext {
         const RgbPixel pixel = BilinearSampleRotated(
             image, source_x, source_y, rotation_degrees, mirror_horizontal,
             rotated_width, rotated_height);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -687,9 +699,9 @@ class FaceMeshContext {
         const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
         const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
         const RgbPixel pixel = BilinearSampleNv21(image, source_x, source_y);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -733,9 +745,9 @@ class FaceMeshContext {
         const RgbPixel pixel = BilinearSampleNv21Rotated(
             image, source_x, source_y, rotation_degrees, mirror_horizontal,
             rotated_width, rotated_height);
-        dst[offset++] = pixel.r / 127.5f - 1.0f;
-        dst[offset++] = pixel.g / 127.5f - 1.0f;
-        dst[offset++] = pixel.b / 127.5f - 1.0f;
+        dst[offset++] = pixel.r / 255.0f;
+        dst[offset++] = pixel.g / 255.0f;
+        dst[offset++] = pixel.b / 255.0f;
       }
     }
     return true;
@@ -1156,6 +1168,7 @@ class FaceMeshContext {
   int threads_ = 2;
   float min_detection_confidence_ = 0.5f;
   float min_tracking_confidence_ = 0.5f;
+  float min_face_presence_confidence_ = 0.5f;
   bool smoothing_enabled_ = true;
   bool roi_tracking_enabled_ = true;
 

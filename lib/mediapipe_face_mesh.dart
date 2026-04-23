@@ -1,5 +1,6 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
@@ -16,10 +17,16 @@ part 'src/face_mesh_topology.dart';
 
 const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
+const String _defaultDetectorModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_detection_short_range.tflite';
 
 final Finalizer<ffi.Pointer<MpFaceMeshContext>> _contextFinalizer =
     Finalizer<ffi.Pointer<MpFaceMeshContext>>(
       (pointer) => faceBindings.mp_face_mesh_destroy(pointer),
+    );
+final Finalizer<ffi.Pointer<MpFaceDetectorContext>> _detectorContextFinalizer =
+    Finalizer<ffi.Pointer<MpFaceDetectorContext>>(
+      (pointer) => faceBindings.mp_face_detector_destroy(pointer),
     );
 
 /// Integer constants describing the pixel formats understood by the native side.
@@ -80,6 +87,51 @@ class NormalizedRect {
     rotation: rect.rotation,
   );
 
+  /// Returns a new [NormalizedRect] with scale, shift, and optional squaring
+  /// applied — mirroring the C++ `RectTransformationCalculator` logic.
+  ///
+  /// All shifts and scales operate in the **face's own coordinate system**
+  /// (i.e. rotated by [rotation]), so the result is correct even for tilted
+  /// faces.
+  ///
+  /// Parameters:
+  /// - [scaleX] / [scaleY]: multiply width / height (default 1.0, no change).
+  /// - [squareLong]: if true, both sides are set to `max(width, height)` before
+  ///   scaling (equivalent to MediaPipe's `square_long: true`).
+  /// - [shiftX] / [shiftY]: shift the center in the face's local axes,
+  ///   expressed as a fraction of the **original** (pre-scale) width / height.
+  ///   Negative [shiftY] moves toward the top of the head.
+  NormalizedRect transform({
+    double scaleX = 1.0,
+    double scaleY = 1.0,
+    bool squareLong = false,
+    double shiftX = 0.0,
+    double shiftY = 0.0,
+  }) {
+    double outWidth = width;
+    double outHeight = height;
+    if (squareLong) {
+      final longSide = outWidth > outHeight ? outWidth : outHeight;
+      outWidth = longSide;
+      outHeight = longSide;
+    }
+
+    final cosR = math.cos(rotation);
+    final sinR = math.sin(rotation);
+
+    // Shift uses the original (pre-squareLong) dimensions, matching C++.
+    final newCenterX = xCenter + width * shiftX * cosR - height * shiftY * sinR;
+    final newCenterY = yCenter + width * shiftX * sinR + height * shiftY * cosR;
+
+    return NormalizedRect(
+      xCenter: newCenterX,
+      yCenter: newCenterY,
+      width: outWidth * scaleX,
+      height: outHeight * scaleY,
+      rotation: rotation,
+    );
+  }
+
   @override
   String toString() =>
       'NormalizedRect(xCenter: $xCenter, yCenter: $yCenter, width: $width, '
@@ -139,6 +191,110 @@ class FaceMeshBox {
   @override
   String toString() =>
       'FaceMeshBox(left: $left, top: $top, right: $right, bottom: $bottom)';
+}
+
+/// Single face detection in normalized image coordinates.
+class FaceDetection {
+  /// Creates a normalized face detection box.
+  const FaceDetection({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.score,
+    this.faceRect,
+    this.expandedFaceRect,
+  });
+
+  /// Left edge in normalized coordinates.
+  final double left;
+
+  /// Top edge in normalized coordinates.
+  final double top;
+
+  /// Right edge in normalized coordinates.
+  final double right;
+
+  /// Bottom edge in normalized coordinates.
+  final double bottom;
+
+  /// Confidence score reported by the detector.
+  final double score;
+
+  /// Rotation-aware rect derived from the detection keypoints.
+  final NormalizedRect? faceRect;
+
+  /// Expanded face ROI that matches MediaPipe's rect transformation step.
+  final NormalizedRect? expandedFaceRect;
+
+  /// Converts this normalized detection into a pixel-space [FaceMeshBox].
+  FaceMeshBox toBox({
+    required int imageWidth,
+    required int imageHeight,
+  }) => FaceMeshBox(
+    left: left * imageWidth,
+    top: top * imageHeight,
+    right: right * imageWidth,
+    bottom: bottom * imageHeight,
+  );
+
+  /// Convenience normalized ROI for directly feeding Face Mesh.
+  NormalizedRect toNormalizedRect({
+    double scale = 1.0,
+    bool makeSquare = false,
+  }) {
+    if (!(scale > 0)) {
+      throw ArgumentError('scale must be > 0.');
+    }
+    double width = (right - left).abs();
+    double height = (bottom - top).abs();
+    if (makeSquare) {
+      final double size = width > height ? width : height;
+      width = size;
+      height = size;
+    }
+    width *= scale;
+    height *= scale;
+    return NormalizedRect(
+      xCenter: (left + right) * 0.5,
+      yCenter: (top + bottom) * 0.5,
+      width: width,
+      height: height,
+    );
+  }
+
+  @override
+  String toString() =>
+      'FaceDetection(left: $left, top: $top, right: $right, bottom: $bottom, '
+      'score: $score, faceRect: $faceRect, expandedFaceRect: $expandedFaceRect)';
+}
+
+/// Result of a face detector inference.
+class FaceDetectionResult {
+  /// Creates a detection result container.
+  const FaceDetectionResult({
+    required this.detections,
+    required this.imageWidth,
+    required this.imageHeight,
+  });
+
+  /// All detections sorted by descending score.
+  final List<FaceDetection> detections;
+
+  /// Width of the image used during inference.
+  final int imageWidth;
+
+  /// Height of the image used during inference.
+  final int imageHeight;
+
+  /// Highest-confidence detection when present.
+  FaceDetection? get primaryDetection =>
+      detections.isEmpty ? null : detections.first;
+
+  @override
+  String toString() =>
+      'FaceDetectionResult(detections: ${detections.length}, imageWidth: '
+      '$imageWidth, imageHeight: $imageHeight)';
 }
 
 /// Container that holds RGBA/BGRA pixels used as inference input.
@@ -321,6 +477,265 @@ class MediapipeFaceMeshException implements Exception {
   String toString() => 'MediapipeFaceMeshException($message)';
 }
 
+/// High-level wrapper around the native MediaPipe Face Detection model.
+class FaceDetectorProcessor {
+  FaceDetectorProcessor._(
+    this._context, {
+    required double? defaultRoiScaleX,
+    required double? defaultRoiScaleY,
+    required double defaultRoiShiftX,
+    required double defaultRoiShiftY,
+  }) : _defaultRoiScaleX = defaultRoiScaleX,
+       _defaultRoiScaleY = defaultRoiScaleY,
+       _defaultRoiShiftX = defaultRoiShiftX,
+       _defaultRoiShiftY = defaultRoiShiftY {
+    _detectorContextFinalizer.attach(this, _context, detach: this);
+  }
+
+  final ffi.Pointer<MpFaceDetectorContext> _context;
+  final double? _defaultRoiScaleX;
+  final double? _defaultRoiScaleY;
+  final double _defaultRoiShiftX;
+  final double _defaultRoiShiftY;
+  bool _closed = false;
+
+  /// Creates the native face detector and loads the bundled short-range model.
+  ///
+  /// Commonly adjusted options:
+  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [maxResults] limits the number of detections returned per frame.
+  /// - [roiScaleX], [roiScaleY], [roiShiftX], and [roiShiftY] control how
+  ///   the detector-generated [FaceDetection.expandedFaceRect] is produced.
+  static Future<FaceDetectorProcessor> create({
+    int threads = 2,
+    double minDetectionConfidence = 0.5,
+    double minSuppressionThreshold = 0.3,
+    int maxResults = 1,
+    FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    double? roiScaleX,
+    double? roiScaleY,
+    double roiShiftX = 0.0,
+    double roiShiftY = 0.0,
+  }) async {
+    final String resolvedModelPath = await _materializeDetectorModel();
+
+    final optionsPtr = pkg_ffi.calloc<MpFaceDetectorCreateOptions>();
+    final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
+        .toNativeUtf8();
+    try {
+      optionsPtr.ref
+        ..threads = threads
+        ..min_detection_confidence = minDetectionConfidence
+        ..min_suppression_threshold = minSuppressionThreshold
+        ..max_results = maxResults
+        ..delegate = delegate.index
+        ..tflite_library_path = ffi.nullptr;
+
+      final ffi.Pointer<MpFaceDetectorContext> context = faceBindings
+          .mp_face_detector_create(modelPathPtr.cast(), optionsPtr);
+      if (context == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_face_detector_last_global_error()) ??
+              'Failed to create face detector context.',
+        );
+      }
+      return FaceDetectorProcessor._(
+        context,
+        defaultRoiScaleX: roiScaleX,
+        defaultRoiScaleY: roiScaleY,
+        defaultRoiShiftX: roiShiftX,
+        defaultRoiShiftY: roiShiftY,
+      );
+    } finally {
+      pkg_ffi.calloc.free(optionsPtr);
+      pkg_ffi.malloc.free(modelPathPtr);
+    }
+  }
+
+  /// Processes an RGBA/BGRA frame and returns normalized face detections.
+  FaceDetectionResult process(
+    FaceMeshImage image, {
+    NormalizedRect? roi,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double? roiShiftX,
+    double? roiShiftY,
+  }) {
+    _ensureNotClosed();
+    _validateRotation(rotationDegrees);
+    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
+    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
+    final _NativeImage nativeImage = _toNativeImage(image);
+    final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
+        ? _toNativeRect(roi)
+        : ffi.nullptr;
+    final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
+        _toNativeRoiTransform(
+          resolvedRoiScaleX,
+          resolvedRoiScaleY,
+          resolvedRoiShiftX,
+          resolvedRoiShiftY,
+        );
+    FaceDetectionResult? processed;
+    try {
+      final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
+          .mp_face_detector_process(
+            _context,
+            nativeImage.image,
+            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
+            roiTransformPtr,
+          );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
+              'Native face detector error.',
+        );
+      }
+      processed = _copyResult(resultPtr.ref);
+      faceBindings.mp_face_detector_release_result(resultPtr);
+    } finally {
+      pkg_ffi.calloc.free(nativeImage.pixels);
+      pkg_ffi.calloc.free(nativeImage.image);
+      if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
+      if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
+    }
+    return processed;
+  }
+
+  /// Processes an NV21 frame and returns normalized face detections.
+  FaceDetectionResult processNv21(
+    FaceMeshNv21Image image, {
+    NormalizedRect? roi,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double? roiShiftX,
+    double? roiShiftY,
+  }) {
+    _ensureNotClosed();
+    _validateRotation(rotationDegrees);
+    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
+    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
+    final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
+    final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
+        ? _toNativeRect(roi)
+        : ffi.nullptr;
+    final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
+        _toNativeRoiTransform(
+          resolvedRoiScaleX,
+          resolvedRoiScaleY,
+          resolvedRoiShiftX,
+          resolvedRoiShiftY,
+        );
+    FaceDetectionResult? processed;
+    try {
+      final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
+          .mp_face_detector_process_nv21(
+            _context,
+            nativeImage.image,
+            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
+            roiTransformPtr,
+          );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
+              'Native face detector error.',
+        );
+      }
+      processed = _copyResult(resultPtr.ref);
+      faceBindings.mp_face_detector_release_result(resultPtr);
+    } finally {
+      pkg_ffi.calloc.free(nativeImage.yPlane);
+      pkg_ffi.calloc.free(nativeImage.vuPlane);
+      pkg_ffi.calloc.free(nativeImage.image);
+      if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
+      if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
+    }
+    return processed;
+  }
+
+  ffi.Pointer<MpRoiTransformOptions> _toNativeRoiTransform(
+    double? scaleX,
+    double? scaleY,
+    double? shiftX,
+    double? shiftY,
+  ) {
+    if (scaleX == null && scaleY == null && shiftX == null && shiftY == null) {
+      return ffi.nullptr;
+    }
+    final ffi.Pointer<MpRoiTransformOptions> ptr =
+        pkg_ffi.calloc<MpRoiTransformOptions>();
+    ptr.ref.scale_x = (scaleX ?? 1.5).toDouble();
+    ptr.ref.scale_y = (scaleY ?? 1.5).toDouble();
+    ptr.ref.shift_x = shiftX ?? 0.0;
+    ptr.ref.shift_y = shiftY ?? 0.0;
+    return ptr;
+  }
+
+  FaceDetectionResult _copyResult(MpFaceDetectorResult nativeResult) {
+    final ffi.Pointer<MpDetection> detectionPtr = nativeResult.detections;
+    final List<FaceDetection> detections =
+        (detectionPtr == ffi.nullptr || nativeResult.detections_count <= 0)
+        ? <FaceDetection>[]
+        : List<FaceDetection>.generate(nativeResult.detections_count, (int i) {
+            final MpDetection detection = (detectionPtr + i).ref;
+            return FaceDetection(
+              left: detection.left,
+              top: detection.top,
+              right: detection.right,
+              bottom: detection.bottom,
+              score: detection.score,
+              faceRect: NormalizedRect.fromNative(detection.face_rect),
+              expandedFaceRect: NormalizedRect.fromNative(
+                detection.expanded_face_rect,
+              ),
+            );
+          });
+
+    return FaceDetectionResult(
+      detections: detections,
+      imageWidth: nativeResult.image_width,
+      imageHeight: nativeResult.image_height,
+    );
+  }
+
+  /// Releases the native detector context and associated resources.
+  void close() {
+    if (_closed) {
+      return;
+    }
+    _detectorContextFinalizer.detach(this);
+    faceBindings.mp_face_detector_destroy(_context);
+    _closed = true;
+  }
+
+  void _ensureNotClosed() {
+    if (_closed) {
+      throw StateError('Face detector context already closed.');
+    }
+  }
+
+  void _validateRotation(int rotationDegrees) {
+    if (rotationDegrees != 0 &&
+        rotationDegrees != 90 &&
+        rotationDegrees != 180 &&
+        rotationDegrees != 270) {
+      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
+    }
+  }
+}
+
 /// High-level wrapper around the native MediaPipe Face Mesh graph.
 class FaceMeshProcessor {
   FaceMeshProcessor._(this._context) {
@@ -333,6 +748,12 @@ class FaceMeshProcessor {
   bool _closed = false;
 
   /// Creates the native interpreter and loads a model.
+  ///
+  /// Commonly adjusted options:
+  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [enableSmoothing] reduces landmark jitter across frames.
+  /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
+  ///   are omitted in later [process] or [processNv21] calls.
   static Future<FaceMeshProcessor> create({
     int threads = 2,
     double minDetectionConfidence = 0.5,
