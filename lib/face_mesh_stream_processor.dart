@@ -112,10 +112,14 @@ Offset faceMeshLandmarkOffset(
   FaceMeshLandmark landmark, {
   Size? targetSize,
   bool clampToBounds = true,
+  int rotationDegrees = 0,
+  bool mirrorHorizontal = false,
 }) => result.landmarkAsOffset(
   landmark,
   targetSize: targetSize,
   clampToBounds: clampToBounds,
+  rotationDegrees: rotationDegrees,
+  mirrorHorizontal: mirrorHorizontal,
 );
 
 /// Converts all landmarks into pixel-space [Offset]s.
@@ -123,7 +127,11 @@ List<Offset> faceMeshLandmarksOffsets(
   FaceMeshResult result, {
   Size? targetSize,
   bool clampToBounds = true,
+  int rotationDegrees = 0,
+  bool mirrorHorizontal = false,
 }) => result.landmarksAsOffsets(
   targetSize: targetSize,
   clampToBounds: clampToBounds,
+  rotationDegrees: rotationDegrees,
+  mirrorHorizontal: mirrorHorizontal,
 );

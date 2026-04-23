@@ -57,31 +57,13 @@ class FaceMeshPainter extends CustomPainter {
   }
 
   Offset _map(FaceMeshLandmark lm, Size size) {
-    double x = lm.x;
-    double y = lm.y;
-
-    switch (rotationCompensation) {
-      case 90:
-        x = 1.0 - lm.y;
-        y = lm.x;
-        break;
-      case 180:
-        x = 1.0 - lm.x;
-        y = 1.0 - lm.y;
-        break;
-      case 270:
-        x = lm.y;
-        y = 1.0 - lm.x;
-        break;
-      default:
-        break;
-    }
-
-    if (!Platform.isIOS && lensDirection == CameraLensDirection.front) {
-      x = 1.0 - x;
-    }
-
-    return Offset(x.clamp(0.0, 1.0) * size.width, y.clamp(0.0, 1.0) * size.height);
+    return result.landmarkAsOffset(
+      lm,
+      targetSize: size,
+      rotationDegrees: rotationCompensation,
+      mirrorHorizontal:
+          !Platform.isIOS && lensDirection == CameraLensDirection.front,
+    );
   }
 
   @override

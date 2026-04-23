@@ -4,14 +4,15 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'mediapipe_face_mesh'
-  s.version          = '0.0.1'
-  s.summary          = 'A new Flutter project.'
+  s.version          = '1.3.0'
+  s.summary          = 'MediaPipe Face Mesh for Flutter on Android and iOS.'
   s.description      = <<-DESC
-A new Flutter project.
+Real-time face mesh detection for Flutter with bundled MediaPipe face mesh,
+face detector, and TensorFlow Lite runtime binaries for Android and iOS.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/cornpip/mediapipe_face_mesh.git'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'mediapipe_face_mesh contributors' => 'cornpip7777@gmail.com' }
 
   # This will ensure the source files in Classes/ are included in the native
   # builds of apps using this FFI plugin. Podspec does not support relative

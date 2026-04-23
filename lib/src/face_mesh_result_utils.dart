@@ -38,29 +38,83 @@ extension FaceMeshResultPixels on FaceMeshResult {
     FaceMeshLandmark landmark, {
     Size? targetSize,
     bool clampToBounds = true,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
   }) {
+    _validateRotation(rotationDegrees);
     final Size size = targetSize ?? _inferenceSize;
+    final (double x, double y) = _mapLandmark(
+      landmark,
+      rotationDegrees: rotationDegrees,
+      mirrorHorizontal: mirrorHorizontal,
+    );
     double scaleX(double value) =>
         (clampToBounds ? value.clamp(0.0, 1.0) : value) * size.width;
     double scaleY(double value) =>
         (clampToBounds ? value.clamp(0.0, 1.0) : value) * size.height;
-    return Offset(scaleX(landmark.x), scaleY(landmark.y));
+    return Offset(scaleX(x), scaleY(y));
   }
 
   /// Convenience that converts all landmarks into pixel-space [Offset]s.
   List<Offset> landmarksAsOffsets({
     Size? targetSize,
     bool clampToBounds = true,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
   }) {
+    _validateRotation(rotationDegrees);
     return landmarks
         .map(
           (FaceMeshLandmark lm) => landmarkAsOffset(
             lm,
             targetSize: targetSize,
             clampToBounds: clampToBounds,
+            rotationDegrees: rotationDegrees,
+            mirrorHorizontal: mirrorHorizontal,
           ),
         )
         .toList(growable: false);
+  }
+
+  (double, double) _mapLandmark(
+    FaceMeshLandmark landmark, {
+    required int rotationDegrees,
+    required bool mirrorHorizontal,
+  }) {
+    double x = landmark.x;
+    double y = landmark.y;
+
+    switch (rotationDegrees) {
+      case 90:
+        x = 1.0 - landmark.y;
+        y = landmark.x;
+        break;
+      case 180:
+        x = 1.0 - landmark.x;
+        y = 1.0 - landmark.y;
+        break;
+      case 270:
+        x = landmark.y;
+        y = 1.0 - landmark.x;
+        break;
+      case 0:
+        break;
+    }
+
+    if (mirrorHorizontal) {
+      x = 1.0 - x;
+    }
+
+    return (x, y);
+  }
+
+  void _validateRotation(int rotationDegrees) {
+    if (rotationDegrees != 0 &&
+        rotationDegrees != 90 &&
+        rotationDegrees != 180 &&
+        rotationDegrees != 270) {
+      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
+    }
   }
 
   Size get _inferenceSize =>
