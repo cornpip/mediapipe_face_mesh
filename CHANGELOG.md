@@ -1,9 +1,13 @@
+## 1.3.1
+
+- lower the Dart SDK constraint to `^3.8.1`
+- update the example camera adapter to handle multiple Android YUV layouts in Dart
+
 ## 1.3.0
 
 - add `FaceDetectorProcessor` with bundled MediaPipe short-range face detection model
 - support detector-driven ROI flow for face mesh inference and expose `FaceDetection` / `FaceDetectionResult`
 - refactor example app to include both MediaPipe and ML Kit detection flows
-- add rotation-aware and mirror-aware pixel mapping options to face mesh output helpers
 - update README and change license to BSD 3-Clause
 
 ## 1.2.6
