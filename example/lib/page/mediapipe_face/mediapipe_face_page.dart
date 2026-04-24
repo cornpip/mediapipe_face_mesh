@@ -22,10 +22,8 @@ class _DetectionSnapshot {
 
   FaceDetection? get primaryDetection => result.primaryDetection;
 
-  Size get imageSize => Size(
-    result.imageWidth.toDouble(),
-    result.imageHeight.toDouble(),
-  );
+  Size get imageSize =>
+      Size(result.imageWidth.toDouble(), result.imageHeight.toDouble());
 
   NormalizedRect? get primaryRoi => primaryDetection?.expandedFaceRect;
 
@@ -48,10 +46,7 @@ class _DetectionSnapshot {
 }
 
 class MediaPipeFacePage extends StatefulWidget {
-  const MediaPipeFacePage({
-    super.key,
-    required this.cameras,
-  });
+  const MediaPipeFacePage({super.key, required this.cameras});
 
   final List<CameraDescription> cameras;
 
@@ -90,13 +85,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   List<Detection> _detections = const [];
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
-  late final FaceDetectorProcessor _faceDetector;
+  late final FaceDetectorProcessor _faceDetectorProcessor;
+  late final FaceDetectorStreamProcessor _faceDetectorStreamProcessor;
   late final FaceMeshProcessor _faceMeshProcessor;
   late final FaceMeshStreamProcessor _faceMeshStreamProcessor;
+  StreamController<FaceMeshNv21Image>? _detectorNv21StreamController;
+  StreamController<FaceMeshImage>? _detectorBgraStreamController;
   StreamController<FaceMeshNv21Image>? _nv21StreamController;
   StreamController<FaceMeshImage>? _bgraStreamController;
+  StreamSubscription<FaceDetectionResult>? _detectorStreamSubscription;
   StreamSubscription<FaceMeshResult>? _meshStreamSubscription;
   _DetectionSnapshot? _latestDetectionSnapshot;
+  Object? _pendingDetectorFrame;
+  int? _pendingDetectorRotation;
+  int? _detectorStreamRotation;
   int? _meshStreamRotation;
   bool _isMeshStreamBusy = false;
   String _selectedModel = _shortRangeModel;
@@ -115,11 +117,14 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
       _resolveCameraIndices();
 
-      _faceDetector = await FaceDetectorProcessor.create(
+      _faceDetectorProcessor = await FaceDetectorProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
         maxResults: 1,
         roiScaleY: 1.7,
         roiShiftY: -0.2,
+      );
+      _faceDetectorStreamProcessor = FaceDetectorStreamProcessor(
+        _faceDetectorProcessor,
       );
 
       final faceMeshProcessor = await FaceMeshProcessor.create(
@@ -185,14 +190,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       description,
       ResolutionPreset.veryHigh,
       enableAudio: false,
-      imageFormatGroup:
-          Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
+      imageFormatGroup: Platform.isIOS
+          ? ImageFormatGroup.bgra8888
+          : ImageFormatGroup.nv21,
     );
     _cameraController = controller;
 
     try {
       await controller.initialize();
       _clearCameraFps();
+      _stopDetectorStream();
       _clearDetections();
       await _startImageStreamIfNeeded();
       if (mounted) {
@@ -260,11 +267,84 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _detections = const [];
     _isProcessingFrame = false;
     _latestDetectionSnapshot = null;
+    _pendingDetectorFrame = null;
+    _pendingDetectorRotation = null;
   }
 
   void _clearMesh() {
     _meshResult = null;
     _meshRotationCompensation = null;
+  }
+
+  void _stopDetectorStream() {
+    _detectorStreamSubscription?.cancel();
+    _detectorStreamSubscription = null;
+    _detectorNv21StreamController?.close();
+    _detectorBgraStreamController?.close();
+    _detectorNv21StreamController = null;
+    _detectorBgraStreamController = null;
+    _pendingDetectorFrame = null;
+    _pendingDetectorRotation = null;
+    _detectorStreamRotation = null;
+    _isProcessingFrame = false;
+  }
+
+  void _ensureDetectorStageReady({required int rotationDegrees}) {
+    if (_detectorStreamSubscription != null &&
+        _detectorStreamRotation == rotationDegrees) {
+      return;
+    }
+    _stopDetectorStream();
+    _detectorStreamRotation = rotationDegrees;
+
+    if (Platform.isAndroid) {
+      _detectorNv21StreamController = StreamController<FaceMeshNv21Image>();
+      _detectorStreamSubscription = _faceDetectorStreamProcessor
+          .processNv21(
+            _detectorNv21StreamController!.stream,
+            rotationDegrees: rotationDegrees,
+          )
+          .listen(_handleDetectorResult, onError: _handleDetectorError);
+    } else if (Platform.isIOS) {
+      _detectorBgraStreamController = StreamController<FaceMeshImage>();
+      _detectorStreamSubscription = _faceDetectorStreamProcessor
+          .process(
+            _detectorBgraStreamController!.stream,
+            rotationDegrees: rotationDegrees,
+          )
+          .listen(_handleDetectorResult, onError: _handleDetectorError);
+    }
+  }
+
+  void _handleDetectorResult(FaceDetectionResult result) {
+    final frame = _pendingDetectorFrame;
+    final rotationDegrees = _pendingDetectorRotation;
+    _pendingDetectorFrame = null;
+    _pendingDetectorRotation = null;
+    _isProcessingFrame = false;
+    if (frame == null ||
+        rotationDegrees == null ||
+        !_isDetectionStageActive()) {
+      return;
+    }
+
+    final snapshot = _DetectionSnapshot(
+      result: result,
+      rotationDegrees: rotationDegrees,
+    );
+    _applyDetectionStage(snapshot);
+    _runMeshStage(frame: frame, snapshot: snapshot);
+  }
+
+  void _handleDetectorError(Object error) {
+    _pendingDetectorFrame = null;
+    _pendingDetectorRotation = null;
+    _isProcessingFrame = false;
+    if (mounted) {
+      setState(() => _errorMessage ??= '$error');
+    } else {
+      _errorMessage ??= '$error';
+    }
   }
 
   void _stopMeshStream() {
@@ -346,6 +426,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _isDetectionActive = false;
         _isMeshActive = false;
         _clearMesh();
+        _stopDetectorStream();
         _stopMeshStream();
         _clearDetections();
         _clearCameraFps();
@@ -368,7 +449,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
-    _faceDetector.close();
+    _stopDetectorStream();
+    _faceDetectorProcessor.close();
     _stopMeshStream();
     _faceMeshProcessor.close();
     super.dispose();
@@ -383,33 +465,30 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mediapipe Det + Mediapipe Mesh'),
-        titleTextStyle: const TextStyle(
-          color: Colors.black,
-          fontSize: 16,
-        ),
+        titleTextStyle: const TextStyle(color: Colors.black, fontSize: 16),
         centerTitle: true,
       ),
       body: SafeArea(
         child: _errorMessage != null
             ? _buildErrorView()
             : _isInitializing
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-                    children: [
-                      Center(child: _buildCameraPreview(isCameraAvailable)),
-                      SizedBox(height: 10,),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            children: [
-                              _buildModelSelector(),
-                              _buildControlButtons(),
-                            ],
-                          ),
-                        ),
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Center(child: _buildCameraPreview(isCameraAvailable)),
+                  SizedBox(height: 10),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          _buildModelSelector(),
+                          _buildControlButtons(),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
+                ],
+              ),
       ),
     );
   }
@@ -430,7 +509,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   Widget _buildCameraPreview(bool isCameraAvailable) {
     final controller = _cameraController;
     final isControllerReady = controller?.value.isInitialized == true;
-    final previewSize = isControllerReady ? controller!.value.previewSize : null;
+    final previewSize = isControllerReady
+        ? controller!.value.previewSize
+        : null;
     // Native sensor ratio (landscape sensor → height/width < 1).
     final nativeAspectRatio = (previewSize != null && previewSize.width != 0)
         ? previewSize.height / previewSize.width
@@ -508,11 +589,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 ),
                 // Chips outside ClipRect so they're always visible
                 if (isCameraAvailable)
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: _infoChip(fpsText),
-                  ),
+                  Positioned(top: 12, right: 12, child: _infoChip(fpsText)),
                 Positioned(
                   bottom: 12,
                   left: 12,
@@ -561,12 +638,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           DropdownMenuItem<String>(
             value: _fullRangeDenseModel,
             enabled: false,
-            child: Text('Full-range (dense) - Planned', style: TextStyle(color: Colors.black38),),
+            child: Text(
+              'Full-range (dense) - Planned',
+              style: TextStyle(color: Colors.black38),
+            ),
           ),
           DropdownMenuItem<String>(
             value: _fullRangeSparseModel,
             enabled: false,
-            child: Text('Full-range (sparse) - Planned', style: TextStyle(color: Colors.black38),),
+            child: Text(
+              'Full-range (sparse) - Planned',
+              style: TextStyle(color: Colors.black38),
+            ),
           ),
         ],
         onChanged: (value) {
@@ -612,8 +695,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 child: ElevatedButton.icon(
                   onPressed:
                       (!_isCameraActive || _isCameraBusy || !isControllerReady)
-                          ? null
-                          : _toggleDetection,
+                      ? null
+                      : _toggleDetection,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isDetectionActive
                         ? Colors.orangeAccent
@@ -625,7 +708,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                     color: Colors.black,
                   ),
                   label: Text(
-                      _isDetectionActive ? 'Stop Detect' : 'Start Detect'),
+                    _isDetectionActive ? 'Stop Detect' : 'Start Detect',
+                  ),
                 ),
               ),
             ],
@@ -635,15 +719,17 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: (!_isCameraActive ||
+                  onPressed:
+                      (!_isCameraActive ||
                           _isCameraBusy ||
                           !isControllerReady ||
                           !_isDetectionActive)
                       ? null
                       : _toggleMesh,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _isMeshActive ? Colors.purpleAccent : Colors.purple,
+                    backgroundColor: _isMeshActive
+                        ? Colors.purpleAccent
+                        : Colors.purple,
                     foregroundColor: Colors.black,
                   ),
                   icon: Icon(
@@ -656,7 +742,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: (widget.cameras.length < 2 ||
+                  onPressed:
+                      (widget.cameras.length < 2 ||
                           _isChangingCamera ||
                           _isCameraBusy ||
                           !_isCameraActive ||
@@ -696,6 +783,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _isDetectionActive = false;
         _isMeshActive = false;
         _clearMesh();
+        _stopDetectorStream();
         _stopMeshStream();
         _clearDetections();
       });
@@ -723,6 +811,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _isDetectionActive = false;
       _isMeshActive = false;
       _clearMesh();
+      _stopDetectorStream();
       _stopMeshStream();
       _clearCameraFps();
       _clearDetections();
@@ -816,27 +905,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (_cameraController == null || !_isCameraActive || !_isDetectionActive) {
       return;
     }
-    _isProcessingFrame = true;
-    _handleCameraFrame(cameraImage, _cameraController!).whenComplete(() {
-      _isProcessingFrame = false;
-    });
+    _handleCameraFrame(cameraImage, _cameraController!);
   }
 
-  Future<void> _handleCameraFrame(
+  void _handleCameraFrame(
     CameraImage cameraImage,
     CameraController controller,
-  ) async {
+  ) {
     try {
-      final snapshot = _runDetectionStage(
+      _pushFrameToDetectionStage(
         cameraImage: cameraImage,
         controller: controller,
       );
-      if (snapshot == null || !_isDetectionStageActive()) {
-        return;
-      }
-
-      _applyDetectionStage(snapshot);
-      _runMeshStage(cameraImage: cameraImage, snapshot: snapshot);
     } catch (error) {
       if (mounted) {
         setState(() => _errorMessage ??= '$error');
@@ -850,43 +930,46 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return mounted && _isCameraActive && _isDetectionActive;
   }
 
-  _DetectionSnapshot? _runDetectionStage({
+  void _pushFrameToDetectionStage({
     required CameraImage cameraImage,
     required CameraController controller,
   }) {
-    final rotationCompensation =
-        _rotationCompensationDegrees(controller: controller);
+    final rotationCompensation = _rotationCompensationDegrees(
+      controller: controller,
+    );
     if (rotationCompensation == null) {
-      return null;
+      return;
     }
 
-    final FaceDetectionResult detectionResult;
     if (Platform.isAndroid) {
       final nv21Image = FaceMeshCameraImageAdapter.toNv21(cameraImage);
       if (nv21Image == null) {
-        return null;
+        return;
       }
-      detectionResult = _faceDetector.processNv21(
-        nv21Image,
-        rotationDegrees: rotationCompensation,
-      );
+      _ensureDetectorStageReady(rotationDegrees: rotationCompensation);
+      final controller = _detectorNv21StreamController;
+      if (controller == null || controller.isClosed) {
+        return;
+      }
+      _pendingDetectorFrame = nv21Image;
+      _pendingDetectorRotation = rotationCompensation;
+      _isProcessingFrame = true;
+      controller.add(nv21Image);
     } else if (Platform.isIOS) {
       final bgraImage = FaceMeshCameraImageAdapter.toBgra(cameraImage);
       if (bgraImage == null) {
-        return null;
+        return;
       }
-      detectionResult = _faceDetector.process(
-        bgraImage,
-        rotationDegrees: rotationCompensation,
-      );
-    } else {
-      return null;
+      _ensureDetectorStageReady(rotationDegrees: rotationCompensation);
+      final controller = _detectorBgraStreamController;
+      if (controller == null || controller.isClosed) {
+        return;
+      }
+      _pendingDetectorFrame = bgraImage;
+      _pendingDetectorRotation = rotationCompensation;
+      _isProcessingFrame = true;
+      controller.add(bgraImage);
     }
-
-    return _DetectionSnapshot(
-      result: detectionResult,
-      rotationDegrees: rotationCompensation,
-    );
   }
 
   void _applyDetectionStage(_DetectionSnapshot snapshot) {
@@ -909,15 +992,15 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  void _runMeshStage({
-    required CameraImage cameraImage,
+  bool _runMeshStage({
+    required Object frame,
     required _DetectionSnapshot snapshot,
   }) {
     if (!_isMeshActive || snapshot.primaryRoi == null) {
-      return;
+      return false;
     }
-    _pushFrameToMeshStage(
-      cameraImage: cameraImage,
+    return _pushFrameToMeshStage(
+      frame: frame,
       rotationDegrees: snapshot.rotationDegrees,
     );
   }
@@ -942,8 +1025,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     final rotationDegrees = snapshot.rotationDegrees;
     final bool swapAxes = rotationDegrees == 90 || rotationDegrees == 270;
     final double logicalWidth = swapAxes ? height.toDouble() : width.toDouble();
-    final double logicalHeight =
-        swapAxes ? width.toDouble() : height.toDouble();
+    final double logicalHeight = swapAxes
+        ? width.toDouble()
+        : height.toDouble();
     if ((snapshot.imageSize.width - logicalWidth).abs() > 0.5 ||
         (snapshot.imageSize.height - logicalHeight).abs() > 0.5) {
       return null;
@@ -951,23 +1035,24 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return snapshot.primaryRoi;
   }
 
-  void _pushFrameToMeshStage({
-    required CameraImage cameraImage,
+  bool _pushFrameToMeshStage({
+    required Object frame,
     required int rotationDegrees,
   }) {
     if (_latestDetectionSnapshot == null || _isMeshStreamBusy) {
-      return;
+      return false;
     }
     if (!_isMeshActive ||
         !_ensureMeshStageInputReady(rotationDegrees: rotationDegrees)) {
-      return;
+      return false;
     }
 
-    if (Platform.isAndroid) {
-      _pushNv21FrameToMeshStage(cameraImage);
-    } else if (Platform.isIOS) {
-      _pushBgraFrameToMeshStage(cameraImage);
+    if (frame is FaceMeshNv21Image) {
+      return _pushNv21FrameToMeshStage(frame);
+    } else if (frame is FaceMeshImage) {
+      return _pushBgraFrameToMeshStage(frame);
     }
+    return false;
   }
 
   bool _ensureMeshStageInputReady({required int rotationDegrees}) {
@@ -975,24 +1060,24 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return _meshStreamSubscription != null;
   }
 
-  void _pushNv21FrameToMeshStage(CameraImage cameraImage) {
+  bool _pushNv21FrameToMeshStage(FaceMeshNv21Image frame) {
     final controller = _nv21StreamController;
-    final frame = FaceMeshCameraImageAdapter.toNv21(cameraImage);
-    if (controller == null || controller.isClosed || frame == null) {
-      return;
+    if (controller == null || controller.isClosed) {
+      return false;
     }
     _isMeshStreamBusy = true;
     controller.add(frame);
+    return true;
   }
 
-  void _pushBgraFrameToMeshStage(CameraImage cameraImage) {
+  bool _pushBgraFrameToMeshStage(FaceMeshImage frame) {
     final controller = _bgraStreamController;
-    final frame = FaceMeshCameraImageAdapter.toBgra(cameraImage);
-    if (controller == null || controller.isClosed || frame == null) {
-      return;
+    if (controller == null || controller.isClosed) {
+      return false;
     }
     _isMeshStreamBusy = true;
     controller.add(frame);
+    return true;
   }
 
   int? _rotationCompensationDegrees({required CameraController controller}) {
@@ -1028,6 +1113,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           _isDetectionActive = false;
           _isMeshActive = false;
           _clearMesh();
+          _stopDetectorStream();
           _stopMeshStream();
           _clearDetections();
         });
@@ -1048,8 +1134,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
     } on CameraException catch (error) {
       if (mounted) {
-        setState(() => _errorMessage =
-            'Detection start error: ${error.description ?? error.code}');
+        setState(
+          () => _errorMessage =
+              'Detection start error: ${error.description ?? error.code}',
+        );
       }
     }
   }
@@ -1065,7 +1153,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
     if (!_isDetectionActive) {
       if (mounted) {
-        setState(() => _errorMessage ??= 'Start Detect first to get a face ROI.');
+        setState(
+          () => _errorMessage ??= 'Start Detect first to get a face ROI.',
+        );
       }
       return;
     }

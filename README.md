@@ -80,28 +80,75 @@ The package supports two image input types:
 
 ### Stream Inference
 
+Both `FaceDetectorStreamProcessor` and `FaceMeshStreamProcessor` process frames
+through Dart `async*` generators. Inference is decoupled from the camera frame
+callback: the camera session pushes frames into a `StreamController` and returns
+immediately, while inference runs asynchronously on the next event loop turn.
+This means **slow inference or a heavy `CustomPaint` repaint never stalls the
+camera session** — the preview continues at full frame rate and frames that
+arrive while the previous inference is still running are simply dropped.
+
+The recommended pattern is to guard each push with a busy flag so you never
+queue more than one frame at a time:
+
 ```dart
+bool _isBusy = false;
+
+void onCameraFrame(FaceMeshNv21Image frame) {
+  if (_isBusy) return;          // drop frame — previous inference still running
+  _isBusy = true;
+  frameController.add(frame);   // returns immediately; camera session unblocked
+}
+
+streamProcessor
+    .processNv21(frameController.stream, rotationDegrees: rotationDegrees)
+    .listen((result) {
+      _isBusy = false;
+      onResult(result);          // update overlay; camera was never blocked
+    }, onError: onError);
+```
+
+Full two-stage (detector → mesh) example:
+
+```dart
+final detectorStreamProcessor = FaceDetectorStreamProcessor(faceDetector);
 final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
 NormalizedRect? latestRoi;
-final frameController = StreamController<FaceMeshNv21Image>();
+bool _isDetectorBusy = false;
+bool _isMeshBusy = false;
+final detectorFrameController = StreamController<FaceMeshNv21Image>();
+final meshFrameController = StreamController<FaceMeshNv21Image>();
+
+detectorStreamProcessor
+    .processNv21(
+      detectorFrameController.stream,
+      rotationDegrees: rotationDegrees,
+    )
+    .listen((detectionResult) {
+      _isDetectorBusy = false;
+      latestRoi = detectionResult.primaryDetection?.expandedFaceRect;
+      if (latestRoi != null && !_isMeshBusy) {
+        _isMeshBusy = true;
+        meshFrameController.add(lastFrame!);
+      }
+    }, onError: onError);
 
 streamProcessor
     .processNv21(
-      frameController.stream,
+      meshFrameController.stream,
       roiResolver: (_) => latestRoi,
       rotationDegrees: rotationDegrees,
     )
-    .listen(onResult, onError: onError);
+    .listen((result) {
+      _isMeshBusy = false;
+      onResult(result);
+    }, onError: onError);
 
 void onCameraFrame(FaceMeshNv21Image frame) {
-  final detectionResult = faceDetector.processNv21(
-    frame,
-    rotationDegrees: rotationDegrees,
-  );
-  latestRoi = detectionResult.primaryDetection?.expandedFaceRect;
-
-  if (latestRoi != null) {
-    frameController.add(frame);
+  lastFrame = frame;
+  if (!_isDetectorBusy) {
+    _isDetectorBusy = true;
+    detectorFrameController.add(frame);
   }
 }
 ```
@@ -177,12 +224,17 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 - `FaceDetectorProcessor`
   Runs the bundled MediaPipe short-range face detector and returns face boxes,
   scores, and rotation-aware ROI values such as `expandedFaceRect`.
+- `FaceDetectorStreamProcessor`
+  Wraps `FaceDetectorProcessor` as a non-blocking async stream. Camera frames
+  are pushed via a `StreamController` and inference runs in an `async*` generator,
+  so the camera session is never stalled by slow inference.
 - `FaceMeshProcessor`
   Runs face mesh inference and returns normalized 3D landmarks, mesh triangles,
   the detected face rect, score, and input image size.
 - `FaceMeshStreamProcessor`
-  Processes a stream of `FaceMeshImage` or `FaceMeshNv21Image` frames
-  sequentially.
+  Wraps `FaceMeshProcessor` as a non-blocking async stream. Same decoupled
+  design as `FaceDetectorStreamProcessor` — heavy `CustomPaint` repaints do not
+  block the camera session.
 - `FaceMeshNv21Image`
   Input wrapper for Android NV21 camera frames.
 - `FaceMeshImage`
