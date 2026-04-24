@@ -59,16 +59,6 @@ Delegate options:
 If the requested delegate is unavailable or fails to initialize, the native
 runtime falls back to CPU inference.
 
-Useful processor options:
-- `enableSmoothing`
-  Reduces landmark jitter across frames.
-- `enableRoiTracking`
-  Reuses internal ROI tracking when later `process` or `processNv21` calls omit
-  `roi` and `box`.
-- `mirrorHorizontal`
-  Use this in `process`, `processNv21`, or stream processing when the preview is
-  mirrored.
-
 ### Input Formats
 
 The package supports two image input types:
@@ -80,18 +70,12 @@ The package supports two image input types:
 
 ### Stream Inference
 
-Both `FaceDetectorStreamProcessor` and `FaceMeshStreamProcessor` process frames
-through Dart `async*` generators. Inference is decoupled from the camera frame
-callback: the camera session pushes frames into a `StreamController` and returns
-immediately, while inference runs asynchronously on the next event loop turn.
-This means **slow inference or a heavy `CustomPaint` repaint never stalls the
-camera session** — the preview continues at full frame rate and frames that
-arrive while the previous inference is still running are simply dropped.
-
-The recommended pattern is to guard each push with a busy flag so you never
-queue more than one frame at a time:
+Use stream inference when processing continuous camera frames; use single inference for one-shot images.  
+Both `StreamProcessor` classes take a Stream of frames and return a Stream of results.
 
 ```dart
+final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
+final frameController = StreamController<FaceMeshNv21Image>();
 bool _isBusy = false;
 
 void onCameraFrame(FaceMeshNv21Image frame) {
@@ -111,7 +95,7 @@ streamProcessor
 Full two-stage (detector → mesh) example:
 
 ```dart
-final detectorStreamProcessor = FaceDetectorStreamProcessor(faceDetector);
+final detectorStreamProcessor = FaceDetectorStreamProcessor(faceDetectorProcessor);
 final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
 NormalizedRect? latestRoi;
 bool _isDetectorBusy = false;
@@ -158,23 +142,16 @@ For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
 ### Single Inference
 
 ```dart
-final detectionResult = faceDetector.processNv21(
+final detectionResult = faceDetectorProcessor.processNv21(
   nv21Image,
   rotationDegrees: rotationDegrees,
 );
 final detection = detectionResult.primaryDetection;
 
 if (detection != null) {
-  final box = detection.toBox(
-    imageWidth: detectionResult.imageWidth,
-    imageHeight: detectionResult.imageHeight,
-  );
-
   final result = faceMeshProcessor.processNv21(
     nv21Image,
-    box: box,
-    boxScale: 1.2,
-    boxMakeSquare: true,
+    roi: detection.expandedFaceRect,
     rotationDegrees: rotationDegrees,
   );
 }
@@ -203,7 +180,7 @@ If both `roi` and `box` are provided, an `ArgumentError` is thrown.
 Explicitly calling close() when the processors are no longer needed is recommended.
 
 ```dart
-faceDetector.close();
+faceDetectorProcessor.close();
 faceMeshProcessor.close();
 ```
 
@@ -225,16 +202,12 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
   Runs the bundled MediaPipe short-range face detector and returns face boxes,
   scores, and rotation-aware ROI values such as `expandedFaceRect`.
 - `FaceDetectorStreamProcessor`
-  Wraps `FaceDetectorProcessor` as a non-blocking async stream. Camera frames
-  are pushed via a `StreamController` and inference runs in an `async*` generator,
-  so the camera session is never stalled by slow inference.
+  Wraps `FaceDetectorProcessor` in an `async*` generator — accepts a `Stream` of frames and yields a `Stream` of results.
 - `FaceMeshProcessor`
   Runs face mesh inference and returns normalized 3D landmarks, mesh triangles,
   the detected face rect, score, and input image size.
 - `FaceMeshStreamProcessor`
-  Wraps `FaceMeshProcessor` as a non-blocking async stream. Same decoupled
-  design as `FaceDetectorStreamProcessor` — heavy `CustomPaint` repaints do not
-  block the camera session.
+  Wraps `FaceMeshProcessor` in an `async*` generator — accepts a `Stream` of frames and yields a `Stream` of results.
 - `FaceMeshNv21Image`
   Input wrapper for Android NV21 camera frames.
 - `FaceMeshImage`

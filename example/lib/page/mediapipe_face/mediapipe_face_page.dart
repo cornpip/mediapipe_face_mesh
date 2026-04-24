@@ -45,6 +45,18 @@ class _DetectionSnapshot {
   }
 }
 
+class _StageInputControllers {
+  StreamController<FaceMeshNv21Image>? nv21Controller;
+  StreamController<FaceMeshImage>? bgraController;
+
+  void close() {
+    nv21Controller?.close();
+    bgraController?.close();
+    nv21Controller = null;
+    bgraController = null;
+  }
+}
+
 class MediaPipeFacePage extends StatefulWidget {
   const MediaPipeFacePage({super.key, required this.cameras});
 
@@ -89,10 +101,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   late final FaceDetectorStreamProcessor _faceDetectorStreamProcessor;
   late final FaceMeshProcessor _faceMeshProcessor;
   late final FaceMeshStreamProcessor _faceMeshStreamProcessor;
-  StreamController<FaceMeshNv21Image>? _detectorNv21StreamController;
-  StreamController<FaceMeshImage>? _detectorBgraStreamController;
-  StreamController<FaceMeshNv21Image>? _nv21StreamController;
-  StreamController<FaceMeshImage>? _bgraStreamController;
+  final _detectorStageInput = _StageInputControllers();
+  final _meshStageInput = _StageInputControllers();
   StreamSubscription<FaceDetectionResult>? _detectorStreamSubscription;
   StreamSubscription<FaceMeshResult>? _meshStreamSubscription;
   _DetectionSnapshot? _latestDetectionSnapshot;
@@ -279,10 +289,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _stopDetectorStream() {
     _detectorStreamSubscription?.cancel();
     _detectorStreamSubscription = null;
-    _detectorNv21StreamController?.close();
-    _detectorBgraStreamController?.close();
-    _detectorNv21StreamController = null;
-    _detectorBgraStreamController = null;
+    _detectorStageInput.close();
     _pendingDetectorFrame = null;
     _pendingDetectorRotation = null;
     _detectorStreamRotation = null;
@@ -298,18 +305,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _detectorStreamRotation = rotationDegrees;
 
     if (Platform.isAndroid) {
-      _detectorNv21StreamController = StreamController<FaceMeshNv21Image>();
+      _detectorStageInput.nv21Controller = StreamController<FaceMeshNv21Image>();
       _detectorStreamSubscription = _faceDetectorStreamProcessor
           .processNv21(
-            _detectorNv21StreamController!.stream,
+            _detectorStageInput.nv21Controller!.stream,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleDetectorResult, onError: _handleDetectorError);
     } else if (Platform.isIOS) {
-      _detectorBgraStreamController = StreamController<FaceMeshImage>();
+      _detectorStageInput.bgraController = StreamController<FaceMeshImage>();
       _detectorStreamSubscription = _faceDetectorStreamProcessor
           .process(
-            _detectorBgraStreamController!.stream,
+            _detectorStageInput.bgraController!.stream,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleDetectorResult, onError: _handleDetectorError);
@@ -350,10 +357,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _stopMeshStream() {
     _meshStreamSubscription?.cancel();
     _meshStreamSubscription = null;
-    _nv21StreamController?.close();
-    _bgraStreamController?.close();
-    _nv21StreamController = null;
-    _bgraStreamController = null;
+    _meshStageInput.close();
     _meshStreamRotation = null;
     _isMeshStreamBusy = false;
   }
@@ -367,19 +371,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _meshStreamRotation = rotationDegrees;
 
     if (Platform.isAndroid) {
-      _nv21StreamController = StreamController<FaceMeshNv21Image>();
+      _meshStageInput.nv21Controller = StreamController<FaceMeshNv21Image>();
       _meshStreamSubscription = _faceMeshStreamProcessor
           .processNv21(
-            _nv21StreamController!.stream,
+            _meshStageInput.nv21Controller!.stream,
             roiResolver: _resolveFaceMeshRoi,
             rotationDegrees: rotationDegrees,
           )
           .listen(_handleMeshResult, onError: _handleMeshError);
     } else if (Platform.isIOS) {
-      _bgraStreamController = StreamController<FaceMeshImage>();
+      _meshStageInput.bgraController = StreamController<FaceMeshImage>();
       _meshStreamSubscription = _faceMeshStreamProcessor
           .process(
-            _bgraStreamController!.stream,
+            _meshStageInput.bgraController!.stream,
             roiResolver: _resolveFaceMeshRoi,
             rotationDegrees: rotationDegrees,
           )
@@ -947,7 +951,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         return;
       }
       _ensureDetectorStageReady(rotationDegrees: rotationCompensation);
-      final controller = _detectorNv21StreamController;
+      final controller = _detectorStageInput.nv21Controller;
       if (controller == null || controller.isClosed) {
         return;
       }
@@ -961,7 +965,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         return;
       }
       _ensureDetectorStageReady(rotationDegrees: rotationCompensation);
-      final controller = _detectorBgraStreamController;
+      final controller = _detectorStageInput.bgraController;
       if (controller == null || controller.isClosed) {
         return;
       }
@@ -1061,7 +1065,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   bool _pushNv21FrameToMeshStage(FaceMeshNv21Image frame) {
-    final controller = _nv21StreamController;
+    final controller = _meshStageInput.nv21Controller;
     if (controller == null || controller.isClosed) {
       return false;
     }
@@ -1071,7 +1075,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   bool _pushBgraFrameToMeshStage(FaceMeshImage frame) {
-    final controller = _bgraStreamController;
+    final controller = _meshStageInput.bgraController;
     if (controller == null || controller.isClosed) {
       return false;
     }

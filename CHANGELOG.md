@@ -1,10 +1,7 @@
 ## 1.3.2
 
 - add stream processing support to `FaceDetectorStreamProcessor` (`process` / `processNv21`)
-- stream processors (`FaceDetectorStreamProcessor`, `FaceMeshStreamProcessor`) are non-blocking:
-  inference runs in an async generator and is decoupled from the camera frame callback,
-  so slow paint or heavy inference does not stall the camera session
-- update README to document async stream processing pattern and non-blocking behaviour
+- update README and example to cover FaceDetectorStreamProcessor stream inference
 
 ## 1.3.1
 
