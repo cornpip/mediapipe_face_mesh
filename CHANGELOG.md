@@ -1,3 +1,8 @@
+## 1.3.2
+
+- add stream processing support to `FaceDetectorStreamProcessor` (`process` / `processNv21`)
+- update README and example to cover FaceDetectorStreamProcessor stream inference
+
 ## 1.3.1
 
 - lower the Dart SDK constraint to `^3.8.1`

@@ -9,6 +9,89 @@ typedef FaceMeshBoxResolver<T> = FaceMeshBox? Function(T frame);
 /// Signature used to derive a normalized ROI from an incoming frame.
 typedef FaceMeshRoiResolver<T> = NormalizedRect? Function(T frame);
 
+/// Signature used to derive a detector ROI from an incoming frame.
+typedef FaceDetectorRoiResolver<T> = NormalizedRect? Function(T frame);
+
+/// Helper that turns a stream of camera frames into face detection results.
+class FaceDetectorStreamProcessor {
+  /// Creates a processor bound to the given synchronous [FaceDetectorProcessor].
+  FaceDetectorStreamProcessor(this._processor);
+
+  final FaceDetectorProcessor _processor;
+
+  /// Processes a stream of [FaceMeshImage] frames sequentially.
+  ///
+  /// Provide either a static [roi] or a [roiResolver] callback to define the
+  /// detector input ROI per frame. Every incoming frame is processed with the
+  /// same parameters that you would pass to [FaceDetectorProcessor.process].
+  Stream<FaceDetectionResult> process(
+    Stream<FaceMeshImage> frames, {
+    NormalizedRect? roi,
+    FaceDetectorRoiResolver<FaceMeshImage>? roiResolver,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double? roiShiftX,
+    double? roiShiftY,
+  }) async* {
+    _validateResolvers<FaceMeshImage>(roi, roiResolver);
+    await for (final FaceMeshImage frame in frames) {
+      final NormalizedRect? dynamicRoi = roiResolver?.call(frame);
+      yield _processor.process(
+        frame,
+        roi: dynamicRoi ?? roi,
+        rotationDegrees: rotationDegrees,
+        mirrorHorizontal: mirrorHorizontal,
+        roiScaleX: roiScaleX,
+        roiScaleY: roiScaleY,
+        roiShiftX: roiShiftX,
+        roiShiftY: roiShiftY,
+      );
+    }
+  }
+
+  /// Processes NV21 camera frames coming from a stream.
+  ///
+  /// The behaviour mirrors [FaceDetectorProcessor.processNv21]. Provide at most
+  /// one of [roi] or [roiResolver].
+  Stream<FaceDetectionResult> processNv21(
+    Stream<FaceMeshNv21Image> frames, {
+    NormalizedRect? roi,
+    FaceDetectorRoiResolver<FaceMeshNv21Image>? roiResolver,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    double? roiScaleX,
+    double? roiScaleY,
+    double? roiShiftX,
+    double? roiShiftY,
+  }) async* {
+    _validateResolvers<FaceMeshNv21Image>(roi, roiResolver);
+    await for (final FaceMeshNv21Image frame in frames) {
+      final NormalizedRect? dynamicRoi = roiResolver?.call(frame);
+      yield _processor.processNv21(
+        frame,
+        roi: dynamicRoi ?? roi,
+        rotationDegrees: rotationDegrees,
+        mirrorHorizontal: mirrorHorizontal,
+        roiScaleX: roiScaleX,
+        roiScaleY: roiScaleY,
+        roiShiftX: roiShiftX,
+        roiShiftY: roiShiftY,
+      );
+    }
+  }
+
+  void _validateResolvers<T>(
+    NormalizedRect? roi,
+    FaceDetectorRoiResolver<T>? roiResolver,
+  ) {
+    if (roi != null && roiResolver != null) {
+      throw ArgumentError('Provide only one of roi or roiResolver.');
+    }
+  }
+}
+
 /// Helper that turns a stream of camera frames into MediaPipe results.
 class FaceMeshStreamProcessor {
   /// Creates a processor bound to the given synchronous [FaceMeshProcessor].
@@ -98,6 +181,11 @@ class FaceMeshStreamProcessor {
 FaceMeshStreamProcessor createFaceMeshStreamProcessor(
   FaceMeshProcessor processor,
 ) => FaceMeshStreamProcessor(processor);
+
+/// Creates a detector stream processor for camera/image frames.
+FaceDetectorStreamProcessor createFaceDetectorStreamProcessor(
+  FaceDetectorProcessor processor,
+) => FaceDetectorStreamProcessor(processor);
 
 /// Returns the face bounding box in pixel coordinates.
 Rect faceMeshBoundingRect(

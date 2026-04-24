@@ -17,7 +17,6 @@ class FaceMeshCameraImageAdapter {
     if ((image.width & 1) != 0 || (image.height & 1) != 0) {
       return null;
     }
-
     if (planes.length == 1) {
       return _fromSinglePlaneNv21(image);
     }
