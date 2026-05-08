@@ -7,8 +7,7 @@ Bundled files:
   - iris
   - short-range face detection
 
-<img src="./readme_img/2.png" alt="app_image_2" width="300"/>
-<img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
+<img src="./readme_img/2.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 

@@ -2,9 +2,6 @@
 
 ## Models
 
-### Face Mesh
-- Add iris landmark model support for refined eye and iris points.
-
 ### Face Detection
 - Add full-range dense face detection model support.
 - Add full-range sparse face detection model support.
