@@ -55,6 +55,26 @@ struct RgbPixel {
   float b = 0.0f;
 };
 
+constexpr int kFaceLandmarkCount = 468;
+constexpr int kEyeLandmarkCount = 71;
+constexpr int kIrisLandmarkCount = 5;
+constexpr int kIrisInputSize = 64;
+constexpr float kIrisRoiScale = 2.3f;
+
+constexpr int kEyeLandmarkIndicesInFaceLandmarks[kEyeLandmarkCount * 2] = {
+    33,  7,   163, 144, 145, 153, 154, 155, 133, 246, 161, 160,
+    159, 158, 157, 173, 130, 25,  110, 24,  23,  22,  26,  112,
+    243, 247, 30,  29,  27,  28,  56,  190, 226, 31,  228, 229,
+    230, 231, 232, 233, 244, 113, 225, 224, 223, 222, 221, 189,
+    35,  124, 46,  53,  52,  65,  143, 111, 117, 118, 119, 120,
+    121, 128, 245, 156, 70,  63,  105, 66,  107, 55,  193,
+    263, 249, 390, 373, 374, 380, 381, 382, 362, 466, 388, 387,
+    386, 385, 384, 398, 359, 255, 339, 254, 253, 252, 256, 341,
+    463, 467, 260, 259, 257, 258, 286, 414, 446, 261, 448, 449,
+    450, 451, 452, 453, 464, 342, 445, 444, 443, 442, 441, 413,
+    265, 353, 276, 283, 282, 295, 372, 340, 346, 347, 348, 349,
+    350, 357, 465, 383, 300, 293, 334, 296, 336, 285, 417};
+
 float Clamp(float value, float min_value, float max_value) {
   return std::max(min_value, std::min(max_value, value));
 }
@@ -101,6 +121,7 @@ class FaceMeshContext {
             : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
     roi_tracking_enabled_ = !options || options->enable_roi_tracking != 0;
+    iris_enabled_ = options && options->enable_iris != 0;
 
     MP_LOGI("Initialize start: model=%s threads=%d\n", model_path.c_str(),
             threads_);
@@ -262,6 +283,18 @@ class FaceMeshContext {
       }
     }
 
+    if (iris_enabled_) {
+      const char* iris_model_path =
+          options ? options->iris_model_path : nullptr;
+      if (!iris_model_path || std::strlen(iris_model_path) == 0) {
+        SetError("Iris model path is required when iris is enabled.");
+        return false;
+      }
+      if (!InitializeIris(iris_model_path, delegate_choice)) {
+        return false;
+      }
+    }
+
     roi_ = DefaultRect();
     has_valid_rect_ = roi_tracking_enabled_;
     MP_LOGI("Initialize success\n");
@@ -374,6 +407,14 @@ class FaceMeshContext {
         has_valid_rect_ = false;
       }
       return result;
+    }
+
+    if (iris_enabled_ &&
+        !AugmentResultWithIris(image, result, rot, mirror_horizontal,
+                               logical_width, logical_height)) {
+      delete[] result->landmarks;
+      delete result;
+      return nullptr;
     }
 
     if (roi_tracking_enabled_) {
@@ -490,6 +531,14 @@ class FaceMeshContext {
       return result;
     }
 
+    if (iris_enabled_ &&
+        !AugmentResultWithIrisNv21(image, result, rot, mirror_horizontal,
+                                   logical_width, logical_height)) {
+      delete[] result->landmarks;
+      delete result;
+      return nullptr;
+    }
+
     if (roi_tracking_enabled_) {
       if (!override_rect) {
         UpdateTrackingState(*result, face_presence_score);
@@ -543,11 +592,139 @@ class FaceMeshContext {
   };
 
   void Shutdown() {
+    iris_interpreter_.reset();
+    iris_options_.reset();
+    iris_model_.reset();
+    iris_delegate_.reset();
     interpreter_.reset();
     options_.reset();
     model_.reset();
     delegate_.reset();
     runtime_.Release();
+  }
+
+  bool InitializeIris(const std::string& iris_model_path,
+                      MpDelegateType delegate_choice) {
+    iris_model_.reset(runtime_.ModelCreateFromFile(iris_model_path.c_str()));
+    if (!iris_model_) {
+      SetError("Unable to load iris model file: " + iris_model_path);
+      return false;
+    }
+
+    iris_options_.reset(runtime_.InterpreterOptionsCreate());
+    if (!iris_options_) {
+      SetError("Failed to allocate iris interpreter options.");
+      return false;
+    }
+    runtime_.InterpreterOptionsSetThreads(iris_options_.get(), threads_);
+
+    auto AttachIrisDelegate = [&](TfLiteDelegate* created,
+                                  TfLiteDelegateDeleter::DeleteFn deleter,
+                                  const char* name) {
+      if (!created) {
+        return false;
+      }
+      iris_delegate_.get_deleter().deleter = deleter;
+      iris_delegate_.reset(created);
+      runtime_.InterpreterOptionsAddDelegate(
+          iris_options_.get(),
+          reinterpret_cast<TfLiteOpaqueDelegate*>(iris_delegate_.get()));
+      MP_LOGI("Iris %s delegate enabled.\n", name);
+      return true;
+    };
+
+    switch (delegate_choice) {
+      case MP_DELEGATE_XNNPACK: {
+        if (runtime_.InterpreterOptionsAddDelegate &&
+            runtime_.XnnpackDelegateOptionsDefault &&
+            runtime_.XnnpackDelegateCreate && runtime_.XnnpackDelegateDelete) {
+          TfLiteXNNPackDelegateOptions xnnpack_options =
+              runtime_.XnnpackDelegateOptionsDefault();
+          xnnpack_options.num_threads = threads_;
+          AttachIrisDelegate(runtime_.XnnpackDelegateCreate(&xnnpack_options),
+                             runtime_.XnnpackDelegateDelete, "XNNPACK");
+        }
+        break;
+      }
+      case MP_DELEGATE_GPU_V2: {
+        if (runtime_.InterpreterOptionsAddDelegate &&
+            runtime_.GpuDelegateV2OptionsDefault &&
+            runtime_.GpuDelegateV2Create && runtime_.GpuDelegateV2Delete) {
+          TfLiteGpuDelegateOptionsV2 gpu_options =
+              runtime_.GpuDelegateV2OptionsDefault();
+          gpu_options.experimental_flags |=
+              TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
+          AttachIrisDelegate(runtime_.GpuDelegateV2Create(&gpu_options),
+                             runtime_.GpuDelegateV2Delete, "GPU V2");
+        }
+        break;
+      }
+      case MP_DELEGATE_CPU:
+      default:
+        break;
+    }
+
+    iris_interpreter_.reset(
+        runtime_.InterpreterCreate(iris_model_.get(), iris_options_.get()));
+    if (!iris_interpreter_) {
+      SetError("Failed to create iris interpreter.");
+      return false;
+    }
+    if (runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) !=
+        kTfLiteOk) {
+      SetError("Iris tensor allocation failed.");
+      return false;
+    }
+    if (runtime_.InterpreterGetInputTensorCount(iris_interpreter_.get()) < 1) {
+      SetError("Iris interpreter input tensor missing.");
+      return false;
+    }
+    iris_input_tensor_ =
+        runtime_.InterpreterGetInputTensor(iris_interpreter_.get(), 0);
+    if (!iris_input_tensor_ ||
+        runtime_.TensorType(iris_input_tensor_) != kTfLiteFloat32 ||
+        runtime_.TensorNumDims(iris_input_tensor_) != 4) {
+      SetError("Iris model input must be float32 NHWC.");
+      return false;
+    }
+    iris_input_height_ = runtime_.TensorDim(iris_input_tensor_, 1);
+    iris_input_width_ = runtime_.TensorDim(iris_input_tensor_, 2);
+    const int iris_channels = runtime_.TensorDim(iris_input_tensor_, 3);
+    if (runtime_.TensorDim(iris_input_tensor_, 0) != 1 || iris_channels != 3) {
+      SetError("Iris model expects 1xHxWx3 input.");
+      return false;
+    }
+    if (iris_input_width_ != kIrisInputSize ||
+        iris_input_height_ != kIrisInputSize) {
+      MP_LOGI("Iris input is %dx%d, expected 64x64.\n", iris_input_width_,
+              iris_input_height_);
+    }
+    iris_input_buffer_.resize(
+        static_cast<size_t>(iris_input_width_ * iris_input_height_ * 3));
+
+    if (runtime_.InterpreterGetOutputTensorCount(iris_interpreter_.get()) < 2) {
+      SetError("Iris model must expose eye contour and iris outputs.");
+      return false;
+    }
+    iris_eye_tensor_ =
+        runtime_.InterpreterGetOutputTensor(iris_interpreter_.get(), 0);
+    iris_landmarks_tensor_ =
+        runtime_.InterpreterGetOutputTensor(iris_interpreter_.get(), 1);
+    if (!iris_eye_tensor_ || !iris_landmarks_tensor_ ||
+        runtime_.TensorType(iris_eye_tensor_) != kTfLiteFloat32 ||
+        runtime_.TensorType(iris_landmarks_tensor_) != kTfLiteFloat32) {
+      SetError("Iris output tensors must be float32.");
+      return false;
+    }
+    iris_eye_buffer_.resize(TensorElementCount(iris_eye_tensor_));
+    iris_landmarks_buffer_.resize(TensorElementCount(iris_landmarks_tensor_));
+    if (iris_eye_buffer_.size() < kEyeLandmarkCount * 3 ||
+        iris_landmarks_buffer_.size() < kIrisLandmarkCount * 3) {
+      SetError("Unexpected iris output tensor sizes.");
+      return false;
+    }
+    MP_LOGI("Iris initialize success\n");
+    return true;
   }
 
   MpNormalizedRect DefaultRect() const {
@@ -1050,6 +1227,240 @@ class FaceMeshContext {
     return result;
   }
 
+  size_t TensorElementCount(const TfLiteTensor* tensor) const {
+    int total = 1;
+    const int dims = runtime_.TensorNumDims(tensor);
+    for (int i = 0; i < dims; ++i) {
+      total *= runtime_.TensorDim(tensor, i);
+    }
+    return static_cast<size_t>(total);
+  }
+
+  bool AugmentResultWithIris(const MpImage& image,
+                             MpFaceMeshResult* result,
+                             int rotation_degrees,
+                             bool mirror_horizontal,
+                             int logical_width,
+                             int logical_height) {
+    auto sampler = [&](float x, float y) {
+      x = Clamp(x, 0.0f, static_cast<float>(logical_width - 1));
+      y = Clamp(y, 0.0f, static_cast<float>(logical_height - 1));
+      if (rotation_degrees == 0 && !mirror_horizontal) {
+        return BilinearSample(image, x, y);
+      }
+      return BilinearSampleRotated(image, x, y, rotation_degrees,
+                                   mirror_horizontal, logical_width,
+                                   logical_height);
+    };
+    return AugmentResultWithIrisFromSampler(result, logical_width,
+                                            logical_height, sampler);
+  }
+
+  bool AugmentResultWithIrisNv21(const MpNv21Image& image,
+                                 MpFaceMeshResult* result,
+                                 int rotation_degrees,
+                                 bool mirror_horizontal,
+                                 int logical_width,
+                                 int logical_height) {
+    auto sampler = [&](float x, float y) {
+      x = Clamp(x, 0.0f, static_cast<float>(logical_width - 1));
+      y = Clamp(y, 0.0f, static_cast<float>(logical_height - 1));
+      if (rotation_degrees == 0 && !mirror_horizontal) {
+        return BilinearSampleNv21(image, x, y);
+      }
+      return BilinearSampleNv21Rotated(image, x, y, rotation_degrees,
+                                       mirror_horizontal, logical_width,
+                                       logical_height);
+    };
+    return AugmentResultWithIrisFromSampler(result, logical_width,
+                                            logical_height, sampler);
+  }
+
+  template <typename Sampler>
+  bool AugmentResultWithIrisFromSampler(MpFaceMeshResult* result,
+                                        int width,
+                                        int height,
+                                        Sampler sampler) {
+    if (!result || !result->landmarks ||
+        result->landmarks_count < kFaceLandmarkCount) {
+      return true;
+    }
+
+    std::vector<MpLandmark> left_eye;
+    std::vector<MpLandmark> right_eye;
+    std::vector<MpLandmark> left_iris;
+    std::vector<MpLandmark> right_iris;
+    if (!RunIrisForEye(result, width, height, 33, 133, false, sampler,
+                       left_eye, left_iris) ||
+        !RunIrisForEye(result, width, height, 362, 263, true, sampler,
+                       right_eye, right_iris)) {
+      return false;
+    }
+
+    constexpr int kOutputCount = kFaceLandmarkCount + kIrisLandmarkCount * 2;
+    MpLandmark* updated = new MpLandmark[kOutputCount];
+    if (!updated) {
+      SetError("Unable to allocate iris-augmented landmarks buffer.");
+      return false;
+    }
+    for (int i = 0; i < kFaceLandmarkCount; ++i) {
+      updated[i] = result->landmarks[i];
+    }
+    for (int i = 0; i < kEyeLandmarkCount; ++i) {
+      updated[kEyeLandmarkIndicesInFaceLandmarks[i]] = left_eye[i];
+      updated[kEyeLandmarkIndicesInFaceLandmarks[kEyeLandmarkCount + i]] =
+          right_eye[i];
+    }
+    for (int i = 0; i < kIrisLandmarkCount; ++i) {
+      updated[kFaceLandmarkCount + i] = left_iris[i];
+      updated[kFaceLandmarkCount + kIrisLandmarkCount + i] = right_iris[i];
+    }
+
+    delete[] result->landmarks;
+    result->landmarks = updated;
+    result->landmarks_count = kOutputCount;
+    return true;
+  }
+
+  template <typename Sampler>
+  bool RunIrisForEye(const MpFaceMeshResult* result,
+                     int width,
+                     int height,
+                     int start_index,
+                     int end_index,
+                     bool is_right_eye,
+                     Sampler sampler,
+                     std::vector<MpLandmark>& eye_landmarks,
+                     std::vector<MpLandmark>& iris_landmarks) {
+    const MpNormalizedRect eye_rect =
+        IrisRectFromEyeCorners(result->landmarks[start_index],
+                               result->landmarks[end_index], width, height);
+    if (eye_rect.width <= 0.0f || eye_rect.height <= 0.0f) {
+      SetError("Invalid iris ROI.");
+      return false;
+    }
+    const RectInPixels roi = ToPixelRect(eye_rect, width, height);
+    const float cos_r = std::cos(roi.rotation);
+    const float sin_r = std::sin(roi.rotation);
+    const float half_w = roi.width * 0.5f;
+    const float half_h = roi.height * 0.5f;
+
+    size_t offset = 0;
+    for (int y = 0; y < iris_input_height_; ++y) {
+      const float model_y =
+          (static_cast<float>(y) + 0.5f) / static_cast<float>(iris_input_height_);
+      const float ny = (model_y - 0.5f) * 2.0f;
+      for (int x = 0; x < iris_input_width_; ++x) {
+        const int source_model_x = is_right_eye ? (iris_input_width_ - 1 - x) : x;
+        const float model_x = (static_cast<float>(source_model_x) + 0.5f) /
+                              static_cast<float>(iris_input_width_);
+        const float nx = (model_x - 0.5f) * 2.0f;
+        const float rx = nx * half_w;
+        const float ry = ny * half_h;
+        const float source_x = cos_r * rx - sin_r * ry + roi.center_x;
+        const float source_y = sin_r * rx + cos_r * ry + roi.center_y;
+        const RgbPixel pixel = sampler(source_x, source_y);
+        iris_input_buffer_[offset++] = pixel.r / 255.0f;
+        iris_input_buffer_[offset++] = pixel.g / 255.0f;
+        iris_input_buffer_[offset++] = pixel.b / 255.0f;
+      }
+    }
+
+    if (runtime_.TensorCopyFromBuffer(
+            iris_input_tensor_, iris_input_buffer_.data(),
+            iris_input_buffer_.size() * sizeof(float)) != kTfLiteOk) {
+      SetError("Failed to copy iris input buffer.");
+      return false;
+    }
+    if (runtime_.InterpreterInvoke(iris_interpreter_.get()) != kTfLiteOk) {
+      SetError("Iris interpreter invocation failed.");
+      return false;
+    }
+    if (runtime_.TensorCopyToBuffer(
+            iris_eye_tensor_, iris_eye_buffer_.data(),
+            iris_eye_buffer_.size() * sizeof(float)) != kTfLiteOk ||
+        runtime_.TensorCopyToBuffer(
+            iris_landmarks_tensor_, iris_landmarks_buffer_.data(),
+            iris_landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
+      SetError("Unable to read iris outputs.");
+      return false;
+    }
+
+    DecodeIrisLandmarks(iris_eye_buffer_, kEyeLandmarkCount, eye_rect, width,
+                        height, is_right_eye, eye_landmarks);
+    DecodeIrisLandmarks(iris_landmarks_buffer_, kIrisLandmarkCount, eye_rect,
+                        width, height, is_right_eye, iris_landmarks);
+    return true;
+  }
+
+  void DecodeIrisLandmarks(const std::vector<float>& buffer,
+                           int count,
+                           const MpNormalizedRect& rect,
+                           int width,
+                           int height,
+                           bool is_right_eye,
+                           std::vector<MpLandmark>& out) const {
+    out.resize(static_cast<size_t>(count));
+    const RectInPixels roi = ToPixelRect(rect, width, height);
+    const float cos_r = std::cos(roi.rotation);
+    const float sin_r = std::sin(roi.rotation);
+    const float half_w = roi.width * 0.5f;
+    const float half_h = roi.height * 0.5f;
+    const float input_w = std::max(1, iris_input_width_);
+    const float input_h = std::max(1, iris_input_height_);
+
+    for (int i = 0; i < count; ++i) {
+      float raw_x = buffer[static_cast<size_t>(i) * 3];
+      float raw_y = buffer[static_cast<size_t>(i) * 3 + 1];
+      float raw_z = buffer[static_cast<size_t>(i) * 3 + 2];
+      if (raw_x > 1.0f || raw_y > 1.0f || raw_x < 0.0f || raw_y < 0.0f) {
+        raw_x /= input_w;
+        raw_y /= input_h;
+        raw_z /= input_w;
+      }
+      if (is_right_eye) {
+        raw_x = 1.0f - raw_x;
+      }
+      const float nx = (raw_x - 0.5f) * 2.0f;
+      const float ny = (raw_y - 0.5f) * 2.0f;
+      const float rx = nx * half_w;
+      const float ry = ny * half_h;
+      const float abs_x = cos_r * rx - sin_r * ry + roi.center_x;
+      const float abs_y = sin_r * rx + cos_r * ry + roi.center_y;
+      const float abs_z = raw_z * roi.width;
+
+      out[static_cast<size_t>(i)].x =
+          Clamp(abs_x / static_cast<float>(width), -0.5f, 1.5f);
+      out[static_cast<size_t>(i)].y =
+          Clamp(abs_y / static_cast<float>(height), -0.5f, 1.5f);
+      out[static_cast<size_t>(i)].z = abs_z / static_cast<float>(width);
+    }
+  }
+
+  MpNormalizedRect IrisRectFromEyeCorners(const MpLandmark& start,
+                                          const MpLandmark& end,
+                                          int width,
+                                          int height) const {
+    const float start_x = start.x * static_cast<float>(width);
+    const float start_y = start.y * static_cast<float>(height);
+    const float end_x = end.x * static_cast<float>(width);
+    const float end_y = end.y * static_cast<float>(height);
+    const float dx = end_x - start_x;
+    const float dy = end_y - start_y;
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    MpNormalizedRect rect;
+    if (distance < 1.0f || width <= 0 || height <= 0) {
+      return rect;
+    }
+    const float side = distance * kIrisRoiScale;
+    rect.x_center = ((start_x + end_x) * 0.5f) / static_cast<float>(width);
+    rect.y_center = ((start_y + end_y) * 0.5f) / static_cast<float>(height);
+    rect.width = side / static_cast<float>(width);
+    rect.height = side / static_cast<float>(height);
+    rect.rotation = std::atan2(dy, dx);
+    return rect;
+  }
+
   RectInPixels ToPixelRect(const MpNormalizedRect& rect,
                            int width,
                            int height) const {
@@ -1156,14 +1567,27 @@ class FaceMeshContext {
   std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_{
       nullptr, {&runtime_}};
   std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> delegate_{nullptr, {}};
+  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> iris_model_{
+      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> iris_options_{
+      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> iris_interpreter_{
+      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> iris_delegate_{
+      nullptr, {}};
 
   TfLiteTensor* input_tensor_ = nullptr;
   const TfLiteTensor* output_landmarks_tensor_ = nullptr;
   const TfLiteTensor* output_score_tensor_ = nullptr;
+  TfLiteTensor* iris_input_tensor_ = nullptr;
+  const TfLiteTensor* iris_eye_tensor_ = nullptr;
+  const TfLiteTensor* iris_landmarks_tensor_ = nullptr;
 
   int input_width_ = 0;
   int input_height_ = 0;
   int output_landmark_count_ = 0;
+  int iris_input_width_ = 0;
+  int iris_input_height_ = 0;
 
   int threads_ = 2;
   float min_detection_confidence_ = 0.5f;
@@ -1171,9 +1595,13 @@ class FaceMeshContext {
   float min_face_presence_confidence_ = 0.5f;
   bool smoothing_enabled_ = true;
   bool roi_tracking_enabled_ = true;
+  bool iris_enabled_ = false;
 
   std::vector<float> input_buffer_;
   std::vector<float> landmarks_buffer_;
+  std::vector<float> iris_input_buffer_;
+  std::vector<float> iris_eye_buffer_;
+  std::vector<float> iris_landmarks_buffer_;
 
   MpNormalizedRect roi_;
   bool has_valid_rect_ = false;

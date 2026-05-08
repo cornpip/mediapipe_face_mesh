@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:mediapipe_face_mesh/face_mesh_stream_processor.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-import '../../paint/detection_painter.dart';
+import 'paint/detection_painter.dart';
 import '../../utils/face_mesh_camera_image_adapter.dart';
 import 'paint/face_mesh_painter.dart';
 
@@ -139,6 +139,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
       final faceMeshProcessor = await FaceMeshProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
+        enableIris: true,
       );
       if (mounted) {
         setState(() {

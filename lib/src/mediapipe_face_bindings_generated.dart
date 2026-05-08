@@ -464,6 +464,8 @@ final class MpFaceMeshResult extends ffi.Struct {
 final class MpFaceMeshCreateOptions extends ffi.Struct {
   external ffi.Pointer<ffi.Char> tflite_library_path;
 
+  external ffi.Pointer<ffi.Char> iris_model_path;
+
   @ffi.Int32()
   external int threads;
 
@@ -484,6 +486,9 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
 
   @ffi.Uint8()
   external int enable_roi_tracking;
+
+  @ffi.Uint8()
+  external int enable_iris;
 }
 
 final class MpDetection extends ffi.Struct {

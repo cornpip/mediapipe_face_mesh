@@ -8,6 +8,10 @@ Future<String> _materializeDetectorModel() async {
   return _materializeAsset(_defaultDetectorModelAsset);
 }
 
+Future<String> _materializeIrisModel() async {
+  return _materializeAsset(_defaultIrisModelAsset);
+}
+
 Future<String> _materializeAsset(String key) async {
   final ByteData data = await rootBundle.load(key);
   final Directory cacheDir = Directory(

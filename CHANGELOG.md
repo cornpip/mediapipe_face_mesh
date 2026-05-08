@@ -1,3 +1,7 @@
+## 1.4.0
+
+- add optional iris landmark output through `FaceMeshProcessor.create(enableIris: true)`
+
 ## 1.3.2
 
 - add stream processing support to `FaceDetectorStreamProcessor` (`process` / `processNv21`)
