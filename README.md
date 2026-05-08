@@ -1,13 +1,14 @@
 # mediapipe_face_mesh
 
-MediaPipe Face Mesh for Flutter with bundled native(c/c++) runtimes for Android and iOS.
-
 Bundled files:
-- MediaPipe Face Mesh TFLite model
-- MediaPipe short-range face detection model
 - TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`) and iOS
+- [MediaPipe TFLite model](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md)
+  - face mesh
+  - iris
+  - short-range face detection
 
-Reference: [MediaPipe TFLite models](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md)
+<img src="./readme_img/2.png" alt="app_image_2" width="300"/>
+<img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 
@@ -48,8 +49,14 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
   delegate: FaceMeshDelegate.xnnpack,
   enableSmoothing: true,
   enableRoiTracking: true,
+  enableIris: true, // default is false; true returns 478 landmarks with 10 iris points
 );
 ```
+
+When `enableIris` is enabled, Face Mesh runs an additional iris landmark pass
+after the base 468-point face mesh result. The final result keeps the existing
+Face Mesh index layout, updates the eye-region landmarks with more precise eye
+contour coordinates, and appends 10 iris landmarks at indices `468..477`.
 
 Delegate options:
 - `FaceMeshDelegate.cpu` (default)
@@ -184,7 +191,7 @@ faceDetectorProcessor.close();
 faceMeshProcessor.close();
 ```
 
-## Example
+## Example app
 
 The example included in this package provides two flows:
 
@@ -192,9 +199,6 @@ A. MediaPipe Face Detector + MediaPipe Face Mesh
 B. ML Kit Face Detector + MediaPipe Face Mesh
 
 `B` depends on the `google_mlkit_face_detection` package for face detection.
-
-<img src="./readme_img/2.png" alt="app_image_2" width="300"/>
-<img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
 ## Primary API
 
@@ -218,6 +222,7 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
   Pixel-space bounding box that can be converted into an ROI internally.
 - `FaceMeshResult`
   Result object containing `landmarks`, `triangles`, `rect`, `score`,
-  `imageWidth`, and `imageHeight`. Pixel-space helpers such as
+  `imageWidth`, and `imageHeight`. Face mesh returns 468 landmarks by default,
+  or 478 landmarks when `enableIris` is enabled. Pixel-space helpers such as
   `landmarkAsOffset(...)` and `landmarksAsOffsets(...)` support rotation and
   horizontal mirror mapping for preview overlays.

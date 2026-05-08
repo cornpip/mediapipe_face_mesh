@@ -70,6 +70,7 @@ typedef struct {
 
 typedef struct {
   const char* tflite_library_path;
+  const char* iris_model_path;
   int32_t threads;
   float min_detection_confidence;
   float min_tracking_confidence;
@@ -77,6 +78,7 @@ typedef struct {
   MpDelegateType delegate;
   uint8_t enable_smoothing;
   uint8_t enable_roi_tracking;
+  uint8_t enable_iris;
 } MpFaceMeshCreateOptions;
 
 typedef struct {

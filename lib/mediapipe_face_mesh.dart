@@ -19,6 +19,155 @@ const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
 const String _defaultDetectorModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_detection_short_range.tflite';
+const String _defaultIrisModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/iris_landmark.tflite';
+
+/// Face Mesh landmark indices whose coordinates are refined by the iris model
+/// when `FaceMeshProcessor.create(enableIris: true)` is used.
+const Set<int> faceMeshIrisRefinedEyeLandmarkIndices = <int>{
+  33,
+  7,
+  163,
+  144,
+  145,
+  153,
+  154,
+  155,
+  133,
+  246,
+  161,
+  160,
+  159,
+  158,
+  157,
+  173,
+  130,
+  25,
+  110,
+  24,
+  23,
+  22,
+  26,
+  112,
+  243,
+  247,
+  30,
+  29,
+  27,
+  28,
+  56,
+  190,
+  226,
+  31,
+  228,
+  229,
+  230,
+  231,
+  232,
+  233,
+  244,
+  113,
+  225,
+  224,
+  223,
+  222,
+  221,
+  189,
+  35,
+  124,
+  46,
+  53,
+  52,
+  65,
+  143,
+  111,
+  117,
+  118,
+  119,
+  120,
+  121,
+  128,
+  245,
+  156,
+  70,
+  63,
+  105,
+  66,
+  107,
+  55,
+  193,
+  263,
+  249,
+  390,
+  373,
+  374,
+  380,
+  381,
+  382,
+  362,
+  466,
+  388,
+  387,
+  386,
+  385,
+  384,
+  398,
+  359,
+  255,
+  339,
+  254,
+  253,
+  252,
+  256,
+  341,
+  463,
+  467,
+  260,
+  259,
+  257,
+  258,
+  286,
+  414,
+  446,
+  261,
+  448,
+  449,
+  450,
+  451,
+  452,
+  453,
+  464,
+  342,
+  445,
+  444,
+  443,
+  442,
+  441,
+  413,
+  265,
+  353,
+  276,
+  283,
+  282,
+  295,
+  372,
+  340,
+  346,
+  347,
+  348,
+  349,
+  350,
+  357,
+  465,
+  383,
+  300,
+  293,
+  334,
+  296,
+  336,
+  285,
+  417,
+};
 
 final Finalizer<ffi.Pointer<MpFaceMeshContext>> _contextFinalizer =
     Finalizer<ffi.Pointer<MpFaceMeshContext>>(
@@ -228,15 +377,13 @@ class FaceDetection {
   final NormalizedRect? expandedFaceRect;
 
   /// Converts this normalized detection into a pixel-space [FaceMeshBox].
-  FaceMeshBox toBox({
-    required int imageWidth,
-    required int imageHeight,
-  }) => FaceMeshBox(
-    left: left * imageWidth,
-    top: top * imageHeight,
-    right: right * imageWidth,
-    bottom: bottom * imageHeight,
-  );
+  FaceMeshBox toBox({required int imageWidth, required int imageHeight}) =>
+      FaceMeshBox(
+        left: left * imageWidth,
+        top: top * imageHeight,
+        right: right * imageWidth,
+        bottom: bottom * imageHeight,
+      );
 
   /// Convenience normalized ROI for directly feeding Face Mesh.
   NormalizedRect toNormalizedRect({
@@ -674,8 +821,8 @@ class FaceDetectorProcessor {
     if (scaleX == null && scaleY == null && shiftX == null && shiftY == null) {
       return ffi.nullptr;
     }
-    final ffi.Pointer<MpRoiTransformOptions> ptr =
-        pkg_ffi.calloc<MpRoiTransformOptions>();
+    final ffi.Pointer<MpRoiTransformOptions> ptr = pkg_ffi
+        .calloc<MpRoiTransformOptions>();
     ptr.ref.scale_x = (scaleX ?? 1.5).toDouble();
     ptr.ref.scale_y = (scaleY ?? 1.5).toDouble();
     ptr.ref.shift_x = shiftX ?? 0.0;
@@ -754,19 +901,27 @@ class FaceMeshProcessor {
   /// - [enableSmoothing] reduces landmark jitter across frames.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
   ///   are omitted in later [process] or [processNv21] calls.
+  /// - [enableIris] refines eye landmarks and appends iris landmarks, returning
+  ///   478 landmarks instead of the base 468 landmarks.
   static Future<FaceMeshProcessor> create({
     int threads = 2,
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     bool enableSmoothing = true,
     bool enableRoiTracking = true,
+    bool enableIris = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
   }) async {
     final String resolvedModelPath = await _materializeModel();
+    final String? resolvedIrisModelPath = enableIris
+        ? await _materializeIrisModel()
+        : null;
 
     final optionsPtr = pkg_ffi.calloc<MpFaceMeshCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
         .toNativeUtf8();
+    final ffi.Pointer<pkg_ffi.Utf8> irisModelPathPtr =
+        resolvedIrisModelPath?.toNativeUtf8() ?? ffi.nullptr;
     try {
       optionsPtr.ref
         ..threads = threads
@@ -775,6 +930,8 @@ class FaceMeshProcessor {
         ..delegate = delegate.index
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
+        ..enable_iris = enableIris ? 1 : 0
+        ..iris_model_path = irisModelPathPtr.cast()
         ..tflite_library_path = ffi.nullptr;
 
       final ffi.Pointer<MpFaceMeshContext> context = faceBindings
@@ -789,6 +946,9 @@ class FaceMeshProcessor {
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
+      if (irisModelPathPtr != ffi.nullptr) {
+        pkg_ffi.malloc.free(irisModelPathPtr);
+      }
     }
   }
 
