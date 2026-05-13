@@ -24,6 +24,9 @@ class FaceDetectorStreamProcessor {
   /// Provide either a static [roi] or a [roiResolver] callback to define the
   /// detector input ROI per frame. Every incoming frame is processed with the
   /// same parameters that you would pass to [FaceDetectorProcessor.process].
+  /// ROI transform overrides ([roiScaleX], [roiScaleY], [roiShiftX],
+  /// [roiShiftY]) are forwarded to each frame and default to the values set on
+  /// [FaceDetectorProcessor.create] when omitted.
   Stream<FaceDetectionResult> process(
     Stream<FaceMeshImage> frames, {
     NormalizedRect? roi,
@@ -54,7 +57,9 @@ class FaceDetectorStreamProcessor {
   /// Processes NV21 camera frames coming from a stream.
   ///
   /// The behaviour mirrors [FaceDetectorProcessor.processNv21]. Provide at most
-  /// one of [roi] or [roiResolver].
+  /// one of [roi] or [roiResolver]. ROI transform overrides are forwarded to
+  /// each frame and default to the values set on [FaceDetectorProcessor.create]
+  /// when omitted.
   Stream<FaceDetectionResult> processNv21(
     Stream<FaceMeshNv21Image> frames, {
     NormalizedRect? roi,

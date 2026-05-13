@@ -1,11 +1,5 @@
 # Roadmap
 
-## Models
-
-### Face Detection
-- Add full-range dense face detection model support.
-- Add full-range sparse face detection model support.
-
 ## API
 
 ### High-Level Inference API

@@ -4,8 +4,8 @@ Future<String> _materializeModel() async {
   return _materializeAsset(_defaultModelAsset);
 }
 
-Future<String> _materializeDetectorModel() async {
-  return _materializeAsset(_defaultDetectorModelAsset);
+Future<String> _materializeDetectorModel(FaceDetectionModel model) async {
+  return _materializeAsset(model.assetKey);
 }
 
 Future<String> _materializeIrisModel() async {

@@ -245,6 +245,28 @@ std::vector<Anchor> GenerateShortRangeAnchors() {
   return anchors;
 }
 
+std::vector<Anchor> GenerateFullRangeAnchors() {
+  constexpr int kInputSize = 192;
+  constexpr int kStride = 4;
+  constexpr int kFeatureMapSize = kInputSize / kStride;
+
+  std::vector<Anchor> anchors;
+  anchors.reserve(kFeatureMapSize * kFeatureMapSize);
+  for (int y = 0; y < kFeatureMapSize; ++y) {
+    for (int x = 0; x < kFeatureMapSize; ++x) {
+      Anchor anchor;
+      anchor.x_center =
+          (static_cast<float>(x) + 0.5f) / kFeatureMapSize;
+      anchor.y_center =
+          (static_cast<float>(y) + 0.5f) / kFeatureMapSize;
+      anchor.width = 1.0f;
+      anchor.height = 1.0f;
+      anchors.push_back(anchor);
+    }
+  }
+  return anchors;
+}
+
 class FaceDetectorContext {
  public:
   FaceDetectorContext() = default;
@@ -430,11 +452,6 @@ class FaceDetectorContext {
 
     boxes_buffer_.resize(static_cast<size_t>(boxes_count_));
     scores_buffer_.resize(static_cast<size_t>(scores_count_));
-    anchors_ = GenerateShortRangeAnchors();
-    if (anchors_.empty()) {
-      SetError("Failed to generate detector anchors.");
-      return false;
-    }
     if (boxes_count_ % 16 != 0) {
       SetError("Unexpected detector box tensor size.");
       return false;
@@ -445,6 +462,9 @@ class FaceDetectorContext {
       return false;
     }
     num_classes_ = scores_count_ / num_boxes_;
+    if (!ConfigureDecoder()) {
+      return false;
+    }
     if (static_cast<int>(anchors_.size()) != num_boxes_) {
       SetError("Anchor count does not match detector output tensor.");
       return false;
@@ -714,10 +734,12 @@ class FaceDetectorContext {
 
       // MediaPipe configures BlazeFace with reverse_output_order=true, which
       // means boxes/keypoints are decoded as x/y/w/h rather than y/x/h/w.
-      const float x_center = raw[0] / 128.0f * anchor.width + anchor.x_center;
-      const float y_center = raw[1] / 128.0f * anchor.height + anchor.y_center;
-      const float width = raw[2] / 128.0f * anchor.width;
-      const float height = raw[3] / 128.0f * anchor.height;
+      const float x_center =
+          raw[0] / x_scale_ * anchor.width + anchor.x_center;
+      const float y_center =
+          raw[1] / y_scale_ * anchor.height + anchor.y_center;
+      const float width = raw[2] / w_scale_ * anchor.width;
+      const float height = raw[3] / h_scale_ * anchor.height;
       if (!(width > 0.0f) || !(height > 0.0f)) {
         continue;
       }
@@ -767,9 +789,10 @@ class FaceDetectorContext {
       for (int keypoint_index = 0; keypoint_index < 6; ++keypoint_index) {
         const int coord_index = 4 + keypoint_index * 2;
         const float keypoint_x =
-            raw[coord_index] / 128.0f * anchor.width + anchor.x_center;
+            raw[coord_index] / x_scale_ * anchor.width + anchor.x_center;
         const float keypoint_y =
-            raw[coord_index + 1] / 128.0f * anchor.height + anchor.y_center;
+            raw[coord_index + 1] / y_scale_ * anchor.height +
+            anchor.y_center;
         float image_x = 0.0f;
         float image_y = 0.0f;
         if (ProjectTensorPoint(keypoint_x, keypoint_y, &image_x, &image_y)) {
@@ -819,8 +842,8 @@ class FaceDetectorContext {
       std::memcpy(result->detections[i].keypoints, detections[i].keypoints.data(),
                   sizeof(result->detections[i].keypoints));
       const RectInPixels face_rect = DetectionToRect(detections[i]);
-      const float roi_sx = roi_transform ? roi_transform->scale_x : 1.5f;
-      const float roi_sy = roi_transform ? roi_transform->scale_y : 1.5f;
+      const float roi_sx = roi_transform ? roi_transform->scale_x : 1.0f;
+      const float roi_sy = roi_transform ? roi_transform->scale_y : 1.0f;
       const float roi_dx = roi_transform ? roi_transform->shift_x : 0.0f;
       const float roi_dy = roi_transform ? roi_transform->shift_y : 0.0f;
       const RectInPixels expanded_face_rect =
@@ -831,6 +854,31 @@ class FaceDetectorContext {
           ToNormalizedRect(expanded_face_rect, image_width, image_height);
     }
     return result;
+  }
+
+  bool ConfigureDecoder() {
+    if (input_width_ == 128 && input_height_ == 128 && num_boxes_ == 896) {
+      anchors_ = GenerateShortRangeAnchors();
+      x_scale_ = 128.0f;
+      y_scale_ = 128.0f;
+      w_scale_ = 128.0f;
+      h_scale_ = 128.0f;
+    } else if (input_width_ == 192 && input_height_ == 192 &&
+               num_boxes_ == 2304) {
+      anchors_ = GenerateFullRangeAnchors();
+      x_scale_ = 192.0f;
+      y_scale_ = 192.0f;
+      w_scale_ = 192.0f;
+      h_scale_ = 192.0f;
+    } else {
+      SetError("Unsupported face detector model shape.");
+      return false;
+    }
+    if (anchors_.empty()) {
+      SetError("Failed to generate detector anchors.");
+      return false;
+    }
+    return true;
   }
 
   RectInPixels ToPixelRect(const MpNormalizedRect& rect,
@@ -1405,6 +1453,10 @@ class FaceDetectorContext {
   int last_image_height_ = 0;
   float min_detection_confidence_ = 0.5f;
   float min_suppression_threshold_ = 0.3f;
+  float x_scale_ = 128.0f;
+  float y_scale_ = 128.0f;
+  float w_scale_ = 128.0f;
+  float h_scale_ = 128.0f;
 
   std::string last_error_;
   ProjectionMatrix last_projection_;

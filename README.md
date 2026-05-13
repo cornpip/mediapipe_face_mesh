@@ -6,6 +6,7 @@ Bundled files:
   - face mesh
   - iris
   - short-range face detection
+  - full-range dense and sparse face detection
 
 <img src="./readme_img/2.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
@@ -29,12 +30,16 @@ flutter pub add mediapipe_face_mesh
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final faceDetector = await FaceDetectorProcessor.create(
+  model: FaceDetectionModel.fullRange,
   delegate: FaceMeshDelegate.xnnpack,
   maxResults: 1,
   roiScaleY: 1.7,
   roiShiftY: -0.2,
 );
 ```
+`FaceDetectionModel` selects the bundled detector model:
+`shortRange` is the default short-range BlazeFace model, `fullRange` is the
+dense full-range model, and `fullRangeSparse` is the sparse full-range model.
 
 ROI options adjust the detector-produced `expandedFaceRect` used for later face
 mesh inference.
@@ -192,6 +197,8 @@ faceMeshProcessor.close();
 
 ## Example app
 
+Example source is in [`example/lib/page/mediapipe_face/`](example/lib/page/mediapipe_face/).
+
 The example included in this package provides two flows:
 
 A. MediaPipe Face Detector + MediaPipe Face Mesh
@@ -202,8 +209,9 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 ## Primary API
 
 - `FaceDetectorProcessor`
-  Runs the bundled MediaPipe short-range face detector and returns face boxes,
-  scores, and rotation-aware ROI values such as `expandedFaceRect`.
+  Runs the bundled MediaPipe short-range, full-range dense, or full-range sparse
+  face detector and returns face boxes, scores, and rotation-aware ROI values
+  such as `expandedFaceRect`.
 - `FaceDetectorStreamProcessor`
   Wraps `FaceDetectorProcessor` in an `async*` generator — accepts a `Stream` of frames and yields a `Stream` of results.
 - `FaceMeshProcessor`

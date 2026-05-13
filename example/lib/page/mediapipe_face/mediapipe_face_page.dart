@@ -97,8 +97,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   List<Detection> _detections = const [];
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
-  late final FaceDetectorProcessor _faceDetectorProcessor;
-  late final FaceDetectorStreamProcessor _faceDetectorStreamProcessor;
+  late FaceDetectorProcessor _faceDetectorProcessor;
+  late FaceDetectorStreamProcessor _faceDetectorStreamProcessor;
   late final FaceMeshProcessor _faceMeshProcessor;
   late final FaceMeshStreamProcessor _faceMeshStreamProcessor;
   final _detectorStageInput = _StageInputControllers();
@@ -127,12 +127,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
       _resolveCameraIndices();
 
-      _faceDetectorProcessor = await FaceDetectorProcessor.create(
-        delegate: FaceMeshDelegate.xnnpack,
-        maxResults: 1,
-        roiScaleY: 1.7,
-        roiShiftY: -0.2,
-      );
+      _faceDetectorProcessor = await _createFaceDetectorProcessor();
       _faceDetectorStreamProcessor = FaceDetectorStreamProcessor(
         _faceDetectorProcessor,
       );
@@ -182,6 +177,69 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   CameraDescription get _currentCamera => widget.cameras[_currentCameraIndex];
+
+  FaceDetectionModel _faceDetectionModelForSelection(String value) {
+    switch (value) {
+      case _fullRangeDenseModel:
+        return FaceDetectionModel.fullRange;
+      case _fullRangeSparseModel:
+        return FaceDetectionModel.fullRangeSparse;
+      case _shortRangeModel:
+      default:
+        return FaceDetectionModel.shortRange;
+    }
+  }
+
+  Future<FaceDetectorProcessor> _createFaceDetectorProcessor() {
+    final model = _faceDetectionModelForSelection(_selectedModel);
+    final isFullRange = model != FaceDetectionModel.shortRange;
+    return FaceDetectorProcessor.create(
+      model: model,
+      delegate: FaceMeshDelegate.xnnpack,
+      maxResults: 1,
+      // Detector ROI defaults are scaleX/scaleY = 1.5 and shiftX/shiftY = 0.0.
+      // This demo keeps the default X values and only nudges Y for face mesh
+      // tune these per model/camera if the box is too loose or tight.
+      roiScaleY: isFullRange ? 1.6 : 1.7,
+      roiShiftY: isFullRange ? -0.1 : -0.2,
+    );
+  }
+
+  Future<void> _changeDetectionModel(String value) async {
+    if (value == _selectedModel) {
+      return;
+    }
+    final previousSelection = _selectedModel;
+    if (mounted) {
+      setState(() {
+        _selectedModel = value;
+        _errorMessage = null;
+      });
+    } else {
+      _selectedModel = value;
+      _errorMessage = null;
+    }
+
+    try {
+      final newProcessor = await _createFaceDetectorProcessor();
+      _stopDetectorStream();
+      _clearDetections();
+      final oldProcessor = _faceDetectorProcessor;
+      _faceDetectorProcessor = newProcessor;
+      _faceDetectorStreamProcessor = FaceDetectorStreamProcessor(newProcessor);
+      oldProcessor.close();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _selectedModel = previousSelection;
+          _errorMessage = '$error';
+        });
+      } else {
+        _selectedModel = previousSelection;
+        _errorMessage = '$error';
+      }
+    }
+  }
 
   Future<bool> _initializeCamera(CameraDescription description) async {
     final previousController = _cameraController;
@@ -306,7 +364,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _detectorStreamRotation = rotationDegrees;
 
     if (Platform.isAndroid) {
-      _detectorStageInput.nv21Controller = StreamController<FaceMeshNv21Image>();
+      _detectorStageInput.nv21Controller =
+          StreamController<FaceMeshNv21Image>();
       _detectorStreamSubscription = _faceDetectorStreamProcessor
           .processNv21(
             _detectorStageInput.nv21Controller!.stream,
@@ -642,26 +701,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           ),
           DropdownMenuItem<String>(
             value: _fullRangeDenseModel,
-            enabled: false,
-            child: Text(
-              'Full-range (dense) - Planned',
-              style: TextStyle(color: Colors.black38),
-            ),
+            child: Text('Full-range (dense)'),
           ),
           DropdownMenuItem<String>(
             value: _fullRangeSparseModel,
-            enabled: false,
-            child: Text(
-              'Full-range (sparse) - Planned',
-              style: TextStyle(color: Colors.black38),
-            ),
+            child: Text('Full-range (sparse)'),
           ),
         ],
         onChanged: (value) {
           if (value == null || value == _selectedModel) {
             return;
           }
-          setState(() => _selectedModel = value);
+          _changeDetectionModel(value);
         },
       ),
     );

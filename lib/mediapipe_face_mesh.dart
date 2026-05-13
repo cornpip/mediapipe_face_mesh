@@ -19,8 +19,50 @@ const String _defaultModelAsset =
     'packages/mediapipe_face_mesh/assets/models/mediapipe_face_mesh.tflite';
 const String _defaultDetectorModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_detection_short_range.tflite';
+const String _fullRangeDetectorModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_detection_full_range.tflite';
+const String _fullRangeSparseDetectorModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_detection_full_range_sparse.tflite';
 const String _defaultIrisModelAsset =
     'packages/mediapipe_face_mesh/assets/models/iris_landmark.tflite';
+
+/// Bundled MediaPipe face detector model variants.
+enum FaceDetectionModel {
+  /// Short-range BlazeFace model, best for faces within roughly 2 meters.
+  shortRange,
+
+  /// Full-range dense BlazeFace model, best for faces within roughly 5 meters.
+  fullRange,
+
+  /// Full-range sparse BlazeFace model optimized for CPU/XNNPACK speed.
+  ///
+  /// This is the full-range model variant used by the official MediaPipe
+  /// Face Detection solution.
+  fullRangeSparse,
+}
+
+extension on FaceDetectionModel {
+  String get assetKey {
+    switch (this) {
+      case FaceDetectionModel.shortRange:
+        return _defaultDetectorModelAsset;
+      case FaceDetectionModel.fullRange:
+        return _fullRangeDetectorModelAsset;
+      case FaceDetectionModel.fullRangeSparse:
+        return _fullRangeSparseDetectorModelAsset;
+    }
+  }
+
+  double get defaultMinDetectionConfidence {
+    switch (this) {
+      case FaceDetectionModel.shortRange:
+        return 0.5;
+      case FaceDetectionModel.fullRange:
+      case FaceDetectionModel.fullRangeSparse:
+        return 0.6;
+    }
+  }
+}
 
 /// Face Mesh landmark indices whose coordinates are refined by the iris model
 /// when `FaceMeshProcessor.create(enableIris: true)` is used.
@@ -547,10 +589,10 @@ class FaceMeshLandmark {
   /// Builds a landmark from normalized coordinates returned by MediaPipe.
   FaceMeshLandmark({required this.x, required this.y, required this.z});
 
-  /// Horizontal coordinate normalized to [0, 1].
+  /// Horizontal coordinate normalized to the range `0..1`.
   final double x;
 
-  /// Vertical coordinate normalized to [0, 1].
+  /// Vertical coordinate normalized to the range `0..1`.
   final double y;
 
   /// Depth relative to the camera in canonical MediaPipe units.
@@ -628,8 +670,8 @@ class MediapipeFaceMeshException implements Exception {
 class FaceDetectorProcessor {
   FaceDetectorProcessor._(
     this._context, {
-    required double? defaultRoiScaleX,
-    required double? defaultRoiScaleY,
+    required double defaultRoiScaleX,
+    required double defaultRoiScaleY,
     required double defaultRoiShiftX,
     required double defaultRoiShiftY,
   }) : _defaultRoiScaleX = defaultRoiScaleX,
@@ -640,31 +682,42 @@ class FaceDetectorProcessor {
   }
 
   final ffi.Pointer<MpFaceDetectorContext> _context;
-  final double? _defaultRoiScaleX;
-  final double? _defaultRoiScaleY;
+  final double _defaultRoiScaleX;
+  final double _defaultRoiScaleY;
   final double _defaultRoiShiftX;
   final double _defaultRoiShiftY;
   bool _closed = false;
 
-  /// Creates the native face detector and loads the bundled short-range model.
+  /// Creates the native face detector and loads one of the bundled models.
   ///
   /// Commonly adjusted options:
+  /// - [model] selects short-range, full-range dense, or full-range sparse.
   /// - [delegate] selects CPU, XNNPACK, or GPU execution.
   /// - [maxResults] limits the number of detections returned per frame.
   /// - [roiScaleX], [roiScaleY], [roiShiftX], and [roiShiftY] control how
   ///   the detector-generated [FaceDetection.expandedFaceRect] is produced.
+  ///   The detected face rect is first made square, then scaled by
+  ///   [roiScaleX] and [roiScaleY], and shifted by [roiShiftX] and [roiShiftY]
+  ///   relative to the original rect size and rotation. Defaults are
+  ///   `roiScaleX = 1.5`, `roiScaleY = 1.5`, `roiShiftX = 0.0`, and
+  ///   `roiShiftY = 0.0`; the scale defaults match MediaPipe Face Mesh's
+  ///   detection-to-ROI transform (`scale_x = 1.5`, `scale_y = 1.5`,
+  ///   `square_long = true`).
   static Future<FaceDetectorProcessor> create({
+    FaceDetectionModel model = FaceDetectionModel.shortRange,
     int threads = 2,
-    double minDetectionConfidence = 0.5,
+    double? minDetectionConfidence,
     double minSuppressionThreshold = 0.3,
     int maxResults = 1,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
-    double? roiScaleX,
-    double? roiScaleY,
+    double roiScaleX = 1.5,
+    double roiScaleY = 1.5,
     double roiShiftX = 0.0,
     double roiShiftY = 0.0,
   }) async {
-    final String resolvedModelPath = await _materializeDetectorModel();
+    final String resolvedModelPath = await _materializeDetectorModel(model);
+    final double resolvedMinDetectionConfidence =
+        minDetectionConfidence ?? model.defaultMinDetectionConfidence;
 
     final optionsPtr = pkg_ffi.calloc<MpFaceDetectorCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
@@ -672,7 +725,7 @@ class FaceDetectorProcessor {
     try {
       optionsPtr.ref
         ..threads = threads
-        ..min_detection_confidence = minDetectionConfidence
+        ..min_detection_confidence = resolvedMinDetectionConfidence
         ..min_suppression_threshold = minSuppressionThreshold
         ..max_results = maxResults
         ..delegate = delegate.index
@@ -712,8 +765,8 @@ class FaceDetectorProcessor {
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
-    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
-    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
     final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
     final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
     final _NativeImage nativeImage = _toNativeImage(image);
@@ -768,8 +821,8 @@ class FaceDetectorProcessor {
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
-    final double? resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
-    final double? resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
+    final double resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
+    final double resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
     final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
     final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
     final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
@@ -813,20 +866,17 @@ class FaceDetectorProcessor {
   }
 
   ffi.Pointer<MpRoiTransformOptions> _toNativeRoiTransform(
-    double? scaleX,
-    double? scaleY,
-    double? shiftX,
-    double? shiftY,
+    double scaleX,
+    double scaleY,
+    double shiftX,
+    double shiftY,
   ) {
-    if (scaleX == null && scaleY == null && shiftX == null && shiftY == null) {
-      return ffi.nullptr;
-    }
     final ffi.Pointer<MpRoiTransformOptions> ptr = pkg_ffi
         .calloc<MpRoiTransformOptions>();
-    ptr.ref.scale_x = (scaleX ?? 1.5).toDouble();
-    ptr.ref.scale_y = (scaleY ?? 1.5).toDouble();
-    ptr.ref.shift_x = shiftX ?? 0.0;
-    ptr.ref.shift_y = shiftY ?? 0.0;
+    ptr.ref.scale_x = scaleX;
+    ptr.ref.scale_y = scaleY;
+    ptr.ref.shift_x = shiftX;
+    ptr.ref.shift_y = shiftY;
     return ptr;
   }
 
@@ -954,7 +1004,8 @@ class FaceMeshProcessor {
 
   /// Processes an image and returns face landmarks.
   ///
-  /// By default, this processes using the internal ROI tracking state.
+  /// By default, this processes using the internal ROI tracking state when
+  /// [enableRoiTracking] was enabled during [create].
   /// To process the full frame or restrict processing to a region, provide either:
   /// - [roi] as a normalized rectangle, or
   /// - [box] as a pixel-space bounding box (converted to an ROI internally).

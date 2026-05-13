@@ -1,3 +1,12 @@
+## 1.5.0
+
+- add bundled full-range dense and sparse face detector model support
+- add `FaceDetectionModel` selection to `FaceDetectorProcessor.create`
+
+## 1.4.1
+
+- update docs
+
 ## 1.4.0
 
 - add optional iris landmark output through `FaceMeshProcessor.create(enableIris: true)`
