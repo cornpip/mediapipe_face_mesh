@@ -197,11 +197,9 @@ faceMeshProcessor.close();
 
 ## Example app
 
-Example source is in [`example/lib/page/mediapipe_face/`](example/lib/page/mediapipe_face/).
+The example app in `example/` provides two flows:
 
-The example included in this package provides two flows:
-
-A. MediaPipe Face Detector + MediaPipe Face Mesh
+A. MediaPipe Face Detector + MediaPipe Face Mesh  
 B. ML Kit Face Detector + MediaPipe Face Mesh
 
 `B` depends on the `google_mlkit_face_detection` package for face detection.
