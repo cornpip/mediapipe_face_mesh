@@ -29,7 +29,7 @@ flutter pub add mediapipe_face_mesh
 ```dart
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-final faceDetector = await FaceDetectorProcessor.create(
+final faceDetectorProcessor = await FaceDetectorProcessor.create(
   model: FaceDetectionModel.fullRange,
   delegate: FaceMeshDelegate.xnnpack,
   maxResults: 1,
@@ -41,8 +41,8 @@ final faceDetector = await FaceDetectorProcessor.create(
 `shortRange` is the default short-range BlazeFace model, `fullRange` is the
 dense full-range model, and `fullRangeSparse` is the sparse full-range model.
 
-ROI options adjust the detector-produced `expandedFaceRect` used for later face
-mesh inference.
+ROI options adjust the detector-produced `expandedFaceRect`, which is passed to
+face mesh while keeping the original frame unchanged.
 
 ### Create Face Mesh Processor
 
@@ -77,114 +77,79 @@ The package supports two image input types:
 - `FaceMeshNv21Image`
   Use this for Android camera frames in NV21 layout.
 - `FaceMeshImage`
-  Use this for RGBA or BGRA buffers. This is the used for iOS camera frames.
+  Use this for RGBA or BGRA buffers. This is used for iOS camera frames.
 
 ### Stream Inference
 
-Use stream inference when processing continuous camera frames; use single inference for one-shot images.  
-Both `StreamProcessor` classes take a Stream of frames and return a Stream of results.
+Use stream inference when processing continuous camera frames. Stream processors
+take a Stream of frames and return a Stream of results.
 
 ```dart
-final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
+final pipeline = FaceMeshInferencePipeline(
+  detector: faceDetectorProcessor,
+  mesh: faceMeshProcessor,
+);
+final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 final frameController = StreamController<FaceMeshNv21Image>();
 bool _isBusy = false;
 
+inferenceStreamProcessor
+    .processNv21(
+      frameController.stream,
+      runMeshResolver: (_) => _isMeshActive,
+      rotationDegrees: rotationDegrees,
+    )
+    .listen(_handleInferenceResult, onError: onError);
+
+void _handleInferenceResult(FaceMeshInferenceResult result) {
+  _isBusy = false;
+  onDetections(result.detectionResult);
+  onMeshResult(result.meshResult);
+}
+
 void onCameraFrame(FaceMeshNv21Image frame) {
-  if (_isBusy) return;          // drop frame — previous inference still running
+  if (_isBusy) return;
   _isBusy = true;
-  frameController.add(frame);   // returns immediately; camera session unblocked
-}
-
-streamProcessor
-    .processNv21(frameController.stream, rotationDegrees: rotationDegrees)
-    .listen((result) {
-      _isBusy = false;
-      onResult(result);          // update overlay; camera was never blocked
-    }, onError: onError);
-```
-
-Full two-stage (detector → mesh) example:
-
-```dart
-final detectorStreamProcessor = FaceDetectorStreamProcessor(faceDetectorProcessor);
-final streamProcessor = FaceMeshStreamProcessor(faceMeshProcessor);
-NormalizedRect? latestRoi;
-bool _isDetectorBusy = false;
-bool _isMeshBusy = false;
-final detectorFrameController = StreamController<FaceMeshNv21Image>();
-final meshFrameController = StreamController<FaceMeshNv21Image>();
-
-detectorStreamProcessor
-    .processNv21(
-      detectorFrameController.stream,
-      rotationDegrees: rotationDegrees,
-    )
-    .listen((detectionResult) {
-      _isDetectorBusy = false;
-      latestRoi = detectionResult.primaryDetection?.expandedFaceRect;
-      if (latestRoi != null && !_isMeshBusy) {
-        _isMeshBusy = true;
-        meshFrameController.add(lastFrame!);
-      }
-    }, onError: onError);
-
-streamProcessor
-    .processNv21(
-      meshFrameController.stream,
-      roiResolver: (_) => latestRoi,
-      rotationDegrees: rotationDegrees,
-    )
-    .listen((result) {
-      _isMeshBusy = false;
-      onResult(result);
-    }, onError: onError);
-
-void onCameraFrame(FaceMeshNv21Image frame) {
-  lastFrame = frame;
-  if (!_isDetectorBusy) {
-    _isDetectorBusy = true;
-    detectorFrameController.add(frame);
-  }
+  frameController.add(frame);
 }
 ```
+
+Use `runMesh: false` when an entire stream should run detector-only. Use
+`runMeshResolver` when mesh execution should be decided per frame, such as a UI
+toggle that can change while the stream is active.
 
 For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
 
 ### Single Inference
 
+Use single-frame inference in one call without a stream processor.
+
 ```dart
-final detectionResult = faceDetectorProcessor.processNv21(
+final pipeline = FaceMeshInferencePipeline(
+  detector: faceDetectorProcessor,
+  mesh: faceMeshProcessor,
+);
+
+final result = pipeline.processNv21(
   nv21Image,
   rotationDegrees: rotationDegrees,
 );
-final detection = detectionResult.primaryDetection;
 
-if (detection != null) {
-  final result = faceMeshProcessor.processNv21(
-    nv21Image,
-    roi: detection.expandedFaceRect,
-    rotationDegrees: rotationDegrees,
-  );
+final meshResult = result.meshResult;
+if (meshResult != null) {
+  onResult(meshResult);
 }
 ```
 
-### ROI Inputs
+For detector-only, set `runMesh: false`.
 
-Face Mesh accepts ROI input in two ways.
-
-For single-frame inference, use `roi` or `box`.
-For stream inference, the same distinction applies through `roiResolver` and
-`boxResolver`.
-
-- `roi`
-  Pass the final `NormalizedRect` directly.
-  Use this when you already have a rotation-aware ROI such as `expandedFaceRect`.
-- `box`
-  Pass a `FaceMeshBox`, which is converted internally into a normalized ROI.
-  This path applies clamping, `boxScale`, and `boxMakeSquare`, and produces an
-  axis-aligned ROI (`rotation == 0`).
-
-If both `roi` and `box` are provided, an `ArgumentError` is thrown.
+```dart
+final result = pipeline.processNv21(
+  nv21Image,
+  runMesh: false,
+  rotationDegrees: rotationDegrees,
+);
+```
 
 ### Close Resource
 
@@ -194,6 +159,21 @@ Explicitly calling close() when the processors are no longer needed is recommend
 faceDetectorProcessor.close();
 faceMeshProcessor.close();
 ```
+
+### Notes
+
+The examples in this README use the v1.6.0+ unified inference API.
+
+`FaceMeshInferenceStreamProcessor` emits one combined result after detector and
+mesh inference complete, so detection boxes and mesh landmarks are updated
+together.
+
+If you need detector boxes to update independently from slower mesh inference,
+use `FaceDetectorStreamProcessor` and `FaceMeshStreamProcessor` separately; see
+the [v1.5.0](https://github.com/cornpip/mediapipe_face_mesh/tree/v1.5.0) README and example app
+for a two-stage stream pattern.
+
+These separated stream processors are still available in v1.6.0 and later.
 
 ## Example app
 
@@ -206,17 +186,21 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 
 ## Primary API
 
+- `FaceMeshInferencePipeline`
+  Runs face detection and face mesh inference in one call for single-frame use.
+- `FaceMeshInferenceStreamProcessor`
+  Wraps `FaceMeshInferencePipeline` in an `async*` generator — accepts a
+  `Stream` of frames and yields a `Stream` of high-level inference results.
+- `FaceMeshInferenceResult`
+  Contains detector output, selected detection, selected box/ROI, ROI
+  availability, and mesh output.
 - `FaceDetectorProcessor`
   Runs the bundled MediaPipe short-range, full-range dense, or full-range sparse
   face detector and returns face boxes, scores, and rotation-aware ROI values
   such as `expandedFaceRect`.
-- `FaceDetectorStreamProcessor`
-  Wraps `FaceDetectorProcessor` in an `async*` generator — accepts a `Stream` of frames and yields a `Stream` of results.
 - `FaceMeshProcessor`
   Runs face mesh inference and returns normalized 3D landmarks, mesh triangles,
   the detected face rect, score, and input image size.
-- `FaceMeshStreamProcessor`
-  Wraps `FaceMeshProcessor` in an `async*` generator — accepts a `Stream` of frames and yields a `Stream` of results.
 - `FaceMeshNv21Image`
   Input wrapper for Android NV21 camera frames.
 - `FaceMeshImage`

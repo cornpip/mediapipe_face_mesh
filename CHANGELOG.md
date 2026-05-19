@@ -1,3 +1,10 @@
+## 1.6.0
+
+- add `FaceMeshInferencePipeline` and `FaceMeshInferenceResult` for one-call unified detector and face mesh inference
+- add `FaceMeshInferenceStreamProcessor` for stream-based unified inference
+- update the MediaPipe detector example to use `FaceMeshInferencePipeline`
+- update README usage docs for the unified inference API
+
 ## 1.5.0
 
 - add bundled full-range dense and sparse face detector model support
