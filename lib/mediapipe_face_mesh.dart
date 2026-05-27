@@ -1004,6 +1004,30 @@ class FaceMeshProcessor {
     }
   }
 
+  /// Creates a face mesh processor configured for multi-face ROI fan-out.
+  ///
+  /// Multi-face helpers run several face ROIs through the same processor in
+  /// sequence. Smoothing and ROI tracking keep state across calls, so this
+  /// factory disables both options to prevent state from one face affecting the
+  /// next face.
+  static Future<FaceMeshProcessor> createForMultiFace({
+    int threads = 2,
+    double minDetectionConfidence = 0.5,
+    double minTrackingConfidence = 0.5,
+    bool enableIris = false,
+    FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+  }) {
+    return FaceMeshProcessor.create(
+      threads: threads,
+      minDetectionConfidence: minDetectionConfidence,
+      minTrackingConfidence: minTrackingConfidence,
+      enableSmoothing: false,
+      enableRoiTracking: false,
+      enableIris: enableIris,
+      delegate: delegate,
+    );
+  }
+
   /// Processes an image and returns face landmarks.
   ///
   /// By default, this processes using the internal ROI tracking state when
@@ -1030,12 +1054,7 @@ class FaceMeshProcessor {
     if (roi != null && box != null) {
       throw ArgumentError('Provide either roi or box, not both.');
     }
-    if (rotationDegrees != 0 &&
-        rotationDegrees != 90 &&
-        rotationDegrees != 180 &&
-        rotationDegrees != 270) {
-      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
-    }
+    _validateRotationDegrees(rotationDegrees);
     final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
         ? image.height
         : image.width;
@@ -1103,12 +1122,7 @@ class FaceMeshProcessor {
     if (roi != null && box != null) {
       throw ArgumentError('Provide either roi or box, not both.');
     }
-    if (rotationDegrees != 0 &&
-        rotationDegrees != 90 &&
-        rotationDegrees != 180 &&
-        rotationDegrees != 270) {
-      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
-    }
+    _validateRotationDegrees(rotationDegrees);
     final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
         ? image.height
         : image.width;
@@ -1159,6 +1173,84 @@ class FaceMeshProcessor {
     return processed;
   }
 
+  /// Processes one mesh inference for each detector result with a usable ROI.
+  ///
+  /// This mirrors MediaPipe Face Mesh graph behavior at the Dart API level:
+  /// each [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect] when
+  /// the expanded ROI is unavailable, is fed to [process] and collected into a
+  /// single list.
+  ///
+  /// [maxMeshFaces] limits how many mesh inferences are run from the provided
+  /// [detections]. Detections without an ROI are skipped.
+  List<FaceMeshResult> processMultiFace(
+    FaceMeshImage image, {
+    required Iterable<FaceDetection> detections,
+    int? maxMeshFaces,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+  }) {
+    _ensureNotClosed();
+    _validateRotationDegrees(rotationDegrees);
+    _validateMaxMeshFaces(maxMeshFaces);
+    final List<FaceMeshResult> results = <FaceMeshResult>[];
+    for (final FaceDetection detection in detections) {
+      if (maxMeshFaces != null && results.length >= maxMeshFaces) {
+        break;
+      }
+      final NormalizedRect? roi = _roiForDetection(detection);
+      if (roi == null) {
+        continue;
+      }
+      results.add(
+        process(
+          image,
+          roi: roi,
+          rotationDegrees: rotationDegrees,
+          mirrorHorizontal: mirrorHorizontal,
+        ),
+      );
+    }
+    return results;
+  }
+
+  /// Processes one NV21 mesh inference for each detector result with a usable
+  /// ROI.
+  ///
+  /// This is the NV21 counterpart of [processMultiFace].
+  ///
+  /// [maxMeshFaces] limits how many mesh inferences are run from the provided
+  /// [detections]. Detections without an ROI are skipped.
+  List<FaceMeshResult> processNv21MultiFace(
+    FaceMeshNv21Image image, {
+    required Iterable<FaceDetection> detections,
+    int? maxMeshFaces,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+  }) {
+    _ensureNotClosed();
+    _validateRotationDegrees(rotationDegrees);
+    _validateMaxMeshFaces(maxMeshFaces);
+    final List<FaceMeshResult> results = <FaceMeshResult>[];
+    for (final FaceDetection detection in detections) {
+      if (maxMeshFaces != null && results.length >= maxMeshFaces) {
+        break;
+      }
+      final NormalizedRect? roi = _roiForDetection(detection);
+      if (roi == null) {
+        continue;
+      }
+      results.add(
+        processNv21(
+          image,
+          roi: roi,
+          rotationDegrees: rotationDegrees,
+          mirrorHorizontal: mirrorHorizontal,
+        ),
+      );
+    }
+    return results;
+  }
+
   FaceMeshResult _copyResult(MpFaceMeshResult nativeResult) {
     final ffi.Pointer<MpLandmark> landmarkPtr = nativeResult.landmarks;
     final List<FaceMeshLandmark> landmarks =
@@ -1193,6 +1285,24 @@ class FaceMeshProcessor {
   void _ensureNotClosed() {
     if (_closed) {
       throw StateError('Face mesh context already closed.');
+    }
+  }
+
+  void _validateRotationDegrees(int rotationDegrees) {
+    if (rotationDegrees != 0 &&
+        rotationDegrees != 90 &&
+        rotationDegrees != 180 &&
+        rotationDegrees != 270) {
+      throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
+    }
+  }
+
+  NormalizedRect? _roiForDetection(FaceDetection detection) =>
+      detection.expandedFaceRect ?? detection.faceRect;
+
+  void _validateMaxMeshFaces(int? maxMeshFaces) {
+    if (maxMeshFaces != null && maxMeshFaces < 0) {
+      throw ArgumentError('maxMeshFaces must be null or >= 0.');
     }
   }
 }

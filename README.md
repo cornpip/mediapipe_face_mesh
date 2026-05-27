@@ -151,6 +151,68 @@ final result = pipeline.processNv21(
 );
 ```
 
+### Multi-Face Inference
+
+Multi-face mesh inference runs face detection once, then runs mesh inference for
+each selected detector ROI. Use `maxResults` on the detector to control how many
+faces are detected, and `maxMeshFaces` on the multi-face mesh call to control
+how many mesh inferences are run.
+
+Create the mesh processor with tracking and smoothing disabled so state from one
+face ROI does not affect the next face ROI.
+
+`createForMultiFace(...)` is a convenience factory equivalent to
+`FaceMeshProcessor.create(..., enableSmoothing: false, enableRoiTracking: false)`.
+
+```dart
+final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
+  delegate: FaceMeshDelegate.xnnpack,
+  enableIris: true,
+);
+```
+
+```dart
+final faceDetectorProcessor = await FaceDetectorProcessor.create(
+  delegate: FaceMeshDelegate.xnnpack,
+  maxResults: 4,
+);
+final pipeline = FaceMeshInferencePipeline(
+  detector: faceDetectorProcessor,
+  mesh: faceMeshProcessor,
+);
+final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
+
+inferenceStreamProcessor
+    .processNv21MultiFace(
+      frameController.stream,
+      maxMeshFaces: 2,
+      runMeshResolver: (_) => _isMeshActive,
+      rotationDegrees: rotationDegrees,
+    )
+    .listen(_handleMultiInferenceResult, onError: onError);
+
+void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
+  onDetections(result.detectionResult);
+  onMeshResults(result.meshResults);
+}
+```
+
+For BGRA / RGBA input, use `processMultiFace(...)` instead of
+`processNv21MultiFace(...)`.
+
+For single-frame multi-face inference, call the pipeline directly.
+
+```dart
+final FaceMeshMultiInferenceResult result = pipeline.processNv21MultiFace(
+  nv21Image,
+  maxMeshFaces: 4,
+  rotationDegrees: rotationDegrees,
+);
+
+final FaceDetectionResult detections = result.detectionResult;
+final List<FaceMeshResult> meshResults = result.meshResults;
+```
+
 ### Close Resource
 
 Explicitly calling close() when the processors are no longer needed is recommended.
@@ -194,6 +256,8 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 - `FaceMeshInferenceResult`
   Contains detector output, selected detection, selected box/ROI, ROI
   availability, and mesh output.
+- `FaceMeshMultiInferenceResult`
+  Contains detector output and all mesh outputs produced from detector ROIs.
 - `FaceDetectorProcessor`
   Runs the bundled MediaPipe short-range, full-range dense, or full-range sparse
   face detector and returns face boxes, scores, and rotation-aware ROI values
@@ -215,3 +279,7 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
   or 478 landmarks when `enableIris` is enabled. Pixel-space helpers such as
   `landmarkAsOffset(...)` and `landmarksAsOffsets(...)` support rotation and
   horizontal mirror mapping for preview overlays.
+- `FaceMeshPainter`
+  Optional `CustomPainter` for drawing one or more face mesh results
+- `FaceDetectionPainter`
+  Optional `CustomPainter` for drawing `FaceDetection` boxes

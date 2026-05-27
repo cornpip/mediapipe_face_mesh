@@ -1,6 +1,6 @@
 name: mediapipe_face_mesh
-description: "Real-time face mesh detection for Flutter — 3D landmarks support on Android & iOS."
-version: 1.6.0
+description: "Real-time MediaPipe face detection and face mesh tracking for Flutter on Android and iOS."
+version: 1.7.0
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:

@@ -5,8 +5,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-class Detection {
-  const Detection({
+class MlkitDetectionOverlay {
+  const MlkitDetectionOverlay({
     required this.boundingBox,
     required this.confidence,
     required this.bboxLabel,
@@ -21,8 +21,8 @@ class Detection {
   final NormalizedRect? rotatedRect;
 }
 
-class DetectionPainter extends CustomPainter {
-  DetectionPainter({
+class MlkitDetectionPainter extends CustomPainter {
+  MlkitDetectionPainter({
     required this.detections,
     required this.lensDirection,
     this.showConfidence = true,
@@ -32,7 +32,7 @@ class DetectionPainter extends CustomPainter {
     this.roiBoxColor = Colors.lightGreenAccent,
   });
 
-  final List<Detection> detections;
+  final List<MlkitDetectionOverlay> detections;
   final CameraLensDirection lensDirection;
   final bool showConfidence;
   final bool showFaceBox;
@@ -91,34 +91,34 @@ class DetectionPainter extends CustomPainter {
     required String label,
     required Color color,
   }) {
-      final textSpan = TextSpan(
-        text: label,
-        style: const TextStyle(
-          color: Colors.black87,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      );
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-      )..layout();
+    final textSpan = TextSpan(
+      text: label,
+      style: const TextStyle(
+        color: Colors.black87,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    )..layout();
 
-      final textBackground = Rect.fromLTWH(
-        anchorRect.left,
-        math.max(0, anchorRect.top - textPainter.height - 4),
-        textPainter.width + 8,
-        textPainter.height + 4,
-      );
+    final textBackground = Rect.fromLTWH(
+      anchorRect.left,
+      math.max(0, anchorRect.top - textPainter.height - 4),
+      textPainter.width + 8,
+      textPainter.height + 4,
+    );
 
-      final backgroundPaint = Paint()
-        ..color = color.withValues(alpha: 0.85)
-        ..style = PaintingStyle.fill;
-      canvas.drawRect(textBackground, backgroundPaint);
-      textPainter.paint(
-        canvas,
-        Offset(textBackground.left + 4, textBackground.top + 2),
-      );
+    final backgroundPaint = Paint()
+      ..color = color.withValues(alpha: 0.85)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(textBackground, backgroundPaint);
+    textPainter.paint(
+      canvas,
+      Offset(textBackground.left + 4, textBackground.top + 2),
+    );
   }
 
   Rect _maybeMirror(Rect box) {
@@ -185,7 +185,7 @@ class DetectionPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant DetectionPainter oldDelegate) {
+  bool shouldRepaint(covariant MlkitDetectionPainter oldDelegate) {
     return oldDelegate.detections != detections ||
         oldDelegate.lensDirection != lensDirection ||
         oldDelegate.showConfidence != showConfidence ||

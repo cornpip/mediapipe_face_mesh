@@ -1,3 +1,10 @@
+## 1.7.0
+
+- add multi-face mesh inference APIs with `FaceMeshMultiInferenceResult`, `processMultiFace`, and `processNv21MultiFace`
+- add reusable `FaceMeshPainter` and `FaceDetectionPainter` preview overlay painters as package files
+- update the examples to use the public overlay painters
+- update README docs for multi-face inference
+
 ## 1.6.0
 
 - add `FaceMeshInferencePipeline` and `FaceMeshInferenceResult` for one-call unified detector and face mesh inference
