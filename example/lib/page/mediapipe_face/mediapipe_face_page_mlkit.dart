@@ -5,12 +5,12 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:mediapipe_face_mesh/face_mesh_painter.dart';
 import 'package:mediapipe_face_mesh/face_mesh_stream_processor.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-import 'paint/detection_painter.dart';
+import 'paint/mlkit_detection_painter.dart';
 import '../../utils/face_mesh_camera_image_adapter.dart';
-import 'paint/face_mesh_painter.dart';
 
 class _MlkitDetectionSnapshot {
   const _MlkitDetectionSnapshot({
@@ -27,10 +27,10 @@ class _MlkitDetectionSnapshot {
 
   Rect? get primaryBoundingBox => primaryFace?.boundingBox;
 
-  List<Detection> get overlayDetections {
+  List<MlkitDetectionOverlay> get overlayDetections {
     return faces.map((face) {
       final Rect box = face.boundingBox;
-      return Detection(
+      return MlkitDetectionOverlay(
         boundingBox: Rect.fromLTRB(
           (box.left / adjustedImageSize.width).clamp(0.0, 1.0),
           (box.top / adjustedImageSize.height).clamp(0.0, 1.0),
@@ -88,7 +88,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
   double _cameraFps = 0;
   DateTime? _lastCameraFrameTime;
   DateTime? _lastCameraFpsUpdateTime;
-  List<Detection> _detections = const [];
+  List<MlkitDetectionOverlay> _detections = const [];
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
   late final FaceDetector _faceDetector;
@@ -483,7 +483,7 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
                           if (isCameraAvailable && controller != null)
                             RepaintBoundary(
                               child: CustomPaint(
-                                painter: DetectionPainter(
+                                painter: MlkitDetectionPainter(
                                   detections: _detections,
                                   lensDirection:
                                       controller.description.lensDirection,
@@ -500,10 +500,12 @@ class _MediaPipeFacePageMlkitState extends State<MediaPipeFacePageMlkit>
                                 child: CustomPaint(
                                   painter: FaceMeshPainter(
                                     result: _meshResult!,
-                                    rotationCompensation:
+                                    rotationDegrees:
                                         _meshRotationCompensation ?? 0,
-                                    lensDirection:
-                                        controller.description.lensDirection,
+                                    mirrorHorizontal:
+                                        !Platform.isIOS &&
+                                        controller.description.lensDirection ==
+                                            CameraLensDirection.front,
                                     strokeColor: _overlayColor,
                                   ),
                                 ),

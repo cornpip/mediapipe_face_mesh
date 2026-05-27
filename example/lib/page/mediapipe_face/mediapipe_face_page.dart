@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mediapipe_face_mesh/face_detection_painter.dart';
+import 'package:mediapipe_face_mesh/face_mesh_painter.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-import 'paint/detection_painter.dart';
 import '../../utils/face_mesh_camera_image_adapter.dart';
-import 'paint/face_mesh_painter.dart';
 
 class _DetectionSnapshot {
   const _DetectionSnapshot({
@@ -18,23 +18,6 @@ class _DetectionSnapshot {
 
   final FaceDetectionResult result;
   final int rotationDegrees;
-
-  List<Detection> get overlayDetections {
-    return result.detections.map((detection) {
-      return Detection(
-        boundingBox: Rect.fromLTRB(
-          detection.left.clamp(0.0, 1.0),
-          detection.top.clamp(0.0, 1.0),
-          detection.right.clamp(0.0, 1.0),
-          detection.bottom.clamp(0.0, 1.0),
-        ),
-        confidence: detection.score,
-        bboxLabel: 'Face',
-        roiLabel: 'ROI',
-        rotatedRect: detection.expandedFaceRect,
-      );
-    }).toList();
-  }
 }
 
 class _StageInputControllers {
@@ -86,7 +69,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   double _cameraFps = 0;
   DateTime? _lastCameraFrameTime;
   DateTime? _lastCameraFpsUpdateTime;
-  List<Detection> _detections = const [];
+  FaceDetectionResult? _detectionResult;
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
   late FaceDetectorProcessor _faceDetectorProcessor;
@@ -330,7 +313,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   void _clearDetections() {
-    _detections = const [];
+    _detectionResult = null;
     _isProcessingFrame = false;
   }
 
@@ -553,15 +536,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                 style: TextStyle(color: Colors.black54),
                               ),
                             ),
-                          if (isCameraAvailable && controller != null)
+                          if (isCameraAvailable &&
+                              controller != null &&
+                              _detectionResult != null)
                             RepaintBoundary(
                               child: CustomPaint(
-                                painter: DetectionPainter(
-                                  detections: _detections,
-                                  lensDirection:
-                                      controller.description.lensDirection,
+                                painter: FaceDetectionPainter(
+                                  result: _detectionResult!,
+                                  mirrorHorizontal:
+                                      !Platform.isIOS &&
+                                      controller.description.lensDirection ==
+                                          CameraLensDirection.front,
                                   showConfidence: false,
                                   showFaceBox: false,
+                                  showRoiBox: true,
                                 ),
                               ),
                             ),
@@ -573,10 +561,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                 child: CustomPaint(
                                   painter: FaceMeshPainter(
                                     result: _meshResult!,
-                                    rotationCompensation:
+                                    rotationDegrees:
                                         _meshRotationCompensation ?? 0,
-                                    lensDirection:
-                                        controller.description.lensDirection,
+                                    mirrorHorizontal:
+                                        !Platform.isIOS &&
+                                        controller.description.lensDirection ==
+                                            CameraLensDirection.front,
                                   ),
                                 ),
                               ),
@@ -592,7 +582,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 Positioned(
                   bottom: 12,
                   left: 12,
-                  child: _infoChip('Faces: ${_detections.length}'),
+                  child: _infoChip(
+                    'Faces: ${_detectionResult?.detections.length ?? 0}',
+                  ),
                 ),
               ],
             ),
@@ -963,14 +955,14 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }) {
     if (mounted) {
       setState(() {
-        _detections = snapshot.overlayDetections;
+        _detectionResult = snapshot.result;
         if (!_isMeshActive || !hasMeshRoi) {
           _meshResult = null;
           _meshRotationCompensation = null;
         }
       });
     } else {
-      _detections = snapshot.overlayDetections;
+      _detectionResult = snapshot.result;
       if (!_isMeshActive || !hasMeshRoi) {
         _meshResult = null;
         _meshRotationCompensation = null;
