@@ -1180,8 +1180,8 @@ class FaceMeshProcessor {
   /// the expanded ROI is unavailable, is fed to [process] and collected into a
   /// single list.
   ///
-  /// [maxMeshFaces] limits how many mesh inferences are run. Detections without
-  /// an ROI are skipped.
+  /// [maxMeshFaces] limits how many mesh inferences are run from the provided
+  /// [detections]. Detections without an ROI are skipped.
   List<FaceMeshResult> processMultiFace(
     FaceMeshImage image, {
     required Iterable<FaceDetection> detections,
@@ -1217,6 +1217,9 @@ class FaceMeshProcessor {
   /// ROI.
   ///
   /// This is the NV21 counterpart of [processMultiFace].
+  ///
+  /// [maxMeshFaces] limits how many mesh inferences are run from the provided
+  /// [detections]. Detections without an ROI are skipped.
   List<FaceMeshResult> processNv21MultiFace(
     FaceMeshNv21Image image, {
     required Iterable<FaceDetection> detections,

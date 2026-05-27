@@ -161,13 +161,15 @@ how many mesh inferences are run.
 Create the mesh processor with tracking and smoothing disabled so state from one
 face ROI does not affect the next face ROI.
 
+`createForMultiFace(...)` is a convenience factory equivalent to
+`FaceMeshProcessor.create(..., enableSmoothing: false, enableRoiTracking: false)`.
+
 ```dart
 final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
   delegate: FaceMeshDelegate.xnnpack,
   enableIris: true,
 );
 ```
-Same as `FaceMeshProcessor.create(..., enableSmoothing: false, enableRoiTracking: false)`
 
 ```dart
 final faceDetectorProcessor = await FaceDetectorProcessor.create(

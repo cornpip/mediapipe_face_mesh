@@ -214,6 +214,10 @@ class FaceMeshInferencePipeline {
   ///
   /// The returned mesh list preserves detector score order. Set [runMesh] to
   /// false to run detector-only and return an empty mesh list.
+  ///
+  /// [maxMeshFaces] limits how many mesh inferences are run. Configure the
+  /// detector result count separately with [FaceDetectorProcessor.create]'s
+  /// `maxResults`.
   FaceMeshMultiInferenceResult processMultiFace(
     FaceMeshImage image, {
     NormalizedRect? detectorRoi,
@@ -257,6 +261,10 @@ class FaceMeshInferencePipeline {
   ///
   /// The returned mesh list preserves detector score order. Set [runMesh] to
   /// false to run detector-only and return an empty mesh list.
+  ///
+  /// [maxMeshFaces] limits how many mesh inferences are run. Configure the
+  /// detector result count separately with [FaceDetectorProcessor.create]'s
+  /// `maxResults`.
   FaceMeshMultiInferenceResult processNv21MultiFace(
     FaceMeshNv21Image image, {
     NormalizedRect? detectorRoi,
@@ -394,6 +402,11 @@ class FaceMeshInferenceStreamProcessor {
   }
 
   /// Processes a stream of RGBA/BGRA frames into multi-face mesh results.
+  ///
+  /// Each frame runs detector inference once, then mesh inference for each
+  /// detector result with a usable ROI. [maxMeshFaces] limits mesh invocations
+  /// per frame; detector result count is controlled by the detector processor's
+  /// `maxResults` option.
   Stream<FaceMeshMultiInferenceResult> processMultiFace(
     Stream<FaceMeshImage> frames, {
     NormalizedRect? detectorRoi,
@@ -431,6 +444,11 @@ class FaceMeshInferenceStreamProcessor {
   }
 
   /// Processes a stream of NV21 frames into multi-face mesh results.
+  ///
+  /// Each frame runs detector inference once, then mesh inference for each
+  /// detector result with a usable ROI. [maxMeshFaces] limits mesh invocations
+  /// per frame; detector result count is controlled by the detector processor's
+  /// `maxResults` option.
   Stream<FaceMeshMultiInferenceResult> processNv21MultiFace(
     Stream<FaceMeshNv21Image> frames, {
     NormalizedRect? detectorRoi,
