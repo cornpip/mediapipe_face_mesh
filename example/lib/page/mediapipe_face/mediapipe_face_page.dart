@@ -615,7 +615,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
       child: DropdownButtonFormField<String>(
-        initialValue: _selectedModel,
+        value: _selectedModel,
         decoration: const InputDecoration(
           labelText: 'Detection Model',
           border: OutlineInputBorder(),

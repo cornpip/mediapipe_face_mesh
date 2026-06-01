@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "com.cornpip.mediapipe_face_mesh_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // this plugin requires NDK 26.3.11579264 at minimum (flutter.ndkVersion default in Dart 3.8.1),
+    // but deps like camera_android_camerax, google_mlkit_face_detection require 27.0.12077973
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -24,7 +26,7 @@ android {
         applicationId = "com.cornpip.mediapipe_face_mesh_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

@@ -15,6 +15,7 @@ Bundled files:
 - Android(arm64-v8a, x86_64)
 - iOS
 - Dart SDK: `>=3.8.1 <4.0.0`
+- Android minSdk: `24`
 
 ## Install
 

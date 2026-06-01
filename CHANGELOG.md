@@ -1,3 +1,9 @@
+## 1.7.1
+
+- fix Android build configuration to align with Flutter 3.32.x (Dart 3.8.1) defaults
+- set plugin `compileSdk` to 35 and `ndkVersion` to 26.3.11579264
+- set example `minSdk` to 24
+
 ## 1.7.0
 
 - add multi-face mesh inference APIs with `FaceMeshMultiInferenceResult`, `processMultiFace`, and `processNv21MultiFace`
