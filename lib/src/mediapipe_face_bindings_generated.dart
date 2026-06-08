@@ -179,6 +179,39 @@ class MediapipeFaceBindings {
       _mp_face_mesh_last_global_errorPtr
           .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  MpDelegateType mp_face_mesh_active_delegate(
+    ffi.Pointer<MpFaceMeshContext> context,
+  ) {
+    return MpDelegateType.fromValue(_mp_face_mesh_active_delegate(context));
+  }
+
+  late final _mp_face_mesh_active_delegatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.UnsignedInt Function(ffi.Pointer<MpFaceMeshContext>)
+        >
+      >('mp_face_mesh_active_delegate');
+  late final _mp_face_mesh_active_delegate = _mp_face_mesh_active_delegatePtr
+      .asFunction<int Function(ffi.Pointer<MpFaceMeshContext>)>();
+
+  MpDelegateType mp_face_mesh_active_iris_delegate(
+    ffi.Pointer<MpFaceMeshContext> context,
+  ) {
+    return MpDelegateType.fromValue(
+      _mp_face_mesh_active_iris_delegate(context),
+    );
+  }
+
+  late final _mp_face_mesh_active_iris_delegatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.UnsignedInt Function(ffi.Pointer<MpFaceMeshContext>)
+        >
+      >('mp_face_mesh_active_iris_delegate');
+  late final _mp_face_mesh_active_iris_delegate =
+      _mp_face_mesh_active_iris_delegatePtr
+          .asFunction<int Function(ffi.Pointer<MpFaceMeshContext>)>();
+
   ffi.Pointer<MpFaceDetectorContext> mp_face_detector_create(
     ffi.Pointer<ffi.Char> model_path,
     ffi.Pointer<MpFaceDetectorCreateOptions> options,
@@ -344,6 +377,22 @@ class MediapipeFaceBindings {
   late final _mp_face_detector_last_global_error =
       _mp_face_detector_last_global_errorPtr
           .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  MpDelegateType mp_face_detector_active_delegate(
+    ffi.Pointer<MpFaceDetectorContext> context,
+  ) {
+    return MpDelegateType.fromValue(_mp_face_detector_active_delegate(context));
+  }
+
+  late final _mp_face_detector_active_delegatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.UnsignedInt Function(ffi.Pointer<MpFaceDetectorContext>)
+        >
+      >('mp_face_detector_active_delegate');
+  late final _mp_face_detector_active_delegate =
+      _mp_face_detector_active_delegatePtr
+          .asFunction<int Function(ffi.Pointer<MpFaceDetectorContext>)>();
 }
 
 final class MpFaceMeshContext extends ffi.Opaque {}
@@ -489,6 +538,9 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
 
   @ffi.Uint8()
   external int enable_iris;
+
+  @ffi.Uint8()
+  external int disable_delegate_fallback;
 }
 
 final class MpDetection extends ffi.Struct {
@@ -545,6 +597,9 @@ final class MpFaceDetectorCreateOptions extends ffi.Struct {
 
   @ffi.UnsignedInt()
   external int delegate;
+
+  @ffi.Uint8()
+  external int disable_delegate_fallback;
 }
 
 final class MpRoiTransformOptions extends ffi.Struct {

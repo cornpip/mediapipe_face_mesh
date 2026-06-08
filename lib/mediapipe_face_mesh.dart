@@ -245,6 +245,17 @@ enum FaceMeshDelegate {
   gpuV2,
 }
 
+FaceMeshDelegate _faceMeshDelegateFromNative(MpDelegateType delegate) {
+  switch (delegate) {
+    case MpDelegateType.MP_DELEGATE_CPU:
+      return FaceMeshDelegate.cpu;
+    case MpDelegateType.MP_DELEGATE_XNNPACK:
+      return FaceMeshDelegate.xnnpack;
+    case MpDelegateType.MP_DELEGATE_GPU_V2:
+      return FaceMeshDelegate.gpuV2;
+  }
+}
+
 /// Immutable normalized rectangle that MediaPipe uses as ROI input.
 class NormalizedRect {
   /// Builds a normalized rectangle from center, size, and rotation.
@@ -690,11 +701,22 @@ class FaceDetectorProcessor {
   final double _defaultRoiShiftY;
   bool _closed = false;
 
+  /// Delegate that the native detector is actively using after fallback.
+  FaceMeshDelegate get activeDelegate {
+    _ensureNotClosed();
+    return _faceMeshDelegateFromNative(
+      faceBindings.mp_face_detector_active_delegate(_context),
+    );
+  }
+
   /// Creates the native face detector and loads one of the bundled models.
   ///
   /// Commonly adjusted options:
   /// - [model] selects short-range, full-range dense, or full-range sparse.
   /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
+  ///   is unavailable or cannot be created. Set it to false to fail creation
+  ///   instead.
   /// - [maxResults] limits the number of detections returned per frame.
   /// - [roiScaleX], [roiScaleY], [roiShiftX], and [roiShiftY] control how
   ///   the detector-generated [FaceDetection.expandedFaceRect] is produced.
@@ -712,6 +734,7 @@ class FaceDetectorProcessor {
     double minSuppressionThreshold = 0.3,
     int maxResults = 1,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    bool allowDelegateFallback = true,
     double roiScaleX = 1.5,
     double roiScaleY = 1.5,
     double roiShiftX = 0.0,
@@ -731,6 +754,7 @@ class FaceDetectorProcessor {
         ..min_suppression_threshold = minSuppressionThreshold
         ..max_results = maxResults
         ..delegate = delegate.index
+        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
         ..tflite_library_path = ffi.nullptr;
 
       final ffi.Pointer<MpFaceDetectorContext> context = faceBindings
@@ -937,19 +961,45 @@ class FaceDetectorProcessor {
 
 /// High-level wrapper around the native MediaPipe Face Mesh graph.
 class FaceMeshProcessor {
-  FaceMeshProcessor._(this._context) {
+  FaceMeshProcessor._(this._context, {required bool irisEnabled})
+    : _irisEnabled = irisEnabled {
     _contextFinalizer.attach(this, _context, detach: this);
   }
 
   static const double _boxScale = 1.2;
 
   final ffi.Pointer<MpFaceMeshContext> _context;
+  final bool _irisEnabled;
   bool _closed = false;
+
+  /// Delegate that the native face mesh model is actively using after fallback.
+  FaceMeshDelegate get activeDelegate {
+    _ensureNotClosed();
+    return _faceMeshDelegateFromNative(
+      faceBindings.mp_face_mesh_active_delegate(_context),
+    );
+  }
+
+  /// Delegate that the optional iris model is actively using after fallback.
+  ///
+  /// Returns null when this processor was created with `enableIris: false`.
+  FaceMeshDelegate? get activeIrisDelegate {
+    _ensureNotClosed();
+    if (!_irisEnabled) {
+      return null;
+    }
+    return _faceMeshDelegateFromNative(
+      faceBindings.mp_face_mesh_active_iris_delegate(_context),
+    );
+  }
 
   /// Creates the native interpreter and loads a model.
   ///
   /// Commonly adjusted options:
   /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
+  ///   is unavailable or cannot be created. Set it to false to fail creation
+  ///   instead.
   /// - [enableSmoothing] reduces landmark jitter across frames.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
   ///   are omitted in later [process] or [processNv21] calls.
@@ -963,6 +1013,7 @@ class FaceMeshProcessor {
     bool enableRoiTracking = true,
     bool enableIris = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    bool allowDelegateFallback = true,
   }) async {
     final String resolvedModelPath = await _materializeModel();
     final String? resolvedIrisModelPath = enableIris
@@ -980,6 +1031,7 @@ class FaceMeshProcessor {
         ..min_detection_confidence = minDetectionConfidence
         ..min_tracking_confidence = minTrackingConfidence
         ..delegate = delegate.index
+        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = enableIris ? 1 : 0
@@ -994,7 +1046,7 @@ class FaceMeshProcessor {
               'Failed to create face mesh context.',
         );
       }
-      return FaceMeshProcessor._(context);
+      return FaceMeshProcessor._(context, irisEnabled: enableIris);
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
@@ -1016,6 +1068,7 @@ class FaceMeshProcessor {
     double minTrackingConfidence = 0.5,
     bool enableIris = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    bool allowDelegateFallback = true,
   }) {
     return FaceMeshProcessor.create(
       threads: threads,
@@ -1025,6 +1078,7 @@ class FaceMeshProcessor {
       enableRoiTracking: false,
       enableIris: enableIris,
       delegate: delegate,
+      allowDelegateFallback: allowDelegateFallback,
     );
   }
 

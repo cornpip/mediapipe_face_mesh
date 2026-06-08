@@ -314,9 +314,13 @@ class FaceDetectorContext {
     const MpDelegateType delegate_choice =
         options ? static_cast<MpDelegateType>(options->delegate)
                 : MP_DELEGATE_CPU;
+    const bool allow_delegate_fallback =
+        !options || options->disable_delegate_fallback == 0;
+    active_delegate_ = MP_DELEGATE_CPU;
     auto AttachDelegate = [&](TfLiteDelegate* created,
                               TfLiteDelegateDeleter::DeleteFn deleter,
-                              const char* name) {
+                              const char* name,
+                              MpDelegateType delegate_type) {
       if (!created) {
         return false;
       }
@@ -325,6 +329,7 @@ class FaceDetectorContext {
       runtime_.InterpreterOptionsAddDelegate(
           options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
+      active_delegate_ = delegate_type;
       MP_DETECT_LOGI("%s delegate enabled.\n", name);
       return true;
     };
@@ -335,6 +340,11 @@ class FaceDetectorContext {
             !runtime_.XnnpackDelegateOptionsDefault ||
             !runtime_.XnnpackDelegateCreate ||
             !runtime_.XnnpackDelegateDelete) {
+          if (!allow_delegate_fallback) {
+            SetError("XNNPACK delegate is unavailable for face detector and "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_DETECT_LOGI(
               "XNNPACK delegate requested but unavailable in runtime.\n");
           break;
@@ -345,7 +355,12 @@ class FaceDetectorContext {
         TfLiteDelegate* created =
             runtime_.XnnpackDelegateCreate(&delegate_options);
         if (!AttachDelegate(created, runtime_.XnnpackDelegateDelete,
-                            "XNNPACK")) {
+                            "XNNPACK", MP_DELEGATE_XNNPACK)) {
+          if (!allow_delegate_fallback) {
+            SetError("Failed to create XNNPACK delegate for face detector "
+                     "because delegate fallback is disabled.");
+            return false;
+          }
           MP_DETECT_LOGE(
               "Failed to create XNNPACK delegate. Falling back to CPU.\n");
         }
@@ -355,6 +370,11 @@ class FaceDetectorContext {
         if (!runtime_.InterpreterOptionsAddDelegate ||
             !runtime_.GpuDelegateV2OptionsDefault ||
             !runtime_.GpuDelegateV2Create || !runtime_.GpuDelegateV2Delete) {
+          if (!allow_delegate_fallback) {
+            SetError("GPU delegate (V2) is unavailable for face detector and "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_DETECT_LOGI(
               "GPU delegate (V2) requested but unavailable in runtime.\n");
           break;
@@ -365,7 +385,13 @@ class FaceDetectorContext {
             TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
         TfLiteDelegate* created =
             runtime_.GpuDelegateV2Create(&delegate_options);
-        if (!AttachDelegate(created, runtime_.GpuDelegateV2Delete, "GPU V2")) {
+        if (!AttachDelegate(created, runtime_.GpuDelegateV2Delete, "GPU V2",
+                            MP_DELEGATE_GPU_V2)) {
+          if (!allow_delegate_fallback) {
+            SetError("Failed to create GPU delegate for face detector because "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_DETECT_LOGE(
               "Failed to create GPU delegate. Falling back to CPU.\n");
         }
@@ -564,6 +590,8 @@ class FaceDetectorContext {
   }
 
   const char* last_error() const { return last_error_.c_str(); }
+
+  MpDelegateType active_delegate() const { return active_delegate_; }
 
  private:
   struct TfLiteModelDeleter {
@@ -1457,6 +1485,7 @@ class FaceDetectorContext {
   float y_scale_ = 128.0f;
   float w_scale_ = 128.0f;
   float h_scale_ = 128.0f;
+  MpDelegateType active_delegate_ = MP_DELEGATE_CPU;
 
   std::string last_error_;
   ProjectionMatrix last_projection_;
@@ -1567,6 +1596,14 @@ const char* mp_face_detector_last_error(const MpFaceDetectorContext* context) {
 
 const char* mp_face_detector_last_global_error(void) {
   return GlobalFaceDetectorError().c_str();
+}
+
+MpDelegateType mp_face_detector_active_delegate(
+    const MpFaceDetectorContext* context) {
+  if (!context) {
+    return MP_DELEGATE_CPU;
+  }
+  return context->impl.active_delegate();
 }
 
 }  // extern "C"

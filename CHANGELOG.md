@@ -1,3 +1,7 @@
+## 1.8.0
+
+- add delegate fallback controls and active delegate diagnostics for face detector, face mesh, and optional iris model
+
 ## 1.7.1
 
 - fix Android build configuration to align with Flutter 3.32.x (Dart 3.8.1) defaults

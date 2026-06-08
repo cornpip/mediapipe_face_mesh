@@ -79,6 +79,9 @@ typedef struct {
   uint8_t enable_smoothing;
   uint8_t enable_roi_tracking;
   uint8_t enable_iris;
+  // When non-zero, fail creation instead of falling back to CPU if the
+  // requested delegate is unavailable or cannot be created.
+  uint8_t disable_delegate_fallback;
 } MpFaceMeshCreateOptions;
 
 typedef struct {
@@ -106,6 +109,9 @@ typedef struct {
   float min_suppression_threshold;
   int32_t max_results;
   MpDelegateType delegate;
+  // When non-zero, fail creation instead of falling back to CPU if the
+  // requested delegate is unavailable or cannot be created.
+  uint8_t disable_delegate_fallback;
 } MpFaceDetectorCreateOptions;
 
 typedef struct {
@@ -141,6 +147,12 @@ FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_error(
 
 FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_global_error(void);
 
+FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_delegate(
+    const MpFaceMeshContext* context);
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_iris_delegate(
+    const MpFaceMeshContext* context);
+
 FFI_PLUGIN_EXPORT MpFaceDetectorContext* mp_face_detector_create(
     const char* model_path, const MpFaceDetectorCreateOptions* options);
 
@@ -169,6 +181,9 @@ FFI_PLUGIN_EXPORT const char* mp_face_detector_last_error(
     const MpFaceDetectorContext* context);
 
 FFI_PLUGIN_EXPORT const char* mp_face_detector_last_global_error(void);
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_face_detector_active_delegate(
+    const MpFaceDetectorContext* context);
 
 #ifdef __cplusplus
 }  // extern "C"

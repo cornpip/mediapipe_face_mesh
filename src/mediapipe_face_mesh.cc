@@ -152,9 +152,13 @@ class FaceMeshContext {
     const MpDelegateType delegate_choice =
         options ? static_cast<MpDelegateType>(options->delegate)
                 : MP_DELEGATE_CPU;
+    const bool allow_delegate_fallback =
+        !options || options->disable_delegate_fallback == 0;
+    active_delegate_ = MP_DELEGATE_CPU;
     auto AttachDelegate = [&](TfLiteDelegate* created,
                               TfLiteDelegateDeleter::DeleteFn deleter,
-                              const char* name) {
+                              const char* name,
+                              MpDelegateType delegate_type) {
       if (!created) {
         return false;
       }
@@ -163,6 +167,7 @@ class FaceMeshContext {
       runtime_.InterpreterOptionsAddDelegate(
           options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
+      active_delegate_ = delegate_type;
       MP_LOGI("%s delegate enabled.\n", name);
       return true;
     };
@@ -171,6 +176,11 @@ class FaceMeshContext {
         if (!runtime_.InterpreterOptionsAddDelegate ||
             !runtime_.XnnpackDelegateOptionsDefault ||
             !runtime_.XnnpackDelegateCreate || !runtime_.XnnpackDelegateDelete) {
+          if (!allow_delegate_fallback) {
+            SetError("XNNPACK delegate is unavailable for face mesh and "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_LOGI("XNNPACK delegate requested but not available in runtime.\n");
           break;
         }
@@ -180,7 +190,12 @@ class FaceMeshContext {
         TfLiteDelegate* created_delegate =
             runtime_.XnnpackDelegateCreate(&xnnpack_options);
         if (!AttachDelegate(created_delegate, runtime_.XnnpackDelegateDelete,
-                            "XNNPACK")) {
+                            "XNNPACK", MP_DELEGATE_XNNPACK)) {
+          if (!allow_delegate_fallback) {
+            SetError("Failed to create XNNPACK delegate for face mesh because "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_LOGE("Failed to create XNNPACK delegate. Falling back to CPU.\n");
         }
         break;
@@ -189,6 +204,11 @@ class FaceMeshContext {
         if (!runtime_.InterpreterOptionsAddDelegate ||
             !runtime_.GpuDelegateV2OptionsDefault ||
             !runtime_.GpuDelegateV2Create || !runtime_.GpuDelegateV2Delete) {
+          if (!allow_delegate_fallback) {
+            SetError("GPU delegate (V2) is unavailable for face mesh and "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_LOGI("GPU delegate (V2) requested but not available in runtime.\n");
           break;
         }
@@ -198,7 +218,12 @@ class FaceMeshContext {
         TfLiteDelegate* created_delegate =
             runtime_.GpuDelegateV2Create(&gpu_options);
         if (!AttachDelegate(created_delegate, runtime_.GpuDelegateV2Delete,
-                            "GPU V2")) {
+                            "GPU V2", MP_DELEGATE_GPU_V2)) {
+          if (!allow_delegate_fallback) {
+            SetError("Failed to create GPU delegate for face mesh because "
+                     "delegate fallback is disabled.");
+            return false;
+          }
           MP_LOGE("Failed to create GPU delegate. Falling back to CPU.\n");
         }
         break;
@@ -290,7 +315,8 @@ class FaceMeshContext {
         SetError("Iris model path is required when iris is enabled.");
         return false;
       }
-      if (!InitializeIris(iris_model_path, delegate_choice)) {
+      if (!InitializeIris(iris_model_path, delegate_choice,
+                          allow_delegate_fallback)) {
         return false;
       }
     }
@@ -553,6 +579,10 @@ class FaceMeshContext {
 
   const char* last_error() const { return last_error_.c_str(); }
 
+  MpDelegateType active_delegate() const { return active_delegate_; }
+
+  MpDelegateType active_iris_delegate() const { return active_iris_delegate_; }
+
  private:
   struct TfLiteModelDeleter {
     TfLiteRuntime* runtime;
@@ -604,7 +634,8 @@ class FaceMeshContext {
   }
 
   bool InitializeIris(const std::string& iris_model_path,
-                      MpDelegateType delegate_choice) {
+                      MpDelegateType delegate_choice,
+                      bool allow_delegate_fallback) {
     iris_model_.reset(runtime_.ModelCreateFromFile(iris_model_path.c_str()));
     if (!iris_model_) {
       SetError("Unable to load iris model file: " + iris_model_path);
@@ -618,9 +649,11 @@ class FaceMeshContext {
     }
     runtime_.InterpreterOptionsSetThreads(iris_options_.get(), threads_);
 
+    active_iris_delegate_ = MP_DELEGATE_CPU;
     auto AttachIrisDelegate = [&](TfLiteDelegate* created,
                                   TfLiteDelegateDeleter::DeleteFn deleter,
-                                  const char* name) {
+                                  const char* name,
+                                  MpDelegateType delegate_type) {
       if (!created) {
         return false;
       }
@@ -629,6 +662,7 @@ class FaceMeshContext {
       runtime_.InterpreterOptionsAddDelegate(
           iris_options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(iris_delegate_.get()));
+      active_iris_delegate_ = delegate_type;
       MP_LOGI("Iris %s delegate enabled.\n", name);
       return true;
     };
@@ -642,7 +676,12 @@ class FaceMeshContext {
               runtime_.XnnpackDelegateOptionsDefault();
           xnnpack_options.num_threads = threads_;
           AttachIrisDelegate(runtime_.XnnpackDelegateCreate(&xnnpack_options),
-                             runtime_.XnnpackDelegateDelete, "XNNPACK");
+                             runtime_.XnnpackDelegateDelete, "XNNPACK",
+                             MP_DELEGATE_XNNPACK);
+        } else if (!allow_delegate_fallback) {
+          SetError("XNNPACK delegate is unavailable for iris model and "
+                   "delegate fallback is disabled.");
+          return false;
         }
         break;
       }
@@ -655,13 +694,25 @@ class FaceMeshContext {
           gpu_options.experimental_flags |=
               TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
           AttachIrisDelegate(runtime_.GpuDelegateV2Create(&gpu_options),
-                             runtime_.GpuDelegateV2Delete, "GPU V2");
+                             runtime_.GpuDelegateV2Delete, "GPU V2",
+                             MP_DELEGATE_GPU_V2);
+        } else if (!allow_delegate_fallback) {
+          SetError("GPU delegate (V2) is unavailable for iris model and "
+                   "delegate fallback is disabled.");
+          return false;
         }
         break;
       }
       case MP_DELEGATE_CPU:
       default:
         break;
+    }
+
+    if (!allow_delegate_fallback && delegate_choice != MP_DELEGATE_CPU &&
+        active_iris_delegate_ != delegate_choice) {
+      SetError("Failed to create requested delegate for iris model because "
+               "delegate fallback is disabled.");
+      return false;
     }
 
     iris_interpreter_.reset(
@@ -1596,6 +1647,8 @@ class FaceMeshContext {
   bool smoothing_enabled_ = true;
   bool roi_tracking_enabled_ = true;
   bool iris_enabled_ = false;
+  MpDelegateType active_delegate_ = MP_DELEGATE_CPU;
+  MpDelegateType active_iris_delegate_ = MP_DELEGATE_CPU;
 
   std::vector<float> input_buffer_;
   std::vector<float> landmarks_buffer_;
@@ -1703,6 +1756,22 @@ FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_error(
 
 FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_global_error(void) {
   return g_last_global_error.c_str();
+}
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_delegate(
+    const MpFaceMeshContext* context) {
+  if (!context) {
+    return MP_DELEGATE_CPU;
+  }
+  return context->impl.active_delegate();
+}
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_iris_delegate(
+    const MpFaceMeshContext* context) {
+  if (!context) {
+    return MP_DELEGATE_CPU;
+  }
+  return context->impl.active_iris_delegate();
 }
 
 }  // extern "C"

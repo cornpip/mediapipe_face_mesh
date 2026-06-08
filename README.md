@@ -68,8 +68,13 @@ Delegate options:
 - `FaceMeshDelegate.xnnpack`
 - `FaceMeshDelegate.gpuV2`
 
-If the requested delegate is unavailable or fails to initialize, the native
-runtime falls back to CPU inference.
+If the requested delegate is unavailable or cannot be created, the runtime
+automatically falls back to CPU inference. To disable fallback and fail
+initialization instead, set `allowDelegateFallback: false`.
+
+Use `activeDelegate` to inspect the delegate selected after fallback. When
+`enableIris` is enabled, `activeIrisDelegate` reports the delegate used for the
+iris model.
 
 ### Input Formats
 
