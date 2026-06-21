@@ -1,3 +1,7 @@
+## 1.8.1
+
+- expose camera plane conversion logic as public `FaceMeshNv21Image` helper APIs
+
 ## 1.8.0
 
 - add delegate fallback controls and active delegate diagnostics for face detector, face mesh, and optional iris model

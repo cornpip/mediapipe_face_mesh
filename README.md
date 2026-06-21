@@ -85,6 +85,12 @@ The package supports two image input types:
 - `FaceMeshImage`
   Use this for RGBA or BGRA buffers. This is used for iOS camera frames.
 
+On Android, camera frame streams are commonly delivered as YUV420-family buffers
+in layouts such as single-plane NV21, Y + interleaved VU, or YUV420 Y/U/V
+planes. The package provides `FaceMeshNv21Image` helpers for converting these
+layouts into the NV21 input expected by `processNv21(...)`. See the example
+camera image adapter for usage.
+
 ### Stream Inference
 
 Use stream inference when processing continuous camera frames. Stream processors

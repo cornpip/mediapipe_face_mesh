@@ -499,6 +499,28 @@ class FaceDetectionResult {
       '$imageWidth, imageHeight: $imageHeight)';
 }
 
+/// Raw image plane data with stride metadata.
+///
+/// This is useful when adapting camera plugin buffers without depending on a
+/// specific camera package type.
+class FaceMeshImagePlane {
+  /// Creates a raw image plane wrapper.
+  const FaceMeshImagePlane({
+    required this.bytes,
+    required this.bytesPerRow,
+    this.bytesPerPixel,
+  });
+
+  /// Raw plane bytes.
+  final Uint8List bytes;
+
+  /// Bytes consumed per row.
+  final int bytesPerRow;
+
+  /// Bytes between adjacent pixels in the same row.
+  final int? bytesPerPixel;
+}
+
 /// Container that holds RGBA/BGRA pixels used as inference input.
 class FaceMeshImage {
   /// Creates an RGBA/BGRA image wrapper from raw bytes.
@@ -570,6 +592,146 @@ class FaceMeshNv21Image {
     if ((height & 1) != 0) {
       throw ArgumentError('NV21 height must be even.');
     }
+  }
+
+  /// Converts one contiguous Y + VU plane into a [FaceMeshNv21Image].
+  ///
+  /// Returns null when dimensions are invalid or [bytes] is too small for the
+  /// supplied stride.
+  static FaceMeshNv21Image? tryFromSinglePlane({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int bytesPerRow,
+  }) {
+    if (!_isValidNv21Size(width, height) || bytesPerRow <= 0) {
+      return null;
+    }
+    final int ySize = bytesPerRow * height;
+    final int vuSize = bytesPerRow * (height ~/ 2);
+    if (bytes.length < ySize + vuSize) {
+      return null;
+    }
+    return FaceMeshNv21Image(
+      yPlane: Uint8List.sublistView(bytes, 0, ySize),
+      vuPlane: Uint8List.sublistView(bytes, ySize, ySize + vuSize),
+      width: width,
+      height: height,
+      yBytesPerRow: bytesPerRow,
+      vuBytesPerRow: bytesPerRow,
+    );
+  }
+
+  /// Converts separate Y and interleaved VU planes into a [FaceMeshNv21Image].
+  ///
+  /// Plane strides are normalized to tightly-packed output buffers.
+  static FaceMeshNv21Image? tryFromYAndInterleavedVuPlanes({
+    required int width,
+    required int height,
+    required FaceMeshImagePlane yPlane,
+    required FaceMeshImagePlane vuPlane,
+  }) {
+    if (!_isValidNv21Size(width, height)) {
+      return null;
+    }
+    final Uint8List? y = _copyPlane(yPlane, width: width, height: height);
+    final Uint8List? vu = _copyPlane(
+      vuPlane,
+      width: width,
+      height: height ~/ 2,
+    );
+    if (y == null || vu == null) {
+      return null;
+    }
+    return FaceMeshNv21Image(
+      yPlane: y,
+      vuPlane: vu,
+      width: width,
+      height: height,
+      yBytesPerRow: width,
+      vuBytesPerRow: width,
+    );
+  }
+
+  /// Converts YUV420 Y, U, and V planes into a [FaceMeshNv21Image].
+  ///
+  /// The output chroma plane is converted to MediaPipe's expected interleaved
+  /// VU order.
+  static FaceMeshNv21Image? tryFromYuv420Planes({
+    required int width,
+    required int height,
+    required FaceMeshImagePlane yPlane,
+    required FaceMeshImagePlane uPlane,
+    required FaceMeshImagePlane vPlane,
+  }) {
+    if (!_isValidNv21Size(width, height)) {
+      return null;
+    }
+    final Uint8List? y = _copyPlane(yPlane, width: width, height: height);
+    if (y == null) {
+      return null;
+    }
+
+    final int uvWidth = width ~/ 2;
+    final int uvHeight = height ~/ 2;
+    final Uint8List vu = Uint8List(width * uvHeight);
+    for (var row = 0; row < uvHeight; row++) {
+      for (var col = 0; col < uvWidth; col++) {
+        final int? u = _readPlaneByte(uPlane, row, col);
+        final int? v = _readPlaneByte(vPlane, row, col);
+        if (u == null || v == null) {
+          return null;
+        }
+        final int out = row * width + col * 2;
+        vu[out] = v;
+        vu[out + 1] = u;
+      }
+    }
+
+    return FaceMeshNv21Image(
+      yPlane: y,
+      vuPlane: vu,
+      width: width,
+      height: height,
+      yBytesPerRow: width,
+      vuBytesPerRow: width,
+    );
+  }
+
+  static bool _isValidNv21Size(int width, int height) =>
+      width > 0 && height > 0 && (width & 1) == 0 && (height & 1) == 0;
+
+  static Uint8List? _copyPlane(
+    FaceMeshImagePlane plane, {
+    required int width,
+    required int height,
+  }) {
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    final Uint8List out = Uint8List(width * height);
+    for (var row = 0; row < height; row++) {
+      for (var col = 0; col < width; col++) {
+        final int? value = _readPlaneByte(plane, row, col);
+        if (value == null) {
+          return null;
+        }
+        out[row * width + col] = value;
+      }
+    }
+    return out;
+  }
+
+  static int? _readPlaneByte(FaceMeshImagePlane plane, int row, int col) {
+    final int pixelStride = plane.bytesPerPixel ?? 1;
+    final int index = row * plane.bytesPerRow + col * pixelStride;
+    if (pixelStride <= 0 ||
+        plane.bytesPerRow <= 0 ||
+        index < 0 ||
+        index >= plane.bytes.length) {
+      return null;
+    }
+    return plane.bytes[index];
   }
 
   /// Luma plane (full resolution).
