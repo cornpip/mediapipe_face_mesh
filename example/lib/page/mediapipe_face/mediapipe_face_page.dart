@@ -579,6 +579,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 // Chips outside ClipRect so they're always visible
                 if (isCameraAvailable)
                   Positioned(top: 12, right: 12, child: _infoChip(fpsText)),
+                if (_meshResult != null && _meshResult!.landmarks.length >= 468)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: _infoChip(_geometryText(_meshResult!)),
+                  ),
                 Positioned(
                   bottom: 12,
                   left: 12,
@@ -592,6 +598,31 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         );
       },
     );
+  }
+
+  String _geometryText(FaceMeshResult result) {
+    try {
+      final geometry = result.estimateGeometry();
+      final pose = geometry.headPose;
+      final measurements = geometry.measurements;
+      final double innerEyePixels = result.distancePixels(133, 362);
+      final StringBuffer buf = StringBuffer(
+        'Yaw ${pose.yawDegrees.toStringAsFixed(0)}°  '
+        'Pitch ${pose.pitchDegrees.toStringAsFixed(0)}°  '
+        'Roll ${pose.rollDegrees.toStringAsFixed(0)}°\n',
+      );
+      final ipd = measurements.interpupillaryDistance;
+      if (ipd != null) {
+        buf.write('IPD ${ipd.valueCm.toStringAsFixed(1)}cm  ');
+      }
+      buf.write(
+        'Inner eye ${measurements.eyeInnerDistance.valueCm.toStringAsFixed(1)}cm\n'
+        'Inner eye ${innerEyePixels.toStringAsFixed(0)}px',
+      );
+      return buf.toString();
+    } on Object {
+      return 'Geometry unavailable';
+    }
   }
 
   Widget _infoChip(String text) {

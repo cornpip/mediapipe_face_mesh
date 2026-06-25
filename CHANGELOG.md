@@ -1,3 +1,10 @@
+## 1.9.0
+
+- add `FaceMeshResult.estimateGeometry()` for 3D face geometry
+  - `geometry.headPose` — head pose estimation (yaw, pitch, roll)
+  - `geometry.measurements` — metric face measurements via `distanceCm()` and measurement presets
+- add `FaceMeshResult.distancePixels()` for 2D pixel distance between landmarks
+
 ## 1.8.1
 
 - expose camera plane conversion logic as public `FaceMeshNv21Image` helper APIs

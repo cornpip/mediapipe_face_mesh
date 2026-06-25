@@ -212,6 +212,70 @@ class MediapipeFaceBindings {
       _mp_face_mesh_active_iris_delegatePtr
           .asFunction<int Function(ffi.Pointer<MpFaceMeshContext>)>();
 
+  ffi.Pointer<MpFaceGeometryResult> mp_face_geometry_estimate(
+    ffi.Pointer<MpLandmark> landmarks,
+    int landmarks_count,
+    int image_width,
+    int image_height,
+    ffi.Pointer<MpFaceGeometryOptions> options,
+  ) {
+    return _mp_face_geometry_estimate(
+      landmarks,
+      landmarks_count,
+      image_width,
+      image_height,
+      options,
+    );
+  }
+
+  late final _mp_face_geometry_estimatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceGeometryResult> Function(
+            ffi.Pointer<MpLandmark>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Pointer<MpFaceGeometryOptions>,
+          )
+        >
+      >('mp_face_geometry_estimate');
+  late final _mp_face_geometry_estimate = _mp_face_geometry_estimatePtr
+      .asFunction<
+        ffi.Pointer<MpFaceGeometryResult> Function(
+          ffi.Pointer<MpLandmark>,
+          int,
+          int,
+          int,
+          ffi.Pointer<MpFaceGeometryOptions>,
+        )
+      >();
+
+  void mp_face_geometry_release_result(
+    ffi.Pointer<MpFaceGeometryResult> result,
+  ) {
+    return _mp_face_geometry_release_result(result);
+  }
+
+  late final _mp_face_geometry_release_resultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpFaceGeometryResult>)>
+      >('mp_face_geometry_release_result');
+  late final _mp_face_geometry_release_result =
+      _mp_face_geometry_release_resultPtr
+          .asFunction<void Function(ffi.Pointer<MpFaceGeometryResult>)>();
+
+  ffi.Pointer<ffi.Char> mp_face_geometry_last_error() {
+    return _mp_face_geometry_last_error();
+  }
+
+  late final _mp_face_geometry_last_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_face_geometry_last_error',
+      );
+  late final _mp_face_geometry_last_error = _mp_face_geometry_last_errorPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
   ffi.Pointer<MpFaceDetectorContext> mp_face_detector_create(
     ffi.Pointer<ffi.Char> model_path,
     ffi.Pointer<MpFaceDetectorCreateOptions> options,
@@ -510,6 +574,44 @@ final class MpFaceMeshResult extends ffi.Struct {
   external int image_height;
 }
 
+final class MpFaceGeometryOptions extends ffi.Struct {
+  @ffi.Float()
+  external double vertical_fov_degrees;
+
+  @ffi.Float()
+  external double near_plane;
+
+  @ffi.Float()
+  external double far_plane;
+
+  /// Non-zero when input normalized landmarks use a top-left image origin.
+  /// This matches FaceMeshResult landmarks returned by this plugin.
+  @ffi.Uint8()
+  external int origin_top_left;
+}
+
+final class MpFaceGeometryResult extends ffi.Struct {
+  external ffi.Pointer<MpLandmark> metric_landmarks;
+
+  @ffi.Int32()
+  external int metric_landmarks_count;
+
+  @ffi.Array.multi([16])
+  external ffi.Array<ffi.Float> pose_transform_matrix;
+
+  @ffi.Float()
+  external double yaw_degrees;
+
+  @ffi.Float()
+  external double pitch_degrees;
+
+  @ffi.Float()
+  external double roll_degrees;
+
+  @ffi.Float()
+  external double scale;
+}
+
 final class MpFaceMeshCreateOptions extends ffi.Struct {
   external ffi.Pointer<ffi.Char> tflite_library_path;
 
@@ -539,6 +641,8 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
   @ffi.Uint8()
   external int enable_iris;
 
+  /// When non-zero, fail creation instead of falling back to CPU if the
+  /// requested delegate is unavailable or cannot be created.
   @ffi.Uint8()
   external int disable_delegate_fallback;
 }
@@ -598,6 +702,8 @@ final class MpFaceDetectorCreateOptions extends ffi.Struct {
   @ffi.UnsignedInt()
   external int delegate;
 
+  /// When non-zero, fail creation instead of falling back to CPU if the
+  /// requested delegate is unavailable or cannot be created.
   @ffi.Uint8()
   external int disable_delegate_fallback;
 }
