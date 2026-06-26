@@ -169,12 +169,29 @@ final result = pipeline.processNv21(
 geometry:
 
 ```dart
+// 2D pixel distance between two landmarks
 final pixelDistance = meshResult.distancePixels(33, 263);
 
+// 3D geometry estimation (native call — one per frame is typical)
 final geometry = meshResult.estimateGeometry();
-final pose = geometry.headPose;
-final estimatedDistanceCm = geometry.distanceCm(33, 263);
+// Pass actual camera FOV for more accurate centimeter estimates (default: 63°)                                                                                                                                                                                                                                   
+// final geometry = meshResult.estimateGeometry(verticalFovDegrees: 72.0);
 
+// Head pose: yaw (left/right), pitch (up/down), roll (tilt)
+final pose = geometry.headPose;
+// pose.yawDegrees, pose.pitchDegrees, pose.rollDegrees
+
+// Single centimeter distance between two landmarks
+final eyeDistanceCm = geometry.distanceCm(33, 263);
+
+// Preset bundle — computes all measurements at once
+// faceWidth        234 ↔ 454  cheek-to-cheek
+// faceHeight        10 ↔ 152  forehead-to-chin
+// eyeOuterDistance  33 ↔ 263  outer eye corners
+// eyeInnerDistance 133 ↔ 362  inner eye corners                                                                                                                                                                                                                                                
+// interpupillaryDistance 468 ↔ 473  pupils (iris only, else null)                                                                                                                                                                                                                                  
+// mouthWidth        61 ↔ 291                                                                                                                                                                                                                                                                                     
+// noseWidth         98 ↔ 327 
 final measurements = geometry.measurements;
 final faceWidthCm = measurements.faceWidth.valueCm;
 ```
@@ -182,6 +199,8 @@ final faceWidthCm = measurements.faceWidth.valueCm;
 Centimeter values are estimates based on the canonical face geometry model.
 Scale accuracy depends on the virtual camera assumption (default vertical FOV
 63°) and will vary by device.
+
+To look up landmark indices visually, use https://cornpip.github.io/mediapipe_landmark_viewer/
 
 ### Multi-Face Inference
 

@@ -116,7 +116,8 @@ class FaceMeshGeometry {
   /// Landmarks in estimated centimeter coordinates.
   final List<FaceMeshMetricPoint> metricLandmarks;
 
-  /// Row-major 4x4 transform matrix for the estimated face pose.
+  /// Row-major 4x4 similarity transform from canonical face space to camera
+  /// space. Encodes rotation, translation, and uniform scale.
   final List<double> poseTransformMatrix;
 
   /// Estimated 3D head pose angles.
@@ -130,6 +131,9 @@ class FaceMeshGeometry {
   }
 
   /// Common face measurement presets.
+  ///
+  /// Recomputes all seven measurements on every access. Cache the result if
+  /// you need more than one field in the same frame.
   FaceMeshMeasurements get measurements {
     FaceMeshMeasurement measure(int a, int b) =>
         FaceMeshMeasurement(metricLandmarks[a].distanceTo(metricLandmarks[b]));
@@ -162,7 +166,16 @@ extension FaceMeshResultGeometry on FaceMeshResult {
 
   /// Estimates centimeter-scaled 3D geometry from normalized landmarks using
   /// the canonical face geometry model.
-  FaceMeshGeometry estimateGeometry() {
+  ///
+  /// [verticalFovDegrees] sets the virtual camera field of view used for the
+  /// Procrustes fit. The default (63°) matches the MediaPipe reference value
+  /// and is sufficient for most devices. Pass the actual camera FOV when known
+  /// for more accurate centimeter estimates.
+  ///
+  /// Makes a native FFI call on every invocation — runs a weighted Procrustes
+  /// fit over all landmarks three times to recover metric scale, rotation, and
+  /// translation. Call once per frame and reuse the returned [FaceMeshGeometry].
+  FaceMeshGeometry estimateGeometry({double verticalFovDegrees = 63.0}) {
     if (landmarks.length != 468 && landmarks.length != 478) {
       throw StateError('Geometry requires 468 or 478 landmarks.');
     }
@@ -180,7 +193,7 @@ extension FaceMeshResultGeometry on FaceMeshResult {
       }
       optionsPtr = pkg_ffi.calloc<MpFaceGeometryOptions>();
       optionsPtr.ref
-        ..vertical_fov_degrees = 63.0
+        ..vertical_fov_degrees = verticalFovDegrees
         ..near_plane = 1.0
         ..far_plane = 10000.0
         ..origin_top_left = 1;

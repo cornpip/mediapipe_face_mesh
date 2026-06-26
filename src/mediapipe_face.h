@@ -69,7 +69,10 @@ typedef struct {
 } MpFaceMeshResult;
 
 typedef struct {
+  // Vertical field of view of the virtual camera in degrees.
   float vertical_fov_degrees;
+  // Near and far clip planes of the virtual frustum in the same units as the
+  // output metric landmarks (centimeters).
   float near_plane;
   float far_plane;
   // Non-zero when input normalized landmarks use a top-left image origin.
@@ -78,12 +81,17 @@ typedef struct {
 } MpFaceGeometryOptions;
 
 typedef struct {
+  // Landmarks reprojected into centimeter-scale metric space.
   MpLandmark* metric_landmarks;
   int32_t metric_landmarks_count;
+  // Row-major 4x4 similarity transform from canonical face space to camera
+  // space. Encodes rotation, translation, and uniform scale.
   float pose_transform_matrix[16];
   float yaw_degrees;
   float pitch_degrees;
   float roll_degrees;
+  // Uniform scale factor from the Procrustes fit: ratio of the observed face
+  // size to the canonical model size in centimeters.
   float scale;
 } MpFaceGeometryResult;
 

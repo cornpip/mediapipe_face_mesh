@@ -1497,7 +1497,7 @@ class FaceDetectorContext {
 };
 
 std::string& GlobalFaceDetectorError() {
-  static std::string error;
+  static thread_local std::string error;
   return error;
 }
 

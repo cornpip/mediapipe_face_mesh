@@ -2,7 +2,9 @@
 
 - add `FaceMeshResult.estimateGeometry()` for 3D face geometry
   - `geometry.headPose` — head pose estimation (yaw, pitch, roll)
-  - `geometry.measurements` — metric face measurements via `distanceCm()` and measurement presets
+  - `geometry.distanceCm()` — centimeter distance between any two landmarks
+  - `geometry.measurements` — preset bundle of common face measurements
+  - accepts `verticalFovDegrees` for improved centimeter accuracy when the actual camera FOV is known (default: 63°)
 - add `FaceMeshResult.distancePixels()` for 2D pixel distance between landmarks
 
 ## 1.8.1

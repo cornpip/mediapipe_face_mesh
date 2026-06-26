@@ -49,7 +49,7 @@ struct Frustum {
 };
 
 std::string& GeometryLastError() {
-  static std::string error;
+  static thread_local std::string error;
   return error;
 }
 
