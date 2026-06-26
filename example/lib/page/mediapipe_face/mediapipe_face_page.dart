@@ -73,13 +73,14 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
   late FaceDetectorProcessor _faceDetectorProcessor;
-  late final FaceMeshProcessor _faceMeshProcessor;
+  late FaceMeshProcessor _faceMeshProcessor;
   late FaceMeshInferencePipeline _faceMeshInferencePipeline;
   late FaceMeshInferenceStreamProcessor _faceMeshInferenceStreamProcessor;
   final _inferenceStageInput = _StageInputControllers();
   StreamSubscription<FaceMeshInferenceResult>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
+  bool _isIrisEnabled = true;
 
   @override
   void initState() {
@@ -579,6 +580,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 // Chips outside ClipRect so they're always visible
                 if (isCameraAvailable)
                   Positioned(top: 12, right: 12, child: _infoChip(fpsText)),
+                if (_meshResult != null && _meshResult!.landmarks.length >= 468)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: _infoChip(_geometryText(_meshResult!)),
+                  ),
                 Positioned(
                   bottom: 12,
                   left: 12,
@@ -592,6 +599,31 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         );
       },
     );
+  }
+
+  String _geometryText(FaceMeshResult result) {
+    try {
+      final geometry = result.estimateGeometry();
+      final pose = geometry.headPose;
+      final measurements = geometry.measurements;
+      final double innerEyePixels = result.distancePixels(133, 362);
+      final StringBuffer buf = StringBuffer(
+        'Yaw ${pose.yawDegrees.toStringAsFixed(0)}°  '
+        'Pitch ${pose.pitchDegrees.toStringAsFixed(0)}°  '
+        'Roll ${pose.rollDegrees.toStringAsFixed(0)}°\n',
+      );
+      final ipd = measurements.interpupillaryDistance;
+      if (ipd != null) {
+        buf.write('IPD ${ipd.valueCm.toStringAsFixed(1)}cm  ');
+      }
+      buf.write(
+        'Inner eye ${measurements.eyeInnerDistance.valueCm.toStringAsFixed(1)}cm\n'
+        'Inner eye ${innerEyePixels.toStringAsFixed(0)}px',
+      );
+      return buf.toString();
+    } on Object {
+      return 'Geometry unavailable';
+    }
   }
 
   Widget _infoChip(String text) {
@@ -735,6 +767,24 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                       : _switchCamera,
                   icon: const Icon(Icons.cameraswitch),
                   label: const Text('Switch'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isCameraBusy ? null : _toggleIris,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isIrisEnabled
+                        ? Colors.teal
+                        : Colors.grey,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.remove_red_eye_outlined),
+                  label: Text(_isIrisEnabled ? 'Iris On' : 'Iris Off'),
                 ),
               ),
             ],
@@ -1067,6 +1117,38 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     } else {
       _isMeshActive = true;
       _clearMesh();
+    }
+  }
+
+  Future<void> _toggleIris() async {
+    if (_isCameraBusy) return;
+    final nextIris = !_isIrisEnabled;
+    try {
+      final newProcessor = await FaceMeshProcessor.create(
+        delegate: FaceMeshDelegate.xnnpack,
+        enableIris: nextIris,
+      );
+      _stopInferenceStream();
+      _clearMesh();
+      final oldProcessor = _faceMeshProcessor;
+      _faceMeshProcessor = newProcessor;
+      _faceMeshInferencePipeline = FaceMeshInferencePipeline(
+        detector: _faceDetectorProcessor,
+        mesh: _faceMeshProcessor,
+      );
+      _faceMeshInferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
+        _faceMeshInferencePipeline,
+      );
+      oldProcessor.close();
+      if (mounted) {
+        setState(() => _isIrisEnabled = nextIris);
+      } else {
+        _isIrisEnabled = nextIris;
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Iris toggle error: $error');
+      }
     }
   }
 }

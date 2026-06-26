@@ -13,6 +13,8 @@ part 'src/face_mesh_utils.dart';
 
 part 'src/face_mesh_result_utils.dart';
 
+part 'src/face_mesh_geometry.dart';
+
 part 'src/face_mesh_inference_pipeline.dart';
 
 part 'src/face_mesh_topology.dart';

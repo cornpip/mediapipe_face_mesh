@@ -163,6 +163,45 @@ final result = pipeline.processNv21(
 );
 ```
 
+### Geometry and Measurements
+
+`FaceMeshResult` includes helpers for 2D distances and estimated 3D face
+geometry:
+
+```dart
+// 2D pixel distance between two landmarks
+final pixelDistance = meshResult.distancePixels(33, 263);
+
+// 3D geometry estimation (native call — one per frame is typical)
+final geometry = meshResult.estimateGeometry();
+// Pass actual camera FOV for more accurate centimeter estimates (default: 63°)                                                                                                                                                                                                                                   
+// final geometry = meshResult.estimateGeometry(verticalFovDegrees: 72.0);
+
+// Head pose: yaw (left/right), pitch (up/down), roll (tilt)
+final pose = geometry.headPose;
+// pose.yawDegrees, pose.pitchDegrees, pose.rollDegrees
+
+// Single centimeter distance between two landmarks
+final eyeDistanceCm = geometry.distanceCm(33, 263);
+
+// Preset bundle — computes all measurements at once
+// faceWidth        234 ↔ 454  cheek-to-cheek
+// faceHeight        10 ↔ 152  forehead-to-chin
+// eyeOuterDistance  33 ↔ 263  outer eye corners
+// eyeInnerDistance 133 ↔ 362  inner eye corners                                                                                                                                                                                                                                                
+// interpupillaryDistance 468 ↔ 473  pupils (iris only, else null)                                                                                                                                                                                                                                  
+// mouthWidth        61 ↔ 291                                                                                                                                                                                                                                                                                     
+// noseWidth         98 ↔ 327 
+final measurements = geometry.measurements;
+final faceWidthCm = measurements.faceWidth.valueCm;
+```
+
+Centimeter values are estimates based on the canonical face geometry model.
+Scale accuracy depends on the virtual camera assumption (default vertical FOV
+63°) and will vary by device.
+
+To look up landmark indices visually, use https://cornpip.github.io/mediapipe_landmark_viewer/
+
 ### Multi-Face Inference
 
 Multi-face mesh inference runs face detection once, then runs mesh inference for
@@ -258,40 +297,3 @@ B. ML Kit Face Detector + MediaPipe Face Mesh
 
 `B` depends on the `google_mlkit_face_detection` package for face detection.
 
-## Primary API
-
-- `FaceMeshInferencePipeline`
-  Runs face detection and face mesh inference in one call for single-frame use.
-- `FaceMeshInferenceStreamProcessor`
-  Wraps `FaceMeshInferencePipeline` in an `async*` generator — accepts a
-  `Stream` of frames and yields a `Stream` of high-level inference results.
-- `FaceMeshInferenceResult`
-  Contains detector output, selected detection, selected box/ROI, ROI
-  availability, and mesh output.
-- `FaceMeshMultiInferenceResult`
-  Contains detector output and all mesh outputs produced from detector ROIs.
-- `FaceDetectorProcessor`
-  Runs the bundled MediaPipe short-range, full-range dense, or full-range sparse
-  face detector and returns face boxes, scores, and rotation-aware ROI values
-  such as `expandedFaceRect`.
-- `FaceMeshProcessor`
-  Runs face mesh inference and returns normalized 3D landmarks, mesh triangles,
-  the detected face rect, score, and input image size.
-- `FaceMeshNv21Image`
-  Input wrapper for Android NV21 camera frames.
-- `FaceMeshImage`
-  Input wrapper for RGBA or BGRA pixel buffers.
-- `NormalizedRect`
-  Rotation-aware normalized ROI used to restrict face mesh inference.
-- `FaceMeshBox`
-  Pixel-space bounding box that can be converted into an ROI internally.
-- `FaceMeshResult`
-  Result object containing `landmarks`, `triangles`, `rect`, `score`,
-  `imageWidth`, and `imageHeight`. Face mesh returns 468 landmarks by default,
-  or 478 landmarks when `enableIris` is enabled. Pixel-space helpers such as
-  `landmarkAsOffset(...)` and `landmarksAsOffsets(...)` support rotation and
-  horizontal mirror mapping for preview overlays.
-- `FaceMeshPainter`
-  Optional `CustomPainter` for drawing one or more face mesh results
-- `FaceDetectionPainter`
-  Optional `CustomPainter` for drawing `FaceDetection` boxes

@@ -1,3 +1,12 @@
+## 1.9.0
+
+- add `FaceMeshResult.estimateGeometry()` for 3D face geometry
+  - `geometry.headPose` — head pose estimation (yaw, pitch, roll)
+  - `geometry.distanceCm()` — centimeter distance between any two landmarks
+  - `geometry.measurements` — preset bundle of common face measurements
+  - accepts `verticalFovDegrees` for improved centimeter accuracy when the actual camera FOV is known (default: 63°)
+- add `FaceMeshResult.distancePixels()` for 2D pixel distance between landmarks
+
 ## 1.8.1
 
 - expose camera plane conversion logic as public `FaceMeshNv21Image` helper APIs

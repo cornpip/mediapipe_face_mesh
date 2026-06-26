@@ -69,6 +69,33 @@ typedef struct {
 } MpFaceMeshResult;
 
 typedef struct {
+  // Vertical field of view of the virtual camera in degrees.
+  float vertical_fov_degrees;
+  // Near and far clip planes of the virtual frustum in the same units as the
+  // output metric landmarks (centimeters).
+  float near_plane;
+  float far_plane;
+  // Non-zero when input normalized landmarks use a top-left image origin.
+  // This matches FaceMeshResult landmarks returned by this plugin.
+  uint8_t origin_top_left;
+} MpFaceGeometryOptions;
+
+typedef struct {
+  // Landmarks reprojected into centimeter-scale metric space.
+  MpLandmark* metric_landmarks;
+  int32_t metric_landmarks_count;
+  // Row-major 4x4 similarity transform from canonical face space to camera
+  // space. Encodes rotation, translation, and uniform scale.
+  float pose_transform_matrix[16];
+  float yaw_degrees;
+  float pitch_degrees;
+  float roll_degrees;
+  // Uniform scale factor from the Procrustes fit: ratio of the observed face
+  // size to the canonical model size in centimeters.
+  float scale;
+} MpFaceGeometryResult;
+
+typedef struct {
   const char* tflite_library_path;
   const char* iris_model_path;
   int32_t threads;
@@ -152,6 +179,18 @@ FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_delegate(
 
 FFI_PLUGIN_EXPORT MpDelegateType mp_face_mesh_active_iris_delegate(
     const MpFaceMeshContext* context);
+
+FFI_PLUGIN_EXPORT MpFaceGeometryResult* mp_face_geometry_estimate(
+    const MpLandmark* landmarks,
+    int32_t landmarks_count,
+    int32_t image_width,
+    int32_t image_height,
+    const MpFaceGeometryOptions* options);
+
+FFI_PLUGIN_EXPORT void mp_face_geometry_release_result(
+    MpFaceGeometryResult* result);
+
+FFI_PLUGIN_EXPORT const char* mp_face_geometry_last_error(void);
 
 FFI_PLUGIN_EXPORT MpFaceDetectorContext* mp_face_detector_create(
     const char* model_path, const MpFaceDetectorCreateOptions* options);

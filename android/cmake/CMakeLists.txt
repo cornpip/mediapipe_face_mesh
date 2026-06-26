@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(mediapipe_face_mesh SHARED
   "../../src/mediapipe_face_mesh.cc"
   "../../src/mediapipe_face_detector.cc"
+  "../../src/mediapipe_face_geometry.cc"
 )
 
 set_target_properties(mediapipe_face_mesh PROPERTIES

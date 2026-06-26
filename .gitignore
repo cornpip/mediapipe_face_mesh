@@ -34,3 +34,7 @@ migrate_working_dir/
 .codex
 /.claude
 SECRET_AGENTS_RULE.md
+
+# FVM Version Cache
+.fvm/
+.fvmrc
