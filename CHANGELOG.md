@@ -1,3 +1,7 @@
+## 1.9.1
+
+- patch release to re-trigger pub.dev analysis after 1.9.0 was stuck in pending state
+
 ## 1.9.0
 
 - add `FaceMeshResult.estimateGeometry()` for 3D face geometry

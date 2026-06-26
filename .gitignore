@@ -35,6 +35,9 @@ migrate_working_dir/
 /.claude
 SECRET_AGENTS_RULE.md
 
+# Example build artifacts
+example/build/
+
 # FVM Version Cache
 .fvm/
 .fvmrc
