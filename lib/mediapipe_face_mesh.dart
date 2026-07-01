@@ -29,6 +29,8 @@ const String _fullRangeSparseDetectorModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_detection_full_range_sparse.tflite';
 const String _defaultIrisModelAsset =
     'packages/mediapipe_face_mesh/assets/models/iris_landmark.tflite';
+const String _defaultBlendshapesModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_blendshapes.tflite';
 
 /// Bundled MediaPipe face detector model variants.
 enum FaceDetectionModel {
@@ -759,6 +761,170 @@ class FaceMeshNv21Image {
       'FaceMeshNv21Image(width: $width, height: $height, '
       'yBytesPerRow: $yBytesPerRow, vuBytesPerRow: $vuBytesPerRow, '
       'yPlaneLength: ${yPlane.length}, vuPlaneLength: ${vuPlane.length})';
+}
+
+/// The 52 ARKit-style face blendshape categories predicted by the MediaPipe
+/// face blendshapes model.
+///
+/// The declaration order matches the model output order, so `.index` maps
+/// directly onto the raw coefficient array. [neutral] corresponds to the
+/// model's `_neutral` category.
+enum FaceBlendshape {
+  /// Rest pose; the model's `_neutral` category.
+  neutral,
+
+  /// Inner-to-outer lowering of the left brow.
+  browDownLeft,
+
+  /// Inner-to-outer lowering of the right brow.
+  browDownRight,
+
+  /// Raising of the inner brows.
+  browInnerUp,
+
+  /// Raising of the outer left brow.
+  browOuterUpLeft,
+
+  /// Raising of the outer right brow.
+  browOuterUpRight,
+
+  /// Puffing out of both cheeks.
+  cheekPuff,
+
+  /// Upward squint of the left cheek (raising below the eye).
+  cheekSquintLeft,
+
+  /// Upward squint of the right cheek (raising below the eye).
+  cheekSquintRight,
+
+  /// Closing of the left eyelid.
+  eyeBlinkLeft,
+
+  /// Closing of the right eyelid.
+  eyeBlinkRight,
+
+  /// Downward gaze of the left eye.
+  eyeLookDownLeft,
+
+  /// Downward gaze of the right eye.
+  eyeLookDownRight,
+
+  /// Inward (toward the nose) gaze of the left eye.
+  eyeLookInLeft,
+
+  /// Inward (toward the nose) gaze of the right eye.
+  eyeLookInRight,
+
+  /// Outward (away from the nose) gaze of the left eye.
+  eyeLookOutLeft,
+
+  /// Outward (away from the nose) gaze of the right eye.
+  eyeLookOutRight,
+
+  /// Upward gaze of the left eye.
+  eyeLookUpLeft,
+
+  /// Upward gaze of the right eye.
+  eyeLookUpRight,
+
+  /// Narrowing squint of the left eye.
+  eyeSquintLeft,
+
+  /// Narrowing squint of the right eye.
+  eyeSquintRight,
+
+  /// Widening of the left eye.
+  eyeWideLeft,
+
+  /// Widening of the right eye.
+  eyeWideRight,
+
+  /// Forward jut of the jaw.
+  jawForward,
+
+  /// Leftward movement of the jaw.
+  jawLeft,
+
+  /// Opening of the jaw.
+  jawOpen,
+
+  /// Rightward movement of the jaw.
+  jawRight,
+
+  /// Closing of the lips (independent of jaw).
+  mouthClose,
+
+  /// Left dimple.
+  mouthDimpleLeft,
+
+  /// Right dimple.
+  mouthDimpleRight,
+
+  /// Downward pull of the left mouth corner (frown).
+  mouthFrownLeft,
+
+  /// Downward pull of the right mouth corner (frown).
+  mouthFrownRight,
+
+  /// Funneling of both lips (an "oh" shape).
+  mouthFunnel,
+
+  /// Leftward movement of the mouth.
+  mouthLeft,
+
+  /// Lowering of the lower-left lip.
+  mouthLowerDownLeft,
+
+  /// Lowering of the lower-right lip.
+  mouthLowerDownRight,
+
+  /// Pressing together of the left lips.
+  mouthPressLeft,
+
+  /// Pressing together of the right lips.
+  mouthPressRight,
+
+  /// Puckering of both lips (a kiss shape).
+  mouthPucker,
+
+  /// Rightward movement of the mouth.
+  mouthRight,
+
+  /// Rolling of the lower lip inward.
+  mouthRollLower,
+
+  /// Rolling of the upper lip inward.
+  mouthRollUpper,
+
+  /// Upward shrug of the lower lip.
+  mouthShrugLower,
+
+  /// Upward shrug of the upper lip.
+  mouthShrugUpper,
+
+  /// Upward pull of the left mouth corner (smile).
+  mouthSmileLeft,
+
+  /// Upward pull of the right mouth corner (smile).
+  mouthSmileRight,
+
+  /// Sideways stretch of the left mouth corner.
+  mouthStretchLeft,
+
+  /// Sideways stretch of the right mouth corner.
+  mouthStretchRight,
+
+  /// Raising of the upper-left lip.
+  mouthUpperUpLeft,
+
+  /// Raising of the upper-right lip.
+  mouthUpperUpRight,
+
+  /// Sneer that raises the left side of the nose.
+  noseSneerLeft,
+
+  /// Sneer that raises the right side of the nose.
+  noseSneerRight,
 }
 
 /// A single 3D landmark returned by MediaPipe.
@@ -1521,6 +1687,162 @@ class FaceMeshProcessor {
   void _validateMaxMeshFaces(int? maxMeshFaces) {
     if (maxMeshFaces != null && maxMeshFaces < 0) {
       throw ArgumentError('maxMeshFaces must be null or >= 0.');
+    }
+  }
+}
+
+final Finalizer<ffi.Pointer<MpBlendshapesContext>>
+_blendshapesContextFinalizer =
+    Finalizer<ffi.Pointer<MpBlendshapesContext>>(
+      (pointer) => faceBindings.mp_blendshapes_destroy(pointer),
+    );
+
+/// A post-processor that turns face landmarks into 52 ARKit-style blendshape
+/// coefficients.
+///
+/// This is a separate processor from [FaceMeshProcessor]: create one once, then
+/// call [process] on any [FaceMeshResult] whose landmarks include the iris
+/// points (i.e. produced by a mesh processor created with `enableIris: true`).
+class FaceBlendshapesProcessor {
+  FaceBlendshapesProcessor._(this._context) {
+    _blendshapesContextFinalizer.attach(this, _context, detach: this);
+  }
+
+  /// Number of landmarks the blendshapes model requires (468 mesh + 10 iris).
+  static const int requiredLandmarkCount = 478;
+
+  final ffi.Pointer<MpBlendshapesContext> _context;
+  bool _closed = false;
+
+  /// Delegate the blendshapes model is actively using after fallback.
+  FaceMeshDelegate get activeDelegate {
+    _ensureNotClosed();
+    return _faceMeshDelegateFromNative(
+      faceBindings.mp_blendshapes_active_delegate(_context),
+    );
+  }
+
+  /// Loads the bundled face blendshapes model.
+  ///
+  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
+  ///   is unavailable. Set it to false to fail creation instead.
+  static Future<FaceBlendshapesProcessor> create({
+    int threads = 2,
+    FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
+    bool allowDelegateFallback = true,
+  }) async {
+    final String resolvedModelPath = await _materializeBlendshapesModel();
+    final optionsPtr = pkg_ffi.calloc<MpBlendshapesCreateOptions>();
+    final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
+        .toNativeUtf8();
+    try {
+      optionsPtr.ref
+        ..threads = threads
+        ..delegate = delegate.index
+        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
+        ..tflite_library_path = ffi.nullptr;
+
+      final ffi.Pointer<MpBlendshapesContext> context = faceBindings
+          .mp_blendshapes_create(modelPathPtr.cast(), optionsPtr);
+      if (context == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_blendshapes_last_global_error()) ??
+              'Failed to create blendshapes context.',
+        );
+      }
+      return FaceBlendshapesProcessor._(context);
+    } finally {
+      pkg_ffi.calloc.free(optionsPtr);
+      pkg_ffi.malloc.free(modelPathPtr);
+    }
+  }
+
+  /// Runs the blendshapes model on [result]'s landmarks and returns the 52
+  /// coefficients keyed by category.
+  ///
+  /// Returns null when [result] has no landmarks (no face was present in the
+  /// frame).
+  ///
+  /// Throws [ArgumentError] when [result] carries some landmarks but fewer than
+  /// [requiredLandmarkCount] — this means the source mesh was created without
+  /// `enableIris: true`, which the blendshapes model requires.
+  Map<FaceBlendshape, double>? process(FaceMeshResult result) {
+    _ensureNotClosed();
+    final List<FaceMeshLandmark> landmarks = result.landmarks;
+    if (landmarks.isEmpty) {
+      return null;
+    }
+    if (landmarks.length < requiredLandmarkCount) {
+      throw ArgumentError(
+        'FaceBlendshapesProcessor requires $requiredLandmarkCount landmarks '
+        '(create the FaceMeshProcessor with enableIris: true); '
+        'got ${landmarks.length}.',
+      );
+    }
+
+    final ffi.Pointer<MpLandmark> landmarkPtr = pkg_ffi.calloc<MpLandmark>(
+      landmarks.length,
+    );
+    try {
+      for (var i = 0; i < landmarks.length; i++) {
+        final FaceMeshLandmark landmark = landmarks[i];
+        landmarkPtr[i]
+          ..x = landmark.x
+          ..y = landmark.y
+          ..z = landmark.z;
+      }
+      final ffi.Pointer<MpBlendshapesResult> resultPtr = faceBindings
+          .mp_blendshapes_process(
+            _context,
+            landmarkPtr,
+            landmarks.length,
+            result.imageWidth,
+            result.imageHeight,
+          );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
+              'Native blendshapes error.',
+        );
+      }
+      try {
+        return _copyScores(resultPtr.ref);
+      } finally {
+        faceBindings.mp_blendshapes_release_result(resultPtr);
+      }
+    } finally {
+      pkg_ffi.calloc.free(landmarkPtr);
+    }
+  }
+
+  Map<FaceBlendshape, double> _copyScores(MpBlendshapesResult nativeResult) {
+    final ffi.Pointer<ffi.Float> ptr = nativeResult.scores;
+    final int count = nativeResult.scores_count;
+    if (ptr == ffi.nullptr || count < FaceBlendshape.values.length) {
+      throw MediapipeFaceMeshException(
+        'Unexpected blendshapes output size: $count.',
+      );
+    }
+    return <FaceBlendshape, double>{
+      for (final FaceBlendshape shape in FaceBlendshape.values)
+        shape: (ptr + shape.index).value,
+    };
+  }
+
+  /// Releases the native blendshapes context and associated resources.
+  void close() {
+    if (_closed) {
+      return;
+    }
+    _blendshapesContextFinalizer.detach(this);
+    faceBindings.mp_blendshapes_destroy(_context);
+    _closed = true;
+  }
+
+  void _ensureNotClosed() {
+    if (_closed) {
+      throw StateError('Blendshapes context already closed.');
     }
   }
 }

@@ -12,6 +12,10 @@ Future<String> _materializeIrisModel() async {
   return _materializeAsset(_defaultIrisModelAsset);
 }
 
+Future<String> _materializeBlendshapesModel() async {
+  return _materializeAsset(_defaultBlendshapesModelAsset);
+}
+
 Future<String> _materializeAsset(String key) async {
   final ByteData data = await rootBundle.load(key);
   final Directory cacheDir = Directory(

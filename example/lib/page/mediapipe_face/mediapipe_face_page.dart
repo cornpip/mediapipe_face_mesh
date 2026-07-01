@@ -72,6 +72,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   FaceDetectionResult? _detectionResult;
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
+  String? _expression;
+  FaceBlendshapesProcessor? _blendshapesProcessor;
   late FaceDetectorProcessor _faceDetectorProcessor;
   late FaceMeshProcessor _faceMeshProcessor;
   late FaceMeshInferencePipeline _faceMeshInferencePipeline;
@@ -101,6 +103,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       final faceMeshProcessor = await FaceMeshProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
         enableIris: true,
+      );
+      // Create the blendshapes processor once (it loads the model), then run it
+      // on each mesh result below (the mesh must include iris landmarks).
+      _blendshapesProcessor = await FaceBlendshapesProcessor.create(
+        delegate: FaceMeshDelegate.xnnpack,
       );
       final inferencePipeline = FaceMeshInferencePipeline(
         detector: _faceDetectorProcessor,
@@ -386,15 +393,34 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   void _applyMeshStage(FaceMeshResult? result) {
+    final FaceMeshResult? meshResult = _isMeshActive ? result : null;
+    final String? expression = _resolveExpression(meshResult);
     if (mounted) {
       setState(() {
-        _meshResult = _isMeshActive ? result : null;
+        _meshResult = meshResult;
         _meshRotationCompensation = _isMeshActive && result != null ? 0 : null;
+        _expression = expression;
       });
     } else {
-      _meshResult = _isMeshActive ? result : null;
+      _meshResult = meshResult;
       _meshRotationCompensation = _isMeshActive && result != null ? 0 : null;
+      _expression = expression;
     }
+  }
+
+  /// Runs the blendshapes post-processor on demand and maps the coefficients to
+  /// a coarse expression label. Returns null when blendshapes are unavailable.
+  String? _resolveExpression(FaceMeshResult? result) {
+    final FaceBlendshapesProcessor? processor = _blendshapesProcessor;
+    // Blendshapes need the 478-landmark (iris) result; skip when iris is off.
+    if (result == null || processor == null || !_isIrisEnabled) {
+      return null;
+    }
+    final Map<FaceBlendshape, double>? blendshapes = processor.process(result);
+    if (blendshapes == null) {
+      return null; // no face in this frame
+    }
+    return _detectExpression(blendshapes);
   }
 
   @override
@@ -436,6 +462,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _stopInferenceStream();
     _faceDetectorProcessor.close();
     _faceMeshProcessor.close();
+    _blendshapesProcessor?.close();
     super.dispose();
   }
 
@@ -593,6 +620,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                     'Faces: ${_detectionResult?.detections.length ?? 0}',
                   ),
                 ),
+                if (_expression != null)
+                  Positioned(
+                    bottom: 12,
+                    right: 12,
+                    child: _expressionChip(_expression!),
+                  ),
               ],
             ),
           ),
@@ -624,6 +657,57 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     } on Object {
       return 'Geometry unavailable';
     }
+  }
+
+  /// Maps the 52 blendshape coefficients to a coarse expression label.
+  ///
+  /// Thresholds are illustrative starting points; tune per camera and lighting.
+  String _detectExpression(Map<FaceBlendshape, double> blendshapes) {
+    double v(FaceBlendshape shape) => blendshapes[shape] ?? 0;
+    final double smile =
+        (v(FaceBlendshape.mouthSmileLeft) + v(FaceBlendshape.mouthSmileRight)) /
+        2;
+    final double frown =
+        (v(FaceBlendshape.mouthFrownLeft) + v(FaceBlendshape.mouthFrownRight)) /
+        2;
+    final double browDown =
+        (v(FaceBlendshape.browDownLeft) + v(FaceBlendshape.browDownRight)) / 2;
+    final double eyeWide =
+        (v(FaceBlendshape.eyeWideLeft) + v(FaceBlendshape.eyeWideRight)) / 2;
+
+    if (v(FaceBlendshape.jawOpen) > 0.4 &&
+        eyeWide > 0.3 &&
+        v(FaceBlendshape.browInnerUp) > 0.3) {
+      return '😮 Surprise';
+    }
+    if (smile > 0.4) {
+      return '😀 Happy';
+    }
+    if (frown > 0.3 && v(FaceBlendshape.browInnerUp) > 0.3) {
+      return '😢 Sad';
+    }
+    if (browDown > 0.4) {
+      return '😠 Angry';
+    }
+    return '😐 Neutral';
+  }
+
+  Widget _expressionChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 18,
+        ),
+      ),
+    );
   }
 
   Widget _infoChip(String text) {

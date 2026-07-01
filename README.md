@@ -202,6 +202,46 @@ Scale accuracy depends on the virtual camera assumption (default vertical FOV
 
 To look up landmark indices visually, use https://cornpip.github.io/mediapipe_landmark_viewer/
 
+### Face Blendshapes
+
+Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
+smile, etc.) — useful for avatars, Animoji-style effects, AR filters, and
+expression detection. They are optional: create a `FaceBlendshapesProcessor`
+once (it loads the model), then run it on each `FaceMeshResult` to get the
+coefficients. The mesh must be created with `enableIris: true`, since the model
+reads the iris landmarks.
+
+```dart
+final blendshapesProcessor = await FaceBlendshapesProcessor.create(
+  delegate: FaceMeshDelegate.xnnpack,
+);
+```
+
+Call `process` on a `FaceMeshResult` to get the coefficients as a
+`Map<FaceBlendshape, double>` with values in `[0, 1]`. It returns null when the
+result has no landmarks (no face was present in the frame).
+
+```dart
+if (meshResult != null) {
+  final blendshapes = blendshapesProcessor.process(meshResult);
+  if (blendshapes != null) {
+    final smile = (blendshapes[FaceBlendshape.mouthSmileLeft]! +
+            blendshapes[FaceBlendshape.mouthSmileRight]!) /
+        2;
+    if (smile > 0.5) {
+      // smiling
+    }
+  }
+}
+```
+
+`process` throws an `ArgumentError` if the mesh was created without `enableIris`
+(fewer than 478 landmarks). Use `activeDelegate` to inspect the delegate selected
+after fallback. 
+
+Call `close()` to release the `FaceBlendshapesProcessor` when you
+no longer need it.
+
 ### Multi-Face Inference
 
 Multi-face mesh inference runs face detection once, then runs mesh inference for

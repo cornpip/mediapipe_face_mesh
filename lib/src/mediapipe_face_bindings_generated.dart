@@ -276,6 +276,139 @@ class MediapipeFaceBindings {
   late final _mp_face_geometry_last_error = _mp_face_geometry_last_errorPtr
       .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  ffi.Pointer<MpBlendshapesContext> mp_blendshapes_create(
+    ffi.Pointer<ffi.Char> model_path,
+    ffi.Pointer<MpBlendshapesCreateOptions> options,
+  ) {
+    return _mp_blendshapes_create(model_path, options);
+  }
+
+  late final _mp_blendshapes_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpBlendshapesContext> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<MpBlendshapesCreateOptions>,
+          )
+        >
+      >('mp_blendshapes_create');
+  late final _mp_blendshapes_create = _mp_blendshapes_createPtr
+      .asFunction<
+        ffi.Pointer<MpBlendshapesContext> Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<MpBlendshapesCreateOptions>,
+        )
+      >();
+
+  void mp_blendshapes_destroy(ffi.Pointer<MpBlendshapesContext> context) {
+    return _mp_blendshapes_destroy(context);
+  }
+
+  late final _mp_blendshapes_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpBlendshapesContext>)>
+      >('mp_blendshapes_destroy');
+  late final _mp_blendshapes_destroy = _mp_blendshapes_destroyPtr
+      .asFunction<void Function(ffi.Pointer<MpBlendshapesContext>)>();
+
+  /// Runs the blendshapes model on the provided face landmarks. Requires at least
+  /// 478 landmarks (iris). [image_width]/[image_height] are the dimensions the
+  /// normalized landmarks are expressed against. Returns null on error.
+  ffi.Pointer<MpBlendshapesResult> mp_blendshapes_process(
+    ffi.Pointer<MpBlendshapesContext> context,
+    ffi.Pointer<MpLandmark> landmarks,
+    int landmarks_count,
+    int image_width,
+    int image_height,
+  ) {
+    return _mp_blendshapes_process(
+      context,
+      landmarks,
+      landmarks_count,
+      image_width,
+      image_height,
+    );
+  }
+
+  late final _mp_blendshapes_processPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpBlendshapesResult> Function(
+            ffi.Pointer<MpBlendshapesContext>,
+            ffi.Pointer<MpLandmark>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Int32,
+          )
+        >
+      >('mp_blendshapes_process');
+  late final _mp_blendshapes_process = _mp_blendshapes_processPtr
+      .asFunction<
+        ffi.Pointer<MpBlendshapesResult> Function(
+          ffi.Pointer<MpBlendshapesContext>,
+          ffi.Pointer<MpLandmark>,
+          int,
+          int,
+          int,
+        )
+      >();
+
+  void mp_blendshapes_release_result(ffi.Pointer<MpBlendshapesResult> result) {
+    return _mp_blendshapes_release_result(result);
+  }
+
+  late final _mp_blendshapes_release_resultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpBlendshapesResult>)>
+      >('mp_blendshapes_release_result');
+  late final _mp_blendshapes_release_result = _mp_blendshapes_release_resultPtr
+      .asFunction<void Function(ffi.Pointer<MpBlendshapesResult>)>();
+
+  ffi.Pointer<ffi.Char> mp_blendshapes_last_error(
+    ffi.Pointer<MpBlendshapesContext> context,
+  ) {
+    return _mp_blendshapes_last_error(context);
+  }
+
+  late final _mp_blendshapes_last_errorPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpBlendshapesContext>)
+        >
+      >('mp_blendshapes_last_error');
+  late final _mp_blendshapes_last_error = _mp_blendshapes_last_errorPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpBlendshapesContext>)
+      >();
+
+  ffi.Pointer<ffi.Char> mp_blendshapes_last_global_error() {
+    return _mp_blendshapes_last_global_error();
+  }
+
+  late final _mp_blendshapes_last_global_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_blendshapes_last_global_error',
+      );
+  late final _mp_blendshapes_last_global_error =
+      _mp_blendshapes_last_global_errorPtr
+          .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  MpDelegateType mp_blendshapes_active_delegate(
+    ffi.Pointer<MpBlendshapesContext> context,
+  ) {
+    return MpDelegateType.fromValue(_mp_blendshapes_active_delegate(context));
+  }
+
+  late final _mp_blendshapes_active_delegatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.UnsignedInt Function(ffi.Pointer<MpBlendshapesContext>)
+        >
+      >('mp_blendshapes_active_delegate');
+  late final _mp_blendshapes_active_delegate =
+      _mp_blendshapes_active_delegatePtr
+          .asFunction<int Function(ffi.Pointer<MpBlendshapesContext>)>();
+
   ffi.Pointer<MpFaceDetectorContext> mp_face_detector_create(
     ffi.Pointer<ffi.Char> model_path,
     ffi.Pointer<MpFaceDetectorCreateOptions> options,
@@ -575,9 +708,12 @@ final class MpFaceMeshResult extends ffi.Struct {
 }
 
 final class MpFaceGeometryOptions extends ffi.Struct {
+  /// Vertical field of view of the virtual camera in degrees.
   @ffi.Float()
   external double vertical_fov_degrees;
 
+  /// Near and far clip planes of the virtual frustum in the same units as the
+  /// output metric landmarks (centimeters).
   @ffi.Float()
   external double near_plane;
 
@@ -591,11 +727,14 @@ final class MpFaceGeometryOptions extends ffi.Struct {
 }
 
 final class MpFaceGeometryResult extends ffi.Struct {
+  /// Landmarks reprojected into centimeter-scale metric space.
   external ffi.Pointer<MpLandmark> metric_landmarks;
 
   @ffi.Int32()
   external int metric_landmarks_count;
 
+  /// Row-major 4x4 similarity transform from canonical face space to camera
+  /// space. Encodes rotation, translation, and uniform scale.
   @ffi.Array.multi([16])
   external ffi.Array<ffi.Float> pose_transform_matrix;
 
@@ -608,6 +747,8 @@ final class MpFaceGeometryResult extends ffi.Struct {
   @ffi.Float()
   external double roll_degrees;
 
+  /// Uniform scale factor from the Procrustes fit: ratio of the observed face
+  /// size to the canonical model size in centimeters.
   @ffi.Float()
   external double scale;
 }
@@ -720,4 +861,30 @@ final class MpRoiTransformOptions extends ffi.Struct {
 
   @ffi.Float()
   external double shift_y;
+}
+
+final class MpBlendshapesContext extends ffi.Opaque {}
+
+final class MpBlendshapesCreateOptions extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> tflite_library_path;
+
+  @ffi.Int32()
+  external int threads;
+
+  @ffi.UnsignedInt()
+  external int delegate;
+
+  /// When non-zero, fail creation instead of falling back to CPU if the
+  /// requested delegate is unavailable or cannot be created.
+  @ffi.Uint8()
+  external int disable_delegate_fallback;
+}
+
+final class MpBlendshapesResult extends ffi.Struct {
+  /// 52 blendshape coefficients in [0, 1], ordered to match the MediaPipe face
+  /// blendshapes model (index 0 is `_neutral`).
+  external ffi.Pointer<ffi.Float> scores;
+
+  @ffi.Int32()
+  external int scores_count;
 }
