@@ -32,7 +32,7 @@ PODS:
     - GoogleUtilities/Logger
     - GoogleUtilities/Privacy
   - GTMSessionFetcher/Core (3.5.0)
-  - mediapipe_face_mesh (1.9.0):
+  - mediapipe_face_mesh (1.10.0):
     - Flutter
   - MLImage (1.0.0-beta8)
   - MLKitCommon (14.0.0):
@@ -106,7 +106,7 @@ SPEC CHECKSUMS:
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
   GoogleUtilities: 4f2618a4a1e762a1ee134a1e2323bba9843e06da
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  mediapipe_face_mesh: cdb03cc47ec215dae7eb07bf3125ff8542698260
+  mediapipe_face_mesh: dd2af7bfc5a0b06991e185b5900d8ad8b210c86f
   MLImage: 0de5c6c2bf9e93b80ef752e2797f0836f03b58c0
   MLKitCommon: 47d47b50a031d00db62f1b0efe5a1d8b09a3b2e6
   MLKitFaceDetection: 32549f1e70e6e7731261bf9cea2b74095e2531cb
