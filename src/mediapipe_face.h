@@ -192,6 +192,55 @@ FFI_PLUGIN_EXPORT void mp_face_geometry_release_result(
 
 FFI_PLUGIN_EXPORT const char* mp_face_geometry_last_error(void);
 
+// ---- Face blendshapes ------------------------------------------------------
+// Post-processing module that turns face landmarks into 52 ARKit-style
+// blendshape coefficients. Runs as its own context, separate from the face
+// mesh context, on the landmarks it is given.
+
+typedef struct MpBlendshapesContext MpBlendshapesContext;
+
+typedef struct {
+  const char* tflite_library_path;
+  int32_t threads;
+  MpDelegateType delegate;
+  // When non-zero, fail creation instead of falling back to CPU if the
+  // requested delegate is unavailable or cannot be created.
+  uint8_t disable_delegate_fallback;
+} MpBlendshapesCreateOptions;
+
+typedef struct {
+  // 52 blendshape coefficients in [0, 1], ordered to match the MediaPipe face
+  // blendshapes model (index 0 is `_neutral`).
+  float* scores;
+  int32_t scores_count;
+} MpBlendshapesResult;
+
+FFI_PLUGIN_EXPORT MpBlendshapesContext* mp_blendshapes_create(
+    const char* model_path, const MpBlendshapesCreateOptions* options);
+
+FFI_PLUGIN_EXPORT void mp_blendshapes_destroy(MpBlendshapesContext* context);
+
+// Runs the blendshapes model on the provided face landmarks. Requires at least
+// 478 landmarks (iris). [image_width]/[image_height] are the dimensions the
+// normalized landmarks are expressed against. Returns null on error.
+FFI_PLUGIN_EXPORT MpBlendshapesResult* mp_blendshapes_process(
+    MpBlendshapesContext* context,
+    const MpLandmark* landmarks,
+    int32_t landmarks_count,
+    int32_t image_width,
+    int32_t image_height);
+
+FFI_PLUGIN_EXPORT void mp_blendshapes_release_result(
+    MpBlendshapesResult* result);
+
+FFI_PLUGIN_EXPORT const char* mp_blendshapes_last_error(
+    const MpBlendshapesContext* context);
+
+FFI_PLUGIN_EXPORT const char* mp_blendshapes_last_global_error(void);
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_blendshapes_active_delegate(
+    const MpBlendshapesContext* context);
+
 FFI_PLUGIN_EXPORT MpFaceDetectorContext* mp_face_detector_create(
     const char* model_path, const MpFaceDetectorCreateOptions* options);
 

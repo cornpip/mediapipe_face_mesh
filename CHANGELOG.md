@@ -1,3 +1,11 @@
+## 1.10.0
+
+- add support for ARKit-style face blendshapes
+  - `FaceBlendshapesProcessor`, a post-processor that turns a `FaceMeshResult` into the 52 blendshape coefficients (`Map<FaceBlendshape, double>`); requires a mesh created with `enableIris: true`
+  - `FaceBlendshape` enum (52 categories, `neutral` at index 0)
+  - bundles the `face_blendshapes.tflite` model (~0.9 MB)
+- example: add a blendshapes-based expression detection demo
+
 ## 1.9.1
 
 - patch release to re-trigger pub.dev analysis after 1.9.0 was stuck in pending state

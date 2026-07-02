@@ -12,6 +12,7 @@ add_library(mediapipe_face_mesh SHARED
   "../../src/mediapipe_face_mesh.cc"
   "../../src/mediapipe_face_detector.cc"
   "../../src/mediapipe_face_geometry.cc"
+  "../../src/mediapipe_face_blendshapes.cc"
 )
 
 set_target_properties(mediapipe_face_mesh PROPERTIES
