@@ -2,11 +2,14 @@
 
 Bundled files:
 - TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`) and iOS
-- [MediaPipe TFLite model](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md)
-  - face mesh
-  - iris
-  - short-range face detection
-  - full-range dense and sparse face detection
+- Model Source
+  - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
+    - face mesh
+    - iris
+    - short-range face detection
+    - full-range dense and sparse face detection
+  - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
+    - face_blendshapes
 
 <img src="./readme_img/3.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
