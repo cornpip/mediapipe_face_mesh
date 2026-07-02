@@ -1,11 +1,10 @@
 ## 1.10.0
 
-- add `FaceBlendshapesProcessor`, an on-demand post-processor that turns a `FaceMeshResult` into the 52 ARKit-style face blendshape coefficients (`Map<FaceBlendshape, double>`) using the bundled MediaPipe `face_blendshapes` model
-  - `create(...)` loads the model once; call `process(result)` per frame as needed
-  - requires a mesh created with `enableIris: true`
-  - `activeDelegate` reports the delegate used after fallback
-- add the `FaceBlendshape` enum (52 categories, `neutral` at index 0)
-- bundle the `face_blendshapes.tflite` model
+- add support for ARKit-style face blendshapes
+  - `FaceBlendshapesProcessor`, a post-processor that turns a `FaceMeshResult` into the 52 blendshape coefficients (`Map<FaceBlendshape, double>`); requires a mesh created with `enableIris: true`
+  - `FaceBlendshape` enum (52 categories, `neutral` at index 0)
+  - bundles the `face_blendshapes.tflite` model (~0.9 MB)
+- example: add a blendshapes-based expression detection demo
 
 ## 1.9.1
 
