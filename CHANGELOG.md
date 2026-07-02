@@ -1,3 +1,9 @@
+## 1.10.1
+
+- docs: update the example image
+- add `.pubignore` to exclude README images from the published package (~7 MB smaller download)
+- example: remove an unused asset
+
 ## 1.10.0
 
 - add support for ARKit-style face blendshapes

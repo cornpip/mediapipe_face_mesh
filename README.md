@@ -11,7 +11,7 @@ Bundled files:
   - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
     - face_blendshapes
 
-<img src="./readme_img/3.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
+<img src="./readme_img/4.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 

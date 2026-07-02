@@ -32,7 +32,7 @@ PODS:
     - GoogleUtilities/Logger
     - GoogleUtilities/Privacy
   - GTMSessionFetcher/Core (3.5.0)
-  - mediapipe_face_mesh (1.10.0):
+  - mediapipe_face_mesh (1.10.1):
     - Flutter
   - MLImage (1.0.0-beta8)
   - MLKitCommon (14.0.0):
