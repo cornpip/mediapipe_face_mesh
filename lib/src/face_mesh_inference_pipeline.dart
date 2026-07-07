@@ -155,9 +155,9 @@ class FaceMeshMultiInferenceResult {
 /// tracked face keeps a stable [TrackedFaceMesh.trackId], and the detector
 /// runs only while fewer than `maxMeshFaces` faces are tracked. Multi-face
 /// tracking is managed in Dart, so it works with a
-/// [FaceMeshProcessor.createForMultiFace] processor; calling a multi-face
-/// method resets single-face tracking (the flows share the native mesh
-/// state), so switch between the two flows deliberately.
+/// [FaceMeshProcessor.createForMultiFace] processor. The two flows share the
+/// native mesh state, so calling one resets the other's tracking and the
+/// next call of the other flow re-acquires via the detector.
 ///
 /// Single-face landmark tracking requires a [mesh] processor created with
 /// `enableRoiTracking: true` (the default). Passing
@@ -350,12 +350,15 @@ class FaceMeshInferencePipeline {
     }
 
     // Advance every tracked face on its landmark-derived ROI; drop the ones
-    // that lost their face.
+    // that lost their face or whose presence score fell below the tracking
+    // confidence, so their slot is re-acquired via the detector (official
+    // tracking-confidence semantics).
+    final double minTrackingConfidence = _mesh.minTrackingConfidence;
     final List<_FaceTrack> survivors = <_FaceTrack>[];
     try {
       for (final _FaceTrack track in _multiTracks) {
         final FaceMeshResult mesh = runMeshWithRoi(track.roi);
-        if (mesh.landmarks.isEmpty) {
+        if (mesh.landmarks.isEmpty || mesh.score < minTrackingConfidence) {
           continue;
         }
         track.mesh = mesh;
@@ -471,6 +474,10 @@ class FaceMeshInferencePipeline {
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
     );
+    // Mirror of the multi-face reset: drop multi-face tracks so a later
+    // multi-face call re-acquires via the detector instead of advancing
+    // stale ROIs.
+    _multiTracks.clear();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
       () => _mesh.process(
@@ -543,6 +550,10 @@ class FaceMeshInferencePipeline {
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
     );
+    // Mirror of the multi-face reset: drop multi-face tracks so a later
+    // multi-face call re-acquires via the detector instead of advancing
+    // stale ROIs.
+    _multiTracks.clear();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
       () => _mesh.processNv21(
@@ -596,6 +607,10 @@ class FaceMeshInferencePipeline {
   /// newly detected faces that do not overlap a tracked face are added with a
   /// new [TrackedFaceMesh.trackId]. With tracking disabled, every frame runs
   /// the detector and one mesh inference per detection, in score order.
+  ///
+  /// A tracked face is dropped — freeing its slot for detector
+  /// re-acquisition — when its mesh presence score falls below the mesh
+  /// processor's [FaceMeshProcessor.minTrackingConfidence].
   ///
   /// Set [runMesh] to false to run detector-only (this also drops all tracked
   /// faces). [maxMeshFaces] bounds the number of simultaneously tracked

@@ -1,22 +1,25 @@
 ## 2.0.0
 
 - **BREAKING**: `FaceMeshInferencePipeline` single-face flow now follows the official MediaPipe Face Mesh design — the detector runs only to (re)acquire a face, and tracked frames derive the mesh ROI from the previous frame's landmarks
-  - improves mesh accuracy when the raw detection box is imprecise (e.g. a wide-open mouth no longer distorts the mesh) and skips the detector entirely on tracked frames (~half the per-frame compute)
+  - improves mesh accuracy when the raw detection box is imprecise (e.g. a wide-open mouth no longer distorts the mesh) and roughly halves the per-frame compute on tracked frames
   - `FaceMeshInferenceResult.detectionResult` is now nullable; it is null on landmark-tracked frames where the detector did not run
   - on tracked frames `FaceMeshInferenceResult.selectedRoi` carries the tracked ROI used for mesh inference
-  - add `FaceMeshInferenceResult.detectorRan`, `FaceMeshInferencePipeline.isTracking`, and `FaceMeshInferencePipeline.resetTracking()`
-  - add `FaceMeshProcessor.roiTrackingEnabled`
-  - on tracked frames the detector — and therefore `detectorRoi` and the detector ROI scale/shift overrides — is not consulted; region restrictions apply only to (re)acquisition frames
-  - (re)acquisition seeds the tracked ROI from that frame's landmarks, and a native error on a tracked frame falls back to detector re-acquisition on the next frame
-  - tracking now resets automatically when input type, frame size, rotation, or mirroring changes; call `resetTracking()` when switching input sources that the pipeline cannot distinguish
+  - since the detector is not consulted on tracked frames, `detectorRoi` and the detector ROI scale/shift overrides apply only to (re)acquisition frames
+  - tracking resets automatically when input type, frame size, rotation, or mirroring changes; call `resetTracking()` when switching input sources that the pipeline cannot distinguish
+  - add `FaceMeshInferencePipeline.isTracking` and `FaceMeshInferencePipeline.resetTracking()`, and `detectorRan` on both result types
+  - add `FaceMeshProcessor.roiTrackingEnabled`; single-face landmark tracking requires a mesh processor created with `enableRoiTracking: true` (the default)
 - **BREAKING**: multi-face pipeline methods (`processMultiFace`/`processNv21MultiFace`) also track by landmarks — each tracked face runs on an ROI derived from its previous frame's landmarks, and the detector runs only while fewer than `maxMeshFaces` faces are tracked, with IoU-gated association for newly detected faces (matching the official graph's `num_faces` behavior)
-  - `FaceMeshMultiInferenceResult.detectionResult` is now nullable (null when all face slots were served by tracking) and results are exposed as `faces` (`List<TrackedFaceMesh>` with a per-face `trackId` that stays stable while the face is tracked); `meshResults` remains available as a getter
-  - multi-face tracking is managed in Dart with explicit per-face ROIs, so it works with `createForMultiFace` processors; calling a multi-face method still resets single-face tracking
-  - add `FaceMeshResult.trackingRoi()` — the landmark-derived ROI a tracker uses for the next frame (also useful for custom pipelines), with golden tests pinning it to the native formula
+  - `FaceMeshMultiInferenceResult.detectionResult` is now nullable (null when all face slots were served by tracking) and results are exposed as `faces` — a `List<TrackedFaceMesh>` with a per-face `trackId` that stays stable while the face is tracked
+  - multi-face tracking is managed in Dart with explicit per-face ROIs, so it works with `createForMultiFace` processors; the single- and multi-face flows share the native mesh state, so calling one resets the other's tracking and the other flow re-acquires via the detector on its next call
+  - a tracked face is dropped — and its slot re-acquired via the detector — when its mesh presence score falls below `minTrackingConfidence` (now exposed as `FaceMeshProcessor.minTrackingConfidence`), matching the official tracking-confidence semantics
+- add `FaceMeshResult.trackingRoi()` — the landmark-derived ROI a tracker uses for the next frame, matching the native formula; useful for custom pipelines
+- add `FaceMeshPainter.scaleWithFace` — scales stroke widths and dot radii with each face's on-screen size (per face when drawing multiple results), so overlays keep their proportions as faces move closer or farther; the example enables it
 - fix internal ROI tracking (`enableRoiTracking`) computing its square ROI in normalized space, which vertically stretched the ROI on portrait frames and degraded tracked landmark quality (present since 1.2.1); the ROI square and eye-line rotation are now computed in pixel space, matching the official graph
 - fix ROI size sanitation clamping width and height independently, which could stretch very small or very large ROIs anisotropically; the size bounds are now applied with a single scale factor that preserves the ROI aspect
-- reduce internal ROI smoothing (alpha 0.8 → 0.5) so the tracked ROI follows fast face changes, such as a mouth opening wide, with less lag
+- fix a native result leak when copying a detector or mesh result to Dart throws; the native result is now released in a `finally`
+- reduce internal ROI smoothing (alpha 0.8 → 0.5) so the tracked ROI follows fast face changes with less lag
 - example: draw the tracked ROI overlay and show a `Tracking` status chip while the detector is skipped
+- example: add a `Multi` toggle that switches to the multi-face tracking flow, rendering every tracked face's mesh and ROI with its `trackId` label
 - example: remove the legacy ML Kit detector flow from the app; README links the v1.10.1 ML Kit integration for users who need an external detector example
 
 ### Migrating from 1.x

@@ -1223,8 +1223,11 @@ class FaceDetectorProcessor {
               'Native face detector error.',
         );
       }
-      processed = _copyResult(resultPtr.ref);
-      faceBindings.mp_face_detector_release_result(resultPtr);
+      try {
+        processed = _copyResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_detector_release_result(resultPtr);
+      }
     } finally {
       pkg_ffi.calloc.free(nativeImage.pixels);
       pkg_ffi.calloc.free(nativeImage.image);
@@ -1279,8 +1282,11 @@ class FaceDetectorProcessor {
               'Native face detector error.',
         );
       }
-      processed = _copyResult(resultPtr.ref);
-      faceBindings.mp_face_detector_release_result(resultPtr);
+      try {
+        processed = _copyResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_detector_release_result(resultPtr);
+      }
     } finally {
       pkg_ffi.calloc.free(nativeImage.yPlane);
       pkg_ffi.calloc.free(nativeImage.vuPlane);
@@ -1365,8 +1371,10 @@ class FaceMeshProcessor {
     this._context, {
     required bool irisEnabled,
     required bool roiTrackingEnabled,
+    required double minTrackingConfidence,
   }) : _irisEnabled = irisEnabled,
-       _roiTrackingEnabled = roiTrackingEnabled {
+       _roiTrackingEnabled = roiTrackingEnabled,
+       _minTrackingConfidence = minTrackingConfidence {
     _contextFinalizer.attach(this, _context, detach: this);
   }
 
@@ -1375,10 +1383,17 @@ class FaceMeshProcessor {
   final ffi.Pointer<MpFaceMeshContext> _context;
   final bool _irisEnabled;
   final bool _roiTrackingEnabled;
+  final double _minTrackingConfidence;
   bool _closed = false;
 
   /// Whether this processor was created with internal ROI tracking enabled.
   bool get roiTrackingEnabled => _roiTrackingEnabled;
+
+  /// Tracking-confidence threshold this processor was created with.
+  ///
+  /// [FaceMeshInferencePipeline]'s multi-face flow drops a tracked face when
+  /// its mesh presence score falls below this value.
+  double get minTrackingConfidence => _minTrackingConfidence;
 
   /// Delegate that the native face mesh model is actively using after fallback.
   FaceMeshDelegate get activeDelegate {
@@ -1414,11 +1429,13 @@ class FaceMeshProcessor {
   ///   the landmark coordinates themselves.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
   ///   are omitted in later [process] or [processNv21] calls.
-  /// - [minTrackingConfidence] gates internal ROI updates while tracking.
-  ///   Raising it above 0.5 creates a score window (0.5 up to the set value)
-  ///   where landmarks are still returned but the tracked ROI stops
-  ///   following the face, so prefer the default unless you handle
-  ///   re-detection yourself.
+  /// - [minTrackingConfidence] is the mesh presence score below which
+  ///   tracking stops trusting a followed face. The multi-face pipeline flow
+  ///   drops the track and re-acquires it via the detector. The single-face
+  ///   native tracking only stops updating its ROI, so raising this above
+  ///   0.5 there creates a score window where landmarks are still returned
+  ///   but the tracked ROI stops following the face — prefer the default for
+  ///   the single-face flow unless you handle re-detection yourself.
   /// - [enableIris] refines eye landmarks and appends iris landmarks, returning
   ///   478 landmarks instead of the base 468 landmarks.
   static Future<FaceMeshProcessor> create({
@@ -1466,6 +1483,7 @@ class FaceMeshProcessor {
         context,
         irisEnabled: enableIris,
         roiTrackingEnabled: enableRoiTracking,
+        minTrackingConfidence: minTrackingConfidence,
       );
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
@@ -1566,8 +1584,11 @@ class FaceMeshProcessor {
               'Native face mesh error.',
         );
       }
-      processed = _copyResult(resultPtr.ref);
-      faceBindings.mp_face_mesh_release_result(resultPtr);
+      try {
+        processed = _copyResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_mesh_release_result(resultPtr);
+      }
     } finally {
       pkg_ffi.calloc.free(nativeImage.pixels);
       pkg_ffi.calloc.free(nativeImage.image);
@@ -1634,8 +1655,11 @@ class FaceMeshProcessor {
               'Native face mesh error.',
         );
       }
-      processed = _copyResult(resultPtr.ref);
-      faceBindings.mp_face_mesh_release_result(resultPtr);
+      try {
+        processed = _copyResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_mesh_release_result(resultPtr);
+      }
     } finally {
       pkg_ffi.calloc.free(nativeImage.yPlane);
       pkg_ffi.calloc.free(nativeImage.vuPlane);

@@ -11,7 +11,7 @@ Bundled files:
   - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
     - face_blendshapes
 
-<img src="./readme_img/4.png" alt="app_image_2" width="300"/> <img src="./readme_img/3.gif" alt="app_image_2" width="300"/>
+<img src="./readme_img/22.png" alt="app_image_2" width="300"/> <img src="./readme_img/33.png" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 
@@ -275,7 +275,9 @@ no longer need it.
 Multi-face inference tracks each face across frames. Each tracked face runs mesh
 inference on an ROI derived from its previous landmarks, and the detector runs
 only while fewer than `maxMeshFaces` faces are tracked. Each face keeps a stable
-`trackId` while it is tracked.
+`trackId` while it is tracked, and a face is dropped — freeing its slot for
+detector re-acquisition — when its mesh presence score falls below the mesh
+processor's `minTrackingConfidence`.
 
 Use `maxResults` on the detector to control how many faces a detection pass can
 return, and `maxMeshFaces` to bound how many faces are tracked simultaneously.
@@ -349,7 +351,8 @@ faceMeshProcessor.close();
 ## Example app
 
 The example app in `example/` uses the bundled MediaPipe face detector with
-MediaPipe Face Mesh.
+MediaPipe Face Mesh. The `Multi` toggle switches it to the multi-face tracking
+flow, rendering every tracked face's mesh and ROI with its `trackId` label.
 
 If you already use another face detector, pass its face box to
 `FaceMeshProcessor.process(...)` or `processNv21(...)` as a `FaceMeshBox` or

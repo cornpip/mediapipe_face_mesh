@@ -23,6 +23,8 @@ class FaceMeshPainter extends CustomPainter {
     this.drawRefinedEyeEdges = true,
     this.drawIris = true,
     this.clampToBounds = true,
+    this.scaleWithFace = false,
+    this.scaleWithFaceReference = 150.0,
   }) : results = _resolveResults(result, results);
 
   /// Mesh results to draw.
@@ -64,6 +66,23 @@ class FaceMeshPainter extends CustomPainter {
   /// Clamps mapped landmark coordinates to the paint bounds.
   final bool clampToBounds;
 
+  /// Scales stroke widths and dot radii with each face's on-screen size, so
+  /// overlays keep their proportions as a face moves closer or farther.
+  ///
+  /// The face size is measured as the outer-eye distance (landmarks 33 and
+  /// 263) on the canvas; the configured sizes apply unchanged when that
+  /// distance equals [scaleWithFaceReference]. Each face scales independently
+  /// when multiple results are drawn.
+  final bool scaleWithFace;
+
+  /// Outer-eye distance (in logical pixels on the canvas) at which the
+  /// configured stroke widths and dot radii apply unchanged when
+  /// [scaleWithFace] is enabled.
+  ///
+  /// The default of 150 corresponds to a face at a typical selfie distance on
+  /// a phone-sized preview; raise or lower it to match your canvas size.
+  final double scaleWithFaceReference;
+
   static List<FaceMeshResult> _resolveResults(
     FaceMeshResult? result,
     List<FaceMeshResult>? results,
@@ -82,19 +101,24 @@ class FaceMeshPainter extends CustomPainter {
   }
 
   void _paintResult(Canvas canvas, Size size, FaceMeshResult result) {
+    final double faceScale = _faceScale(result, size);
     if (drawDots) {
       final Paint paint = Paint()
         ..color = strokeColor
         ..style = PaintingStyle.fill;
 
       for (final FaceMeshLandmark landmark in result.landmarks) {
-        canvas.drawCircle(_map(result, landmark, size), dotRadius, paint);
+        canvas.drawCircle(
+          _map(result, landmark, size),
+          dotRadius * faceScale,
+          paint,
+        );
       }
     } else {
       final Paint paint = Paint()
         ..color = strokeColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth;
+        ..strokeWidth = strokeWidth * faceScale;
 
       for (final MpFaceMeshTriangle triangle in result.triangles) {
         final Offset p0 = _map(result, triangle.points[0], size);
@@ -112,21 +136,40 @@ class FaceMeshPainter extends CustomPainter {
     }
 
     if (drawRefinedEyeEdges) {
-      _paintRefinedEyeEdges(canvas, size, result);
+      _paintRefinedEyeEdges(canvas, size, result, faceScale);
     }
     if (drawIris) {
-      _paintIrisDots(canvas, size, result);
+      _paintIrisDots(canvas, size, result, faceScale);
     }
   }
 
-  void _paintRefinedEyeEdges(Canvas canvas, Size size, FaceMeshResult result) {
+  /// Returns the per-face size factor for [scaleWithFace], or 1.
+  double _faceScale(FaceMeshResult result, Size size) {
+    if (!scaleWithFace || result.landmarks.length <= 263) {
+      return 1.0;
+    }
+    final Offset right = _map(result, result.landmarks[33], size);
+    final Offset left = _map(result, result.landmarks[263], size);
+    final double eyeDistance = (left - right).distance;
+    if (eyeDistance <= 0 || scaleWithFaceReference <= 0) {
+      return 1.0;
+    }
+    return (eyeDistance / scaleWithFaceReference).clamp(0.3, 3.0);
+  }
+
+  void _paintRefinedEyeEdges(
+    Canvas canvas,
+    Size size,
+    FaceMeshResult result,
+    double faceScale,
+  ) {
     if (result.landmarks.length <= 468) {
       return;
     }
     final Paint paint = Paint()
       ..color = refinedEyeColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
+      ..strokeWidth = strokeWidth * faceScale
       ..strokeCap = StrokeCap.round;
     for (final MpFaceMeshTriangle triangle in result.triangles) {
       _drawRefinedEyeEdge(canvas, size, result, paint, triangle, 0, 1);
@@ -157,7 +200,12 @@ class FaceMeshPainter extends CustomPainter {
     );
   }
 
-  void _paintIrisDots(Canvas canvas, Size size, FaceMeshResult result) {
+  void _paintIrisDots(
+    Canvas canvas,
+    Size size,
+    FaceMeshResult result,
+    double faceScale,
+  ) {
     if (result.landmarks.length <= 468) {
       return;
     }
@@ -170,7 +218,7 @@ class FaceMeshPainter extends CustomPainter {
     for (int i = 468; i < end; i++) {
       canvas.drawCircle(
         _map(result, result.landmarks[i], size),
-        irisDotRadius,
+        irisDotRadius * faceScale,
         paint,
       );
     }
@@ -200,6 +248,8 @@ class FaceMeshPainter extends CustomPainter {
         oldDelegate.drawDots != drawDots ||
         oldDelegate.drawRefinedEyeEdges != drawRefinedEyeEdges ||
         oldDelegate.drawIris != drawIris ||
-        oldDelegate.clampToBounds != clampToBounds;
+        oldDelegate.clampToBounds != clampToBounds ||
+        oldDelegate.scaleWithFace != scaleWithFace ||
+        oldDelegate.scaleWithFaceReference != scaleWithFaceReference;
   }
 }

@@ -42,6 +42,24 @@ Scope:
 - Expose `minFacePresenceConfidence` from Dart (already present in the native
   options struct but never set)
 
+## Native multi-face API (single frame upload)
+
+The multi-face flow runs one `process()` call per face, and each call copies
+the full frame into native memory and frees it again — N tracked faces cost
+N full-frame copies per frame (plus one for the detector frame). Not a leak,
+but avoidable allocation and memcpy churn that grows with face count.
+
+Scope:
+
+- Native entry point that accepts the frame once plus a list of ROIs and
+  returns one result per ROI (e.g. `mp_face_mesh_process_rois`), for both
+  RGBA and NV21 inputs (native header change, ffigen regeneration)
+- Route `FaceMeshInferencePipeline`'s multi-face tracked/acquisition mesh
+  calls and `FaceMeshProcessor.processMultiFace`/`processNv21MultiFace`
+  through it
+- Benchmark per-frame allocation and latency against the per-face path with
+  2–4 tracked faces before switching
+
 ## Attention-based landmark refinement model
 
 Eye/iris refinement currently follows the legacy official pipeline: base

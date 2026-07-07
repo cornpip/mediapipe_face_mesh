@@ -13,6 +13,8 @@ import 'utils/face_mesh_camera_image_adapter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The demo UI (preview layout and overlay mapping) assumes portrait.
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final List<CameraDescription> cameras = await availableCameras();
   runApp(MyApp(cameras: cameras));
 }
@@ -46,17 +48,45 @@ class _DetectionSnapshot {
   final int rotationDegrees;
 }
 
-/// Draws the rotated ROI that landmark tracking used for mesh inference.
-///
-/// Shown while the detector is skipped, in place of the detection ROI box.
-class _TrackedRoiPainter extends CustomPainter {
-  const _TrackedRoiPainter({required this.roi, this.mirrorHorizontal = false});
+/// One tracked-ROI overlay entry: the rotated ROI and an optional label
+/// (the multi-face track id).
+class _TrackedRoiOverlay {
+  const _TrackedRoiOverlay({required this.roi, this.label});
 
   final NormalizedRect roi;
+  final String? label;
+}
+
+/// Draws the rotated ROIs that landmark tracking used for mesh inference.
+///
+/// Shown while the detector is skipped, in place of the detection ROI boxes.
+class _TrackedRoiPainter extends CustomPainter {
+  const _TrackedRoiPainter({
+    required this.overlays,
+    this.mirrorHorizontal = false,
+  });
+
+  final List<_TrackedRoiOverlay> overlays;
   final bool mirrorHorizontal;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = Colors.cyanAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+    for (final _TrackedRoiOverlay overlay in overlays) {
+      _paintOverlay(canvas, size, overlay, paint);
+    }
+  }
+
+  void _paintOverlay(
+    Canvas canvas,
+    Size size,
+    _TrackedRoiOverlay overlay,
+    Paint paint,
+  ) {
+    final NormalizedRect roi = overlay.roi;
     final double centerX = roi.xCenter * size.width;
     final double centerY = roi.yCenter * size.height;
     final double width = roi.width * size.width;
@@ -78,10 +108,6 @@ class _TrackedRoiPainter extends CustomPainter {
           return Offset(x, y);
         }).toList();
 
-    final Paint paint = Paint()
-      ..color = Colors.cyanAccent
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
     final Path path = Path()
       ..moveTo(corners[0].dx, corners[0].dy)
       ..lineTo(corners[1].dx, corners[1].dy)
@@ -89,11 +115,44 @@ class _TrackedRoiPainter extends CustomPainter {
       ..lineTo(corners[3].dx, corners[3].dy)
       ..close();
     canvas.drawPath(path, paint);
+
+    final String? label = overlay.label;
+    if (label == null) {
+      return;
+    }
+    double minX = corners.first.dx;
+    double minY = corners.first.dy;
+    for (final Offset corner in corners.skip(1)) {
+      minX = math.min(minX, corner.dx);
+      minY = math.min(minY, corner.dy);
+    }
+    final TextPainter textPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final Rect background = Rect.fromLTWH(
+      minX,
+      math.max(0, minY - textPainter.height - 4),
+      textPainter.width + 8,
+      textPainter.height + 4,
+    );
+    canvas.drawRect(
+      background,
+      Paint()..color = Colors.cyanAccent.withValues(alpha: 0.85),
+    );
+    textPainter.paint(canvas, Offset(background.left + 4, background.top + 2));
   }
 
   @override
   bool shouldRepaint(covariant _TrackedRoiPainter oldDelegate) {
-    return oldDelegate.roi != roi ||
+    return oldDelegate.overlays != overlays ||
         oldDelegate.mirrorHorizontal != mirrorHorizontal;
   }
 }
@@ -149,8 +208,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   DateTime? _lastCameraFpsUpdateTime;
   FaceDetectionResult? _detectionResult;
 
-  /// ROI reported by landmark tracking while the detector is skipped.
-  NormalizedRect? _trackedRoi;
+  /// ROIs reported by landmark tracking while the detector is skipped —
+  /// one entry in single-face mode, one per tracked face in multi mode.
+  List<_TrackedRoiOverlay> _trackedRoiOverlays = const <_TrackedRoiOverlay>[];
+
+  /// Faces reported by the multi-face tracking flow.
+  List<TrackedFaceMesh> _multiFaces = const <TrackedFaceMesh>[];
   FaceMeshResult? _meshResult;
   int? _meshRotationCompensation;
   String? _movementLabel;
@@ -160,10 +223,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   late FaceMeshInferencePipeline _faceMeshInferencePipeline;
   late FaceMeshInferenceStreamProcessor _faceMeshInferenceStreamProcessor;
   final _inferenceStageInput = _StageInputControllers();
-  StreamSubscription<FaceMeshInferenceResult>? _inferenceStreamSubscription;
+  StreamSubscription<Object>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
   bool _isIrisEnabled = true;
+  bool _isMultiFaceActive = false;
+  static const int _maxMeshFaces = 4;
 
   @override
   void initState() {
@@ -181,9 +246,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
       _faceDetectorProcessor = await _createFaceDetectorProcessor();
 
-      final faceMeshProcessor = await FaceMeshProcessor.create(
-        delegate: FaceMeshDelegate.xnnpack,
-        enableIris: true,
+      final faceMeshProcessor = await _createFaceMeshProcessor(
+        multi: _isMultiFaceActive,
+        iris: _isIrisEnabled,
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
@@ -259,7 +324,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return FaceDetectorProcessor.create(
       model: model,
       delegate: FaceMeshDelegate.xnnpack,
-      maxResults: 1,
+      // Let the detector return several candidates; the single-face flow
+      // still picks the best one, and the multi-face flow needs them all.
+      maxResults: _maxMeshFaces,
       // Detector ROI defaults are scaleX/scaleY = 1.5 and shiftX/shiftY = 0.0.
       // This demo keeps the default X values and only nudges Y; with landmark
       // tracking these apply to (re)acquisition frames only. Tune per
@@ -267,6 +334,23 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       roiScaleY: isFullRange ? 1.6 : 1.7,
       roiShiftY: isFullRange ? -0.1 : -0.2,
     );
+  }
+
+  Future<FaceMeshProcessor> _createFaceMeshProcessor({
+    required bool multi,
+    required bool iris,
+  }) {
+    // Multi-face tracking is managed by the pipeline with explicit per-face
+    // ROIs, so the mesh processor must not keep native per-call state.
+    return multi
+        ? FaceMeshProcessor.createForMultiFace(
+            delegate: FaceMeshDelegate.xnnpack,
+            enableIris: iris,
+          )
+        : FaceMeshProcessor.create(
+            delegate: FaceMeshDelegate.xnnpack,
+            enableIris: iris,
+          );
   }
 
   Future<void> _changeDetectionModel(String value) async {
@@ -404,7 +488,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   void _clearDetections() {
     _detectionResult = null;
-    _trackedRoi = null;
+    _trackedRoiOverlays = const <_TrackedRoiOverlay>[];
+    _multiFaces = const <TrackedFaceMesh>[];
     _isProcessingFrame = false;
   }
 
@@ -435,22 +520,50 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (Platform.isAndroid) {
       _inferenceStageInput.nv21Controller =
           StreamController<FaceMeshNv21Image>();
-      _inferenceStreamSubscription = _faceMeshInferenceStreamProcessor
-          .processNv21(
-            _inferenceStageInput.nv21Controller!.stream,
-            runMeshResolver: (_) => _isMeshActive,
-            rotationDegrees: rotationDegrees,
-          )
-          .listen(_handleInferenceResult, onError: _handleInferenceError);
+      final Stream<FaceMeshNv21Image> frames =
+          _inferenceStageInput.nv21Controller!.stream;
+      _inferenceStreamSubscription = _isMultiFaceActive
+          ? _faceMeshInferenceStreamProcessor
+                .processNv21MultiFace(
+                  frames,
+                  maxMeshFaces: _maxMeshFaces,
+                  runMeshResolver: (_) => _isMeshActive,
+                  rotationDegrees: rotationDegrees,
+                )
+                .listen(
+                  _handleMultiInferenceResult,
+                  onError: _handleInferenceError,
+                )
+          : _faceMeshInferenceStreamProcessor
+                .processNv21(
+                  frames,
+                  runMeshResolver: (_) => _isMeshActive,
+                  rotationDegrees: rotationDegrees,
+                )
+                .listen(_handleInferenceResult, onError: _handleInferenceError);
     } else if (Platform.isIOS) {
       _inferenceStageInput.bgraController = StreamController<FaceMeshImage>();
-      _inferenceStreamSubscription = _faceMeshInferenceStreamProcessor
-          .process(
-            _inferenceStageInput.bgraController!.stream,
-            runMeshResolver: (_) => _isMeshActive,
-            rotationDegrees: rotationDegrees,
-          )
-          .listen(_handleInferenceResult, onError: _handleInferenceError);
+      final Stream<FaceMeshImage> frames =
+          _inferenceStageInput.bgraController!.stream;
+      _inferenceStreamSubscription = _isMultiFaceActive
+          ? _faceMeshInferenceStreamProcessor
+                .processMultiFace(
+                  frames,
+                  maxMeshFaces: _maxMeshFaces,
+                  runMeshResolver: (_) => _isMeshActive,
+                  rotationDegrees: rotationDegrees,
+                )
+                .listen(
+                  _handleMultiInferenceResult,
+                  onError: _handleInferenceError,
+                )
+          : _faceMeshInferenceStreamProcessor
+                .process(
+                  frames,
+                  runMeshResolver: (_) => _isMeshActive,
+                  rotationDegrees: rotationDegrees,
+                )
+                .listen(_handleInferenceResult, onError: _handleInferenceError);
     }
   }
 
@@ -470,9 +583,48 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       hasMeshRoi: result.hasRoi,
       // On landmark-tracked frames the detector is skipped; show the tracked
       // ROI instead of a detection box.
-      trackedRoi: result.detectorRan ? null : result.selectedRoi,
+      trackedOverlays: result.detectorRan
+          ? const <_TrackedRoiOverlay>[]
+          : <_TrackedRoiOverlay>[
+              if (result.selectedRoi != null)
+                _TrackedRoiOverlay(roi: result.selectedRoi!),
+            ],
     );
     _applyMeshStage(result.meshResult);
+  }
+
+  void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
+    _isProcessingFrame = false;
+    if (_inferenceStreamRotation == null || !_isDetectionStageActive()) {
+      return;
+    }
+
+    final List<TrackedFaceMesh> faces = _isMeshActive
+        ? result.faces
+        : const <TrackedFaceMesh>[];
+    final List<_TrackedRoiOverlay> overlays = <_TrackedRoiOverlay>[
+      // face.mesh.rect is the ROI this face's mesh inference actually used.
+      for (final TrackedFaceMesh face in faces)
+        _TrackedRoiOverlay(roi: face.mesh.rect, label: '#${face.trackId}'),
+    ];
+
+    void apply() {
+      // detectionResult is null while every face slot is served by tracking.
+      _detectionResult = result.detectionResult;
+      _trackedRoiOverlays = overlays;
+      _multiFaces = faces;
+      // The single-face overlays (geometry/movement chips) stay off in
+      // multi mode.
+      _meshResult = null;
+      _meshRotationCompensation = null;
+      _movementLabel = null;
+    }
+
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
+    }
   }
 
   void _handleInferenceError(Object error) {
@@ -567,7 +719,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mediapipe Det + Mediapipe Mesh'),
+        title: const Text('mediapipe_face_mesh'),
         titleTextStyle: const TextStyle(color: Colors.black, fontSize: 16),
         centerTitle: true,
       ),
@@ -676,11 +828,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                             ),
                           if (isCameraAvailable &&
                               controller != null &&
-                              _trackedRoi != null)
+                              _trackedRoiOverlays.isNotEmpty)
                             RepaintBoundary(
                               child: CustomPaint(
                                 painter: _TrackedRoiPainter(
-                                  roi: _trackedRoi!,
+                                  overlays: _trackedRoiOverlays,
                                   mirrorHorizontal:
                                       !Platform.isIOS &&
                                       controller.description.lensDirection ==
@@ -696,8 +848,32 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                 child: CustomPaint(
                                   painter: FaceMeshPainter(
                                     result: _meshResult!,
+                                    irisDotRadius: 2,
+                                    scaleWithFace: true,
                                     rotationDegrees:
                                         _meshRotationCompensation ?? 0,
+                                    mirrorHorizontal:
+                                        !Platform.isIOS &&
+                                        controller.description.lensDirection ==
+                                            CameraLensDirection.front,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (isCameraAvailable &&
+                              controller != null &&
+                              _multiFaces.isNotEmpty)
+                            RepaintBoundary(
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  painter: FaceMeshPainter(
+                                    results: <FaceMeshResult>[
+                                      for (final TrackedFaceMesh face
+                                          in _multiFaces)
+                                        face.mesh,
+                                    ],
+                                    irisDotRadius: 2,
+                                    scaleWithFace: true,
                                     mirrorHorizontal:
                                         !Platform.isIOS &&
                                         controller.description.lensDirection ==
@@ -723,11 +899,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                 Positioned(
                   bottom: 12,
                   left: 12,
-                  child: _infoChip(
-                    _trackedRoi != null
-                        ? 'Tracking'
-                        : 'Faces: ${_detectionResult?.detections.length ?? 0}',
-                  ),
+                  child: _infoChip(_trackingChipText()),
                 ),
                 if (_movementLabel != null)
                   Positioned(
@@ -741,6 +913,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         );
       },
     );
+  }
+
+  String _trackingChipText() {
+    if (_isMultiFaceActive && _multiFaces.isNotEmpty) {
+      return 'Tracking ${_multiFaces.length}/$_maxMeshFaces';
+    }
+    if (!_isMultiFaceActive && _trackedRoiOverlays.isNotEmpty) {
+      return 'Tracking';
+    }
+    return 'Faces: ${_detectionResult?.detections.length ?? 0}';
   }
 
   String _geometryText(FaceMeshResult result) {
@@ -957,21 +1139,58 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
             ],
           ),
           const SizedBox(height: 8),
+          // Iris and Multi are mode settings rather than actions, so they use
+          // switches instead of buttons.
           Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isCameraBusy ? null : _toggleIris,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isIrisEnabled ? Colors.teal : Colors.grey,
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.remove_red_eye_outlined),
-                  label: Text(_isIrisEnabled ? 'Iris On' : 'Iris Off'),
+                child: _buildModeSwitch(
+                  icon: Icons.remove_red_eye_outlined,
+                  label: 'Iris',
+                  value: _isIrisEnabled,
+                  onChanged: _isCameraBusy ? null : (_) => _toggleIris(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildModeSwitch(
+                  icon: Icons.groups,
+                  label: 'Multi',
+                  value: _isMultiFaceActive,
+                  onChanged: _isCameraBusy ? null : (_) => _toggleMultiFace(),
                 ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeSwitch({
+    required IconData icon,
+    required String label,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black26),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      padding: const EdgeInsets.only(left: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.black54),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -1185,11 +1404,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _applyDetectionStage(
     _DetectionSnapshot snapshot, {
     required bool hasMeshRoi,
-    NormalizedRect? trackedRoi,
+    List<_TrackedRoiOverlay> trackedOverlays = const <_TrackedRoiOverlay>[],
   }) {
     void apply() {
       _detectionResult = snapshot.result;
-      _trackedRoi = trackedRoi;
+      _trackedRoiOverlays = trackedOverlays;
+      _multiFaces = const <TrackedFaceMesh>[];
       if (!_isMeshActive || !hasMeshRoi) {
         _meshResult = null;
         _meshRotationCompensation = null;
@@ -1307,22 +1527,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (_isCameraBusy) return;
     final nextIris = !_isIrisEnabled;
     try {
-      final newProcessor = await FaceMeshProcessor.create(
-        delegate: FaceMeshDelegate.xnnpack,
-        enableIris: nextIris,
+      await _replaceFaceMeshProcessor(
+        multi: _isMultiFaceActive,
+        iris: nextIris,
       );
-      _stopInferenceStream();
-      _clearMesh();
-      final oldProcessor = _faceMeshProcessor;
-      _faceMeshProcessor = newProcessor;
-      _faceMeshInferencePipeline = FaceMeshInferencePipeline(
-        detector: _faceDetectorProcessor,
-        mesh: _faceMeshProcessor,
-      );
-      _faceMeshInferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
-        _faceMeshInferencePipeline,
-      );
-      oldProcessor.close();
       if (mounted) {
         setState(() => _isIrisEnabled = nextIris);
       } else {
@@ -1333,5 +1541,47 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         setState(() => _errorMessage = 'Iris toggle error: $error');
       }
     }
+  }
+
+  Future<void> _toggleMultiFace() async {
+    if (_isCameraBusy) return;
+    final nextMulti = !_isMultiFaceActive;
+    try {
+      await _replaceFaceMeshProcessor(multi: nextMulti, iris: _isIrisEnabled);
+      if (mounted) {
+        setState(() => _isMultiFaceActive = nextMulti);
+      } else {
+        _isMultiFaceActive = nextMulti;
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = 'Multi-face toggle error: $error');
+      }
+    }
+  }
+
+  /// Swaps the mesh processor and rebuilds the pipeline; the inference stream
+  /// re-subscribes with the new mode on the next camera frame.
+  Future<void> _replaceFaceMeshProcessor({
+    required bool multi,
+    required bool iris,
+  }) async {
+    final newProcessor = await _createFaceMeshProcessor(
+      multi: multi,
+      iris: iris,
+    );
+    _stopInferenceStream();
+    _clearMesh();
+    _clearDetections();
+    final oldProcessor = _faceMeshProcessor;
+    _faceMeshProcessor = newProcessor;
+    _faceMeshInferencePipeline = FaceMeshInferencePipeline(
+      detector: _faceDetectorProcessor,
+      mesh: _faceMeshProcessor,
+    );
+    _faceMeshInferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
+      _faceMeshInferencePipeline,
+    );
+    oldProcessor.close();
   }
 }
