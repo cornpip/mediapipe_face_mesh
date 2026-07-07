@@ -447,7 +447,12 @@ class FaceMeshContext {
       if (!override_rect) {
         UpdateTrackingState(*result, face_presence_score);
       } else {
-        roi_ = rect;
+        // Seed tracking from the just-computed landmarks rather than the
+        // override (detector) rect so the next tracked frame crops the
+        // actual face extent instead of the imprecise detection box.
+        roi_ = SanitizeRect(RectFromLandmarks(
+            result->landmarks, result->landmarks_count,
+            result->image_width, result->image_height));
         has_valid_rect_ = true;
       }
     }
@@ -569,7 +574,12 @@ class FaceMeshContext {
       if (!override_rect) {
         UpdateTrackingState(*result, face_presence_score);
       } else {
-        roi_ = rect;
+        // Seed tracking from the just-computed landmarks rather than the
+        // override (detector) rect so the next tracked frame crops the
+        // actual face extent instead of the imprecise detection box.
+        roi_ = SanitizeRect(RectFromLandmarks(
+            result->landmarks, result->landmarks_count,
+            result->image_width, result->image_height));
         has_valid_rect_ = true;
       }
     }
@@ -794,8 +804,20 @@ class FaceMeshContext {
     }
     rect.x_center = Clamp(rect.x_center, 0.0f, 1.0f);
     rect.y_center = Clamp(rect.y_center, 0.0f, 1.0f);
-    rect.width = Clamp(rect.width, 0.1f, 2.0f);
-    rect.height = Clamp(rect.height, 0.1f, 2.0f);
+    // Clamp the ROI size with one scale factor so the width:height ratio
+    // (pixel-space squareness) survives; independent per-axis clamps would
+    // stretch small or very large ROIs anisotropically.
+    const float long_dim = std::max(rect.width, rect.height);
+    const float short_dim = std::min(rect.width, rect.height);
+    float scale = 1.0f;
+    if (long_dim > 2.0f) {
+      scale = 2.0f / long_dim;
+    }
+    if (short_dim * scale < 0.1f) {
+      scale = 0.1f / short_dim;
+    }
+    rect.width *= scale;
+    rect.height *= scale;
     rect.rotation = NormalizeAngle(rect.rotation);
     return rect;
   }
@@ -1537,7 +1559,8 @@ class FaceMeshContext {
       return;
     }
     const MpNormalizedRect target =
-        RectFromLandmarks(result.landmarks, result.landmarks_count);
+        RectFromLandmarks(result.landmarks, result.landmarks_count,
+                          result.image_width, result.image_height);
     MpNormalizedRect updated = target;
     if (has_valid_rect_ && smoothing_enabled_) {
       updated = SmoothRect(roi_, target);
@@ -1546,9 +1569,14 @@ class FaceMeshContext {
     has_valid_rect_ = true;
   }
 
+  // Mirrored in Dart as FaceMeshResult.trackingRoi()
+  // (lib/mediapipe_face_mesh.dart) for the multi-face tracking flow — keep
+  // the two implementations (including SanitizeRect) in sync.
   MpNormalizedRect RectFromLandmarks(const MpLandmark* landmarks,
-                                     int count) const {
-    if (!landmarks || count <= 0) {
+                                     int count,
+                                     int image_width,
+                                     int image_height) const {
+    if (!landmarks || count <= 0 || image_width <= 0 || image_height <= 0) {
       return DefaultRect();
     }
     float min_x = 1.0f;
@@ -1561,24 +1589,32 @@ class FaceMeshContext {
       max_x = std::max(max_x, landmarks[i].x);
       max_y = std::max(max_y, landmarks[i].y);
     }
-    float width = max_x - min_x;
-    float height = max_y - min_y;
-    if (width < 1e-4f || height < 1e-4f) {
+    // square_long must be computed in pixel space, like the detector and the
+    // official graph; a square in normalized space stretches vertically on
+    // portrait frames.
+    const float width_px = (max_x - min_x) * image_width;
+    const float height_px = (max_y - min_y) * image_height;
+    if (width_px < 1e-1f || height_px < 1e-1f) {
       return DefaultRect();
     }
-    const float size = std::max(width, height) * 1.5f;
+    const float long_side_px = std::max(width_px, height_px) * 1.5f;
     MpNormalizedRect rect;
-    rect.x_center = Clamp((min_x + max_x) * 0.5f, 0.0f, 1.0f);
-    rect.y_center = Clamp((min_y + max_y) * 0.5f, 0.0f, 1.0f);
-    rect.width = Clamp(size, 0.1f, 1.2f);
-    rect.height = rect.width;
-    rect.rotation = EstimateRotation(landmarks, count);
+    rect.x_center = (min_x + max_x) * 0.5f;
+    rect.y_center = (min_y + max_y) * 0.5f;
+    // Bounds are enforced by SanitizeRect at the call sites; clamping the two
+    // axes independently here would break the pixel-space squareness.
+    rect.width = long_side_px / image_width;
+    rect.height = long_side_px / image_height;
+    rect.rotation =
+        EstimateRotation(landmarks, count, image_width, image_height);
     return rect;
   }
 
   MpNormalizedRect SmoothRect(const MpNormalizedRect& current,
                               const MpNormalizedRect& target) const {
-    constexpr float kAlpha = 0.8f;
+    // Keep the ROI responsive to fast face changes (e.g. a mouth opening
+    // wide) while still damping detector-scale jitter.
+    constexpr float kAlpha = 0.5f;
     MpNormalizedRect rect;
     rect.x_center = current.x_center * kAlpha + target.x_center * (1.0f - kAlpha);
     rect.y_center = current.y_center * kAlpha + target.y_center * (1.0f - kAlpha);
@@ -1590,7 +1626,10 @@ class FaceMeshContext {
     return rect;
   }
 
-  float EstimateRotation(const MpLandmark* landmarks, int count) const {
+  float EstimateRotation(const MpLandmark* landmarks,
+                         int count,
+                         int image_width,
+                         int image_height) const {
     const int left_eye_index = 263;
     const int right_eye_index = 33;
     if (count <= left_eye_index || count <= right_eye_index) {
@@ -1598,8 +1637,9 @@ class FaceMeshContext {
     }
     const MpLandmark& left = landmarks[left_eye_index];
     const MpLandmark& right = landmarks[right_eye_index];
-    const float dx = left.x - right.x;
-    const float dy = left.y - right.y;
+    // Aspect-correct the deltas so the angle matches pixel space.
+    const float dx = (left.x - right.x) * image_width;
+    const float dy = (left.y - right.y) * image_height;
     if (std::abs(dx) < 1e-5f && std::abs(dy) < 1e-5f) {
       return 0.0f;
     }

@@ -37,16 +37,19 @@ final faceDetectorProcessor = await FaceDetectorProcessor.create(
   model: FaceDetectionModel.fullRange,
   delegate: FaceMeshDelegate.xnnpack,
   maxResults: 1,
-  roiScaleY: 1.7,
-  roiShiftY: -0.2,
 );
 ```
 `FaceDetectionModel` selects the bundled detector model:
 `shortRange` is the default short-range BlazeFace model, `fullRange` is the
 dense full-range model, and `fullRangeSparse` is the sparse full-range model.
 
-ROI options adjust the detector-produced `expandedFaceRect`, which is passed to
-face mesh while keeping the original frame unchanged.
+Optional ROI options (`roiScaleX`, `roiScaleY`, `roiShiftX`, `roiShiftY`)
+control how the detected face box is expanded and shifted into
+`expandedFaceRect` — the region the face mesh looks at. The defaults match
+the official face mesh pipeline, and since the pipeline tracks the face after
+the first detection (see [Landmark tracking](#landmark-tracking)), these
+options apply only when a face is (re)acquired and can usually be left at
+their defaults.
 
 ### Create Face Mesh Processor
 
@@ -118,7 +121,11 @@ inferenceStreamProcessor
 
 void _handleInferenceResult(FaceMeshInferenceResult result) {
   _isBusy = false;
-  onDetections(result.detectionResult);
+  // detectionResult is null on landmark-tracked frames (detector skipped).
+  final FaceDetectionResult? detections = result.detectionResult;
+  if (detections != null) {
+    onDetections(detections);
+  }
   onMeshResult(result.meshResult);
 }
 
@@ -134,6 +141,24 @@ Use `runMesh: false` when an entire stream should run detector-only. Use
 toggle that can change while the stream is active.
 
 For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
+
+#### Landmark tracking
+
+By default, `FaceMeshInferencePipeline` runs the detector only when it needs to
+acquire or re-acquire a face. Once tracking starts, mesh inference uses an ROI
+derived from the previous frame's landmarks, so tracked frames skip detection.
+On those frames, `FaceMeshInferenceResult.detectionResult` is null and
+`selectedRoi` contains the tracked ROI.
+
+Pass `enableLandmarkTracking: false` to `FaceMeshInferencePipeline` to run the
+detector on every frame. Landmark tracking also requires the mesh processor's
+default `enableRoiTracking: true`.
+
+`detectorRoi` and detector ROI scale/shift options apply only to acquisition
+frames. When switching input sources, call `resetTracking()` so the next frame
+re-acquires the face instead of reusing the previous stream's tracked ROI.
+
+For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
 
 ### Single Inference
 
@@ -247,16 +272,16 @@ no longer need it.
 
 ### Multi-Face Inference
 
-Multi-face mesh inference runs face detection once, then runs mesh inference for
-each selected detector ROI. Use `maxResults` on the detector to control how many
-faces are detected, and `maxMeshFaces` on the multi-face mesh call to control
-how many mesh inferences are run.
+Multi-face inference tracks each face across frames. Each tracked face runs mesh
+inference on an ROI derived from its previous landmarks, and the detector runs
+only while fewer than `maxMeshFaces` faces are tracked. Each face keeps a stable
+`trackId` while it is tracked.
 
-Create the mesh processor with tracking and smoothing disabled so state from one
-face ROI does not affect the next face ROI.
+Use `maxResults` on the detector to control how many faces a detection pass can
+return, and `maxMeshFaces` to bound how many faces are tracked simultaneously.
 
-`createForMultiFace(...)` is a convenience factory equivalent to
-`FaceMeshProcessor.create(..., enableSmoothing: false, enableRoiTracking: false)`.
+Create the mesh processor with `createForMultiFace(...)`, which disables native
+single-ROI tracking and smoothing for multi-face use.
 
 ```dart
 final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
@@ -286,8 +311,14 @@ inferenceStreamProcessor
     .listen(_handleMultiInferenceResult, onError: onError);
 
 void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
-  onDetections(result.detectionResult);
-  onMeshResults(result.meshResults);
+  // detectionResult is null while all face slots are served by tracking.
+  final FaceDetectionResult? detections = result.detectionResult;
+  if (detections != null) {
+    onDetections(detections);
+  }
+  for (final TrackedFaceMesh face in result.faces) {
+    onFaceMesh(face.trackId, face.mesh); // trackId is stable across frames
+  }
 }
 ```
 
@@ -303,8 +334,7 @@ final FaceMeshMultiInferenceResult result = pipeline.processNv21MultiFace(
   rotationDegrees: rotationDegrees,
 );
 
-final FaceDetectionResult detections = result.detectionResult;
-final List<FaceMeshResult> meshResults = result.meshResults;
+final List<TrackedFaceMesh> faces = result.faces;
 ```
 
 ### Close Resource
@@ -316,27 +346,12 @@ faceDetectorProcessor.close();
 faceMeshProcessor.close();
 ```
 
-### Notes
-
-The examples in this README use the v1.6.0+ unified inference API.
-
-`FaceMeshInferenceStreamProcessor` emits one combined result after detector and
-mesh inference complete, so detection boxes and mesh landmarks are updated
-together.
-
-If you need detector boxes to update independently from slower mesh inference,
-use `FaceDetectorStreamProcessor` and `FaceMeshStreamProcessor` separately; see
-the [v1.5.0](https://github.com/cornpip/mediapipe_face_mesh/tree/v1.5.0) README and example app
-for a two-stage stream pattern.
-
-These separated stream processors are still available in v1.6.0 and later.
-
 ## Example app
 
-The example app in `example/` provides two flows:
+The example app in `example/` uses the bundled MediaPipe face detector with
+MediaPipe Face Mesh.
 
-A. MediaPipe Face Detector + MediaPipe Face Mesh  
-B. ML Kit Face Detector + MediaPipe Face Mesh
-
-`B` depends on the `google_mlkit_face_detection` package for face detection.
-
+If you already use another face detector, pass its face box to
+`FaceMeshProcessor.process(...)` or `processNv21(...)` as a `FaceMeshBox` or
+`NormalizedRect`. For an older ML Kit detector integration example, see the
+[v1.10.1 ML Kit example](https://github.com/cornpip/mediapipe_face_mesh/blob/v1.10.1/example/lib/page/mediapipe_face/mediapipe_face_page_mlkit.dart).

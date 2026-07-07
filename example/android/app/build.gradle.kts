@@ -8,8 +8,7 @@ plugins {
 android {
     namespace = "com.cornpip.mediapipe_face_mesh_example"
     compileSdk = flutter.compileSdkVersion
-    // this plugin requires NDK 26.3.11579264 at minimum (flutter.ndkVersion default in Dart 3.8.1),
-    // but deps like camera_android_camerax, google_mlkit_face_detection require 27.0.12077973
+    // camera_android_camerax requires NDK 27.0.12077973.
     ndkVersion = "27.0.12077973"
 
     compileOptions {

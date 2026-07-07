@@ -990,6 +990,76 @@ class FaceMeshResult {
   /// Height of the image used during inference.
   final int imageHeight;
 
+  /// Computes the ROI that landmark tracking would use for the next frame.
+  ///
+  /// This is the landmark bounding box expanded 1.5x into a pixel-space
+  /// square, rotated along the eye line (landmarks 33 and 263), with the size
+  /// clamped while preserving the aspect ratio. It mirrors the native
+  /// `RectFromLandmarks` + `SanitizeRect` implementation in
+  /// `src/mediapipe_face_mesh.cc` — keep the two in sync when changing
+  /// either.
+  ///
+  /// Returns a full-frame rect when the result has no usable landmarks.
+  NormalizedRect trackingRoi() {
+    const NormalizedRect fullFrame = NormalizedRect(
+      xCenter: 0.5,
+      yCenter: 0.5,
+      width: 1,
+      height: 1,
+    );
+    if (landmarks.isEmpty || imageWidth <= 0 || imageHeight <= 0) {
+      return fullFrame;
+    }
+    double minX = 1;
+    double minY = 1;
+    double maxX = 0;
+    double maxY = 0;
+    for (final FaceMeshLandmark landmark in landmarks) {
+      minX = math.min(minX, landmark.x);
+      minY = math.min(minY, landmark.y);
+      maxX = math.max(maxX, landmark.x);
+      maxY = math.max(maxY, landmark.y);
+    }
+    final double widthPx = (maxX - minX) * imageWidth;
+    final double heightPx = (maxY - minY) * imageHeight;
+    if (widthPx < 1e-1 || heightPx < 1e-1) {
+      return fullFrame;
+    }
+    final double longSidePx = math.max(widthPx, heightPx) * 1.5;
+
+    double rotation = 0;
+    if (landmarks.length > 263) {
+      final FaceMeshLandmark right = landmarks[33];
+      final FaceMeshLandmark left = landmarks[263];
+      final double dx = (left.x - right.x) * imageWidth;
+      final double dy = (left.y - right.y) * imageHeight;
+      if (dx.abs() >= 1e-5 || dy.abs() >= 1e-5) {
+        rotation = math.atan2(dy, dx);
+      }
+    }
+
+    final double width = longSidePx / imageWidth;
+    final double height = longSidePx / imageHeight;
+    // Clamp the size with one scale factor so the width:height ratio
+    // (pixel-space squareness) survives clamping.
+    final double longDim = math.max(width, height);
+    final double shortDim = math.min(width, height);
+    double scale = 1.0;
+    if (longDim > 2.0) {
+      scale = 2.0 / longDim;
+    }
+    if (shortDim * scale < 0.1) {
+      scale = 0.1 / shortDim;
+    }
+    return NormalizedRect(
+      xCenter: ((minX + maxX) * 0.5).clamp(0.0, 1.0),
+      yCenter: ((minY + maxY) * 0.5).clamp(0.0, 1.0),
+      width: width * scale,
+      height: height * scale,
+      rotation: rotation,
+    );
+  }
+
   @override
   String toString() =>
       'FaceMeshResult(landmarks: ${landmarks.length}, triangles: '
@@ -1291,8 +1361,12 @@ class FaceDetectorProcessor {
 
 /// High-level wrapper around the native MediaPipe Face Mesh graph.
 class FaceMeshProcessor {
-  FaceMeshProcessor._(this._context, {required bool irisEnabled})
-    : _irisEnabled = irisEnabled {
+  FaceMeshProcessor._(
+    this._context, {
+    required bool irisEnabled,
+    required bool roiTrackingEnabled,
+  }) : _irisEnabled = irisEnabled,
+       _roiTrackingEnabled = roiTrackingEnabled {
     _contextFinalizer.attach(this, _context, detach: this);
   }
 
@@ -1300,7 +1374,11 @@ class FaceMeshProcessor {
 
   final ffi.Pointer<MpFaceMeshContext> _context;
   final bool _irisEnabled;
+  final bool _roiTrackingEnabled;
   bool _closed = false;
+
+  /// Whether this processor was created with internal ROI tracking enabled.
+  bool get roiTrackingEnabled => _roiTrackingEnabled;
 
   /// Delegate that the native face mesh model is actively using after fallback.
   FaceMeshDelegate get activeDelegate {
@@ -1330,9 +1408,17 @@ class FaceMeshProcessor {
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
   ///   is unavailable or cannot be created. Set it to false to fail creation
   ///   instead.
-  /// - [enableSmoothing] reduces landmark jitter across frames.
+  /// - [enableSmoothing] smooths the internally tracked ROI across frames
+  ///   (used when [roi]/[box] are omitted), which stabilizes the crop fed to
+  ///   the model and indirectly reduces landmark jitter. It does not filter
+  ///   the landmark coordinates themselves.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
   ///   are omitted in later [process] or [processNv21] calls.
+  /// - [minTrackingConfidence] gates internal ROI updates while tracking.
+  ///   Raising it above 0.5 creates a score window (0.5 up to the set value)
+  ///   where landmarks are still returned but the tracked ROI stops
+  ///   following the face, so prefer the default unless you handle
+  ///   re-detection yourself.
   /// - [enableIris] refines eye landmarks and appends iris landmarks, returning
   ///   478 landmarks instead of the base 468 landmarks.
   static Future<FaceMeshProcessor> create({
@@ -1376,7 +1462,11 @@ class FaceMeshProcessor {
               'Failed to create face mesh context.',
         );
       }
-      return FaceMeshProcessor._(context, irisEnabled: enableIris);
+      return FaceMeshProcessor._(
+        context,
+        irisEnabled: enableIris,
+        roiTrackingEnabled: enableRoiTracking,
+      );
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
       pkg_ffi.malloc.free(modelPathPtr);
