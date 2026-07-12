@@ -178,6 +178,26 @@ class MediaPipeFacePage extends StatefulWidget {
   State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
 }
 
+/// Face mesh model selection: base mesh, base + iris two-pass, or the unified
+/// attention model. Iris and attention are mutually exclusive by construction,
+/// so a single choice avoids ambiguous combinations.
+enum _MeshMode {
+  base('Mesh (468)'),
+  iris('Mesh (468) + Iris (10)'),
+  attention('Attention Mesh (478)');
+
+  const _MeshMode(this.label);
+
+  final String label;
+
+  bool get enableIris => this == _MeshMode.iris;
+  bool get enableAttention => this == _MeshMode.attention;
+
+  /// Whether the result includes the 478-landmark iris set (required by
+  /// blendshapes). Both iris and attention modes produce it.
+  bool get has478 => this != _MeshMode.base;
+}
+
 class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     with WidgetsBindingObserver {
   static const String _shortRangeModel = 'short_range';
@@ -226,7 +246,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   StreamSubscription<Object>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
-  bool _isIrisEnabled = true;
+  _MeshMode _meshMode = _MeshMode.attention;
   bool _isMultiFaceActive = false;
   static const int _maxMeshFaces = 4;
 
@@ -248,7 +268,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
       final faceMeshProcessor = await _createFaceMeshProcessor(
         multi: _isMultiFaceActive,
-        iris: _isIrisEnabled,
+        iris: _meshMode.enableIris,
+        attention: _meshMode.enableAttention,
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
@@ -339,6 +360,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   Future<FaceMeshProcessor> _createFaceMeshProcessor({
     required bool multi,
     required bool iris,
+    bool attention = false,
   }) {
     // Multi-face tracking is managed by the pipeline with explicit per-face
     // ROIs, so the mesh processor must not keep native per-call state.
@@ -346,10 +368,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         ? FaceMeshProcessor.createForMultiFace(
             delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
+            enableAttentionMesh: attention,
           )
         : FaceMeshProcessor.create(
             delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
+            enableAttentionMesh: attention,
           );
   }
 
@@ -657,8 +681,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// unavailable.
   String? _resolveMovementLabel(FaceMeshResult? result) {
     final FaceBlendshapesProcessor? processor = _blendshapesProcessor;
-    // Blendshapes need the 478-landmark (iris) result; skip when iris is off.
-    if (result == null || processor == null || !_isIrisEnabled) {
+    // Blendshapes need the 478-landmark (iris) result; skip in base mesh mode.
+    // Both the iris and attention modes provide it.
+    if (result == null || processor == null || !_meshMode.has478) {
       return null;
     }
     final Map<FaceBlendshape, double>? blendshapes = processor.process(result);
@@ -737,6 +762,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                       child: Column(
                         children: [
                           _buildModelSelector(),
+                          _buildMeshModelSelector(),
+                          _buildMultiFaceSwitch(),
                           _buildControlButtons(),
                         ],
                       ),
@@ -1010,16 +1037,42 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     );
   }
 
+  static const TextStyle _selectorTextStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: Colors.black87,
+  );
+
+  InputDecoration _selectorDecoration(String label) {
+    OutlineInputBorder border(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: color, width: width),
+        );
+    return InputDecoration(
+      labelText: label,
+      isDense: true,
+      filled: true,
+      fillColor: Colors.black.withValues(alpha: 0.035),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      labelStyle: const TextStyle(fontSize: 12, color: Colors.black54),
+      floatingLabelStyle: const TextStyle(fontSize: 12.5),
+      border: border(Colors.black12),
+      enabledBorder: border(Colors.black12),
+      focusedBorder: border(Colors.black38, 1.4),
+    );
+  }
+
   Widget _buildModelSelector() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: DropdownButtonFormField<String>(
         value: _selectedModel,
-        decoration: const InputDecoration(
-          labelText: 'Detection Model',
-          border: OutlineInputBorder(),
-          isDense: true,
-        ),
+        isDense: true,
+        borderRadius: BorderRadius.circular(12),
+        style: _selectorTextStyle,
+        icon: const Icon(Icons.expand_more_rounded, size: 20),
+        decoration: _selectorDecoration('Detection Model'),
         items: const [
           DropdownMenuItem<String>(
             value: _shortRangeModel,
@@ -1040,6 +1093,33 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
           }
           _changeDetectionModel(value);
         },
+      ),
+    );
+  }
+
+  Widget _buildMeshModelSelector() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: DropdownButtonFormField<_MeshMode>(
+        value: _meshMode,
+        isDense: true,
+        borderRadius: BorderRadius.circular(12),
+        style: _selectorTextStyle,
+        icon: const Icon(Icons.expand_more_rounded, size: 20),
+        decoration: _selectorDecoration('Mesh Model'),
+        items: [
+          for (final _MeshMode mode in _MeshMode.values)
+            DropdownMenuItem<_MeshMode>(
+              value: mode,
+              child: Text(mode.label),
+            ),
+        ],
+        onChanged: _isCameraBusy
+            ? null
+            : (value) {
+                if (value == null) return;
+                _changeMeshMode(value);
+              },
       ),
     );
   }
@@ -1138,31 +1218,21 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          // Iris and Multi are mode settings rather than actions, so they use
-          // switches instead of buttons.
-          Row(
-            children: [
-              Expanded(
-                child: _buildModeSwitch(
-                  icon: Icons.remove_red_eye_outlined,
-                  label: 'Iris',
-                  value: _isIrisEnabled,
-                  onChanged: _isCameraBusy ? null : (_) => _toggleIris(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildModeSwitch(
-                  icon: Icons.groups,
-                  label: 'Multi',
-                  value: _isMultiFaceActive,
-                  onChanged: _isCameraBusy ? null : (_) => _toggleMultiFace(),
-                ),
-              ),
-            ],
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMultiFaceSwitch() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      // Runs the mesh model on every detected face (multi-face) instead of a
+      // single face. Orthogonal to the Mesh Model choice above.
+      child: _buildModeSwitch(
+        icon: Icons.groups,
+        label: 'Multi-face mesh',
+        value: _isMultiFaceActive,
+        onChanged: _isCameraBusy ? null : (_) => _toggleMultiFace(),
       ),
     );
   }
@@ -1175,22 +1245,34 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.black26),
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.black.withValues(alpha: 0.035),
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(12),
       ),
-      padding: const EdgeInsets.only(left: 12),
+      padding: const EdgeInsets.only(left: 14),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.black54),
-          const SizedBox(width: 6),
+          Icon(icon, size: 18, color: Colors.black54),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          Switch(value: value, onChanged: onChanged),
+          Transform.scale(
+            scale: 0.78,
+            child: Switch(
+              value: value,
+              onChanged: onChanged,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
         ],
       ),
     );
@@ -1523,22 +1605,24 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  Future<void> _toggleIris() async {
-    if (_isCameraBusy) return;
-    final nextIris = !_isIrisEnabled;
+  Future<void> _changeMeshMode(_MeshMode mode) async {
+    if (_isCameraBusy || mode == _meshMode) return;
+    final previous = _meshMode;
     try {
       await _replaceFaceMeshProcessor(
         multi: _isMultiFaceActive,
-        iris: nextIris,
+        iris: mode.enableIris,
+        attention: mode.enableAttention,
       );
       if (mounted) {
-        setState(() => _isIrisEnabled = nextIris);
+        setState(() => _meshMode = mode);
       } else {
-        _isIrisEnabled = nextIris;
+        _meshMode = mode;
       }
     } catch (error) {
+      _meshMode = previous;
       if (mounted) {
-        setState(() => _errorMessage = 'Iris toggle error: $error');
+        setState(() => _errorMessage = 'Mesh model change error: $error');
       }
     }
   }
@@ -1547,7 +1631,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (_isCameraBusy) return;
     final nextMulti = !_isMultiFaceActive;
     try {
-      await _replaceFaceMeshProcessor(multi: nextMulti, iris: _isIrisEnabled);
+      await _replaceFaceMeshProcessor(
+        multi: nextMulti,
+        iris: _meshMode.enableIris,
+        attention: _meshMode.enableAttention,
+      );
       if (mounted) {
         setState(() => _isMultiFaceActive = nextMulti);
       } else {
@@ -1565,10 +1653,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   Future<void> _replaceFaceMeshProcessor({
     required bool multi,
     required bool iris,
+    bool attention = false,
   }) async {
     final newProcessor = await _createFaceMeshProcessor(
       multi: multi,
       iris: iris,
+      attention: attention,
     );
     _stopInferenceStream();
     _clearMesh();

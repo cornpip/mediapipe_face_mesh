@@ -12,6 +12,10 @@ Future<String> _materializeIrisModel() async {
   return _materializeAsset(_defaultIrisModelAsset);
 }
 
+Future<String> _materializeAttentionModel() async {
+  return _materializeAsset(_attentionModelAsset);
+}
+
 Future<String> _materializeBlendshapesModel() async {
   return _materializeAsset(_defaultBlendshapesModelAsset);
 }

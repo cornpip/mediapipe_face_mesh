@@ -41,3 +41,6 @@ example/build/
 # FVM Version Cache
 .fvm/
 .fvmrc
+
+# Local scratch / handoff docs (not for the public package)
+temp_doc/

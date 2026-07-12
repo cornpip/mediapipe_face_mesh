@@ -29,6 +29,8 @@ const String _fullRangeSparseDetectorModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_detection_full_range_sparse.tflite';
 const String _defaultIrisModelAsset =
     'packages/mediapipe_face_mesh/assets/models/iris_landmark.tflite';
+const String _attentionModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_landmark_with_attention.tflite';
 const String _defaultBlendshapesModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_blendshapes.tflite';
 
@@ -1438,6 +1440,12 @@ class FaceMeshProcessor {
   ///   the single-face flow unless you handle re-detection yourself.
   /// - [enableIris] refines eye landmarks and appends iris landmarks, returning
   ///   478 landmarks instead of the base 468 landmarks.
+  /// - [enableAttentionMesh] uses the unified `face_landmark_with_attention`
+  ///   model, which refines lips, eyes, and irises in a single inference and
+  ///   returns 478 landmarks with better accuracy around those regions. Iris is
+  ///   always included, so this supersedes [enableIris] (the separate iris pass
+  ///   is not used). Requires the bundled custom TensorFlow Lite runtime that
+  ///   registers the MediaPipe attention ops.
   static Future<FaceMeshProcessor> create({
     int threads = 2,
     double minDetectionConfidence = 0.5,
@@ -1445,13 +1453,20 @@ class FaceMeshProcessor {
     bool enableSmoothing = true,
     bool enableRoiTracking = true,
     bool enableIris = false,
+    bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
-    final String resolvedModelPath = await _materializeModel();
-    final String? resolvedIrisModelPath = enableIris
-        ? await _materializeIrisModel()
-        : null;
+    // The attention model already includes refined irises in its 478 output, so
+    // it replaces the base mesh model and the separate iris pass.
+    final bool irisIncluded = enableIris || enableAttentionMesh;
+    final String resolvedModelPath = enableAttentionMesh
+        ? await _materializeAttentionModel()
+        : await _materializeModel();
+    final String? resolvedIrisModelPath =
+        (enableIris && !enableAttentionMesh)
+            ? await _materializeIrisModel()
+            : null;
 
     final optionsPtr = pkg_ffi.calloc<MpFaceMeshCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
@@ -1468,6 +1483,7 @@ class FaceMeshProcessor {
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = enableIris ? 1 : 0
+        ..enable_attention_mesh = enableAttentionMesh ? 1 : 0
         ..iris_model_path = irisModelPathPtr.cast()
         ..tflite_library_path = ffi.nullptr;
 
@@ -1481,7 +1497,7 @@ class FaceMeshProcessor {
       }
       return FaceMeshProcessor._(
         context,
-        irisEnabled: enableIris,
+        irisEnabled: irisIncluded,
         roiTrackingEnabled: enableRoiTracking,
         minTrackingConfidence: minTrackingConfidence,
       );
@@ -1505,6 +1521,7 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     bool enableIris = false,
+    bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) {
@@ -1515,6 +1532,7 @@ class FaceMeshProcessor {
       enableSmoothing: false,
       enableRoiTracking: false,
       enableIris: enableIris,
+      enableAttentionMesh: enableAttentionMesh,
       delegate: delegate,
       allowDelegateFallback: allowDelegateFallback,
     );
