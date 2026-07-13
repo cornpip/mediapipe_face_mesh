@@ -75,6 +75,34 @@ constexpr int kEyeLandmarkIndicesInFaceLandmarks[kEyeLandmarkCount * 2] = {
     265, 353, 276, 283, 282, 295, 372, 340, 346, 347, 348, 349,
     350, 357, 465, 383, 300, 293, 334, 296, 336, 285, 417};
 
+// --- Attention (face_landmark_with_attention) mesh assembly ------------------
+// The attention model emits 7 output tensors that map onto the 478-landmark
+// layout via LandmarksRefinementCalculator (see MediaPipe
+// tensors_to_face_landmarks_with_attention.pbtxt):
+//   - mesh (468x3)  -> indices 0..467 (x,y,z)
+//   - lips (80x2)   -> kLipsLandmarkIndices  (x,y only; z kept from mesh)
+//   - left  eye (71x2) -> kEyeLandmarkIndicesInFaceLandmarks[0..70]  (x,y only)
+//   - right eye (71x2) -> kEyeLandmarkIndicesInFaceLandmarks[71..141] (x,y only)
+//   - left  iris (5x2) -> indices 468..472 (x,y; z = avg of left-eye contour z)
+//   - right iris (5x2) -> indices 473..477 (x,y; z = avg of right-eye contour z)
+constexpr int kAttentionLandmarkCount = 478;
+constexpr int kLipsLandmarkCount = 80;
+constexpr int kLipsLandmarkIndicesInFaceLandmarks[kLipsLandmarkCount] = {
+    // Lower outer / Upper outer (excluding corners).
+    61,  146, 91,  181, 84,  17,  314, 405, 321, 375, 291,
+    185, 40,  39,  37,  0,   267, 269, 270, 409,
+    // Lower inner / Upper inner (excluding corners).
+    78,  95,  88,  178, 87,  14,  317, 402, 318, 324, 308,
+    191, 80,  81,  82,  13,  312, 311, 310, 415,
+    // Lower semi-outer / Upper semi-outer (excluding corners).
+    76,  77,  90,  180, 85,  16,  315, 404, 320, 307, 306,
+    184, 74,  73,  72,  11,  302, 303, 304, 408,
+    // Lower semi-inner / Upper semi-inner (excluding corners).
+    62,  96,  89,  179, 86,  15,  316, 403, 319, 325, 292,
+    183, 42,  41,  38,  12,  268, 271, 272, 407};
+// Number of eye-contour points averaged to assign each iris landmark's z.
+constexpr int kIrisZAverageCount = 16;
+
 float Clamp(float value, float min_value, float max_value) {
   return std::max(min_value, std::min(max_value, value));
 }
@@ -121,7 +149,10 @@ class FaceMeshContext {
             : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
     roi_tracking_enabled_ = !options || options->enable_roi_tracking != 0;
-    iris_enabled_ = options && options->enable_iris != 0;
+    attention_enabled_ = options && options->enable_attention_mesh != 0;
+    // The attention model already refines and outputs irises; the separate iris
+    // pass is skipped, but iris is always present in the 478-landmark result.
+    iris_enabled_ = !attention_enabled_ && options && options->enable_iris != 0;
 
     MP_LOGI("Initialize start: model=%s threads=%d\n", model_path.c_str(),
             threads_);
@@ -277,34 +308,40 @@ class FaceMeshContext {
       SetError("Model outputs are missing.");
       return false;
     }
-    output_landmarks_tensor_ =
-        runtime_.InterpreterGetOutputTensor(interpreter_.get(), 0);
-    if (!output_landmarks_tensor_) {
-      SetError("Landmark tensor missing.");
-      return false;
-    }
-    if (runtime_.TensorType(output_landmarks_tensor_) != kTfLiteFloat32) {
-      SetError("Landmark tensor must be float32.");
-      return false;
-    }
-    int total = 1;
-    const int dims = runtime_.TensorNumDims(output_landmarks_tensor_);
-    for (int i = 0; i < dims; ++i) {
-      total *= runtime_.TensorDim(output_landmarks_tensor_, i);
-    }
-    if (total % 3 != 0) {
-      SetError("Unexpected landmark size.");
-      return false;
-    }
-    output_landmark_count_ = total / 3;
-    landmarks_buffer_.resize(static_cast<size_t>(total));
+    if (attention_enabled_) {
+      if (!BindAttentionOutputs(output_count)) {
+        return false;
+      }
+    } else {
+      output_landmarks_tensor_ =
+          runtime_.InterpreterGetOutputTensor(interpreter_.get(), 0);
+      if (!output_landmarks_tensor_) {
+        SetError("Landmark tensor missing.");
+        return false;
+      }
+      if (runtime_.TensorType(output_landmarks_tensor_) != kTfLiteFloat32) {
+        SetError("Landmark tensor must be float32.");
+        return false;
+      }
+      int total = 1;
+      const int dims = runtime_.TensorNumDims(output_landmarks_tensor_);
+      for (int i = 0; i < dims; ++i) {
+        total *= runtime_.TensorDim(output_landmarks_tensor_, i);
+      }
+      if (total % 3 != 0) {
+        SetError("Unexpected landmark size.");
+        return false;
+      }
+      output_landmark_count_ = total / 3;
+      landmarks_buffer_.resize(static_cast<size_t>(total));
 
-    if (output_count > 1) {
-      output_score_tensor_ =
-          runtime_.InterpreterGetOutputTensor(interpreter_.get(), 1);
-      if (output_score_tensor_ &&
-          runtime_.TensorType(output_score_tensor_) != kTfLiteFloat32) {
-        output_score_tensor_ = nullptr;
+      if (output_count > 1) {
+        output_score_tensor_ =
+            runtime_.InterpreterGetOutputTensor(interpreter_.get(), 1);
+        if (output_score_tensor_ &&
+            runtime_.TensorType(output_score_tensor_) != kTfLiteFloat32) {
+          output_score_tensor_ = nullptr;
+        }
       }
     }
 
@@ -399,20 +436,24 @@ class FaceMeshContext {
       return nullptr;
     }
 
-    if (runtime_.TensorCopyToBuffer(output_landmarks_tensor_,
-                                    landmarks_buffer_.data(),
-                                    landmarks_buffer_.size() * sizeof(float)) !=
-        kTfLiteOk) {
-      SetError("Unable to read landmark output.");
-      return nullptr;
-    }
-
     float raw_score = 0.0f;
-    if (output_score_tensor_) {
-      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
-                                      sizeof(float)) != kTfLiteOk) {
-        SetError("Unable to read confidence output.");
+    if (attention_enabled_) {
+      if (!ReadAttentionLandmarks(&raw_score)) {
         return nullptr;
+      }
+    } else {
+      if (runtime_.TensorCopyToBuffer(
+              output_landmarks_tensor_, landmarks_buffer_.data(),
+              landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
+        SetError("Unable to read landmark output.");
+        return nullptr;
+      }
+      if (output_score_tensor_) {
+        if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
+                                        sizeof(float)) != kTfLiteOk) {
+          SetError("Unable to read confidence output.");
+          return nullptr;
+        }
       }
     }
     const float face_presence_score =
@@ -526,20 +567,24 @@ class FaceMeshContext {
       return nullptr;
     }
 
-    if (runtime_.TensorCopyToBuffer(output_landmarks_tensor_,
-                                    landmarks_buffer_.data(),
-                                    landmarks_buffer_.size() * sizeof(float)) !=
-        kTfLiteOk) {
-      SetError("Unable to read landmark output.");
-      return nullptr;
-    }
-
     float raw_score = 0.0f;
-    if (output_score_tensor_) {
-      if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
-                                      sizeof(float)) != kTfLiteOk) {
-        SetError("Unable to read confidence output.");
+    if (attention_enabled_) {
+      if (!ReadAttentionLandmarks(&raw_score)) {
         return nullptr;
+      }
+    } else {
+      if (runtime_.TensorCopyToBuffer(
+              output_landmarks_tensor_, landmarks_buffer_.data(),
+              landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
+        SetError("Unable to read landmark output.");
+        return nullptr;
+      }
+      if (output_score_tensor_) {
+        if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
+                                        sizeof(float)) != kTfLiteOk) {
+          SetError("Unable to read confidence output.");
+          return nullptr;
+        }
       }
     }
     const float face_presence_score =
@@ -1300,6 +1345,131 @@ class FaceMeshContext {
     return result;
   }
 
+  // Binds and validates the 7 output tensors of the attention model by their
+  // fixed output-index order and expected element counts.
+  bool BindAttentionOutputs(int output_count) {
+    if (output_count < 7) {
+      SetError("Attention model expects 7 output tensors.");
+      return false;
+    }
+    struct Bind {
+      const TfLiteTensor** dst;
+      int index;
+      int expected;
+      const char* name;
+    };
+    const Bind binds[] = {
+        {&attn_mesh_tensor_, 0, kFaceLandmarkCount * 3, "mesh"},
+        {&attn_lips_tensor_, 1, kLipsLandmarkCount * 2, "lips"},
+        {&attn_left_eye_tensor_, 2, kEyeLandmarkCount * 2, "left_eye"},
+        {&attn_right_eye_tensor_, 3, kEyeLandmarkCount * 2, "right_eye"},
+        {&attn_left_iris_tensor_, 4, kIrisLandmarkCount * 2, "left_iris"},
+        {&attn_right_iris_tensor_, 5, kIrisLandmarkCount * 2, "right_iris"},
+        {&attn_faceflag_tensor_, 6, 1, "faceflag"},
+    };
+    for (const Bind& b : binds) {
+      const TfLiteTensor* t =
+          runtime_.InterpreterGetOutputTensor(interpreter_.get(), b.index);
+      if (!t || runtime_.TensorType(t) != kTfLiteFloat32 ||
+          static_cast<int>(TensorElementCount(t)) != b.expected) {
+        SetError(std::string("Attention output tensor mismatch: ") + b.name);
+        return false;
+      }
+      *b.dst = t;
+    }
+    output_landmark_count_ = kAttentionLandmarkCount;
+    landmarks_buffer_.resize(static_cast<size_t>(kAttentionLandmarkCount * 3));
+    attn_lips_buffer_.resize(static_cast<size_t>(kLipsLandmarkCount * 2));
+    attn_left_eye_buffer_.resize(static_cast<size_t>(kEyeLandmarkCount * 2));
+    attn_right_eye_buffer_.resize(static_cast<size_t>(kEyeLandmarkCount * 2));
+    attn_left_iris_buffer_.resize(static_cast<size_t>(kIrisLandmarkCount * 2));
+    attn_right_iris_buffer_.resize(static_cast<size_t>(kIrisLandmarkCount * 2));
+    return true;
+  }
+
+  // Reads the attention output tensors and assembles the 478-landmark buffer in
+  // the model's input-pixel units (matching the mesh path so BuildResultFromSize
+  // applies the same transform). Also returns the raw face-presence logit.
+  bool ReadAttentionLandmarks(float* raw_score_out) {
+    if (runtime_.TensorCopyToBuffer(attn_mesh_tensor_, landmarks_buffer_.data(),
+                                    kFaceLandmarkCount * 3 * sizeof(float)) !=
+        kTfLiteOk) {
+      SetError("Unable to read attention mesh output.");
+      return false;
+    }
+    struct Sub {
+      const TfLiteTensor* tensor;
+      std::vector<float>* buffer;
+      const char* name;
+    };
+    const Sub subs[] = {
+        {attn_lips_tensor_, &attn_lips_buffer_, "lips"},
+        {attn_left_eye_tensor_, &attn_left_eye_buffer_, "left_eye"},
+        {attn_right_eye_tensor_, &attn_right_eye_buffer_, "right_eye"},
+        {attn_left_iris_tensor_, &attn_left_iris_buffer_, "left_iris"},
+        {attn_right_iris_tensor_, &attn_right_iris_buffer_, "right_iris"},
+    };
+    for (const Sub& s : subs) {
+      if (runtime_.TensorCopyToBuffer(s.tensor, s.buffer->data(),
+                                      s.buffer->size() * sizeof(float)) !=
+          kTfLiteOk) {
+        SetError(std::string("Unable to read attention output: ") + s.name);
+        return false;
+      }
+    }
+
+    // Refined lips overwrite x,y of their mesh indices; z is kept from the mesh.
+    for (int k = 0; k < kLipsLandmarkCount; ++k) {
+      const int dst = kLipsLandmarkIndicesInFaceLandmarks[k];
+      landmarks_buffer_[dst * 3] = attn_lips_buffer_[k * 2];
+      landmarks_buffer_[dst * 3 + 1] = attn_lips_buffer_[k * 2 + 1];
+    }
+    // Refined eye contours (left = first half, right = second half of the table).
+    for (int k = 0; k < kEyeLandmarkCount; ++k) {
+      const int ldst = kEyeLandmarkIndicesInFaceLandmarks[k];
+      landmarks_buffer_[ldst * 3] = attn_left_eye_buffer_[k * 2];
+      landmarks_buffer_[ldst * 3 + 1] = attn_left_eye_buffer_[k * 2 + 1];
+      const int rdst =
+          kEyeLandmarkIndicesInFaceLandmarks[kEyeLandmarkCount + k];
+      landmarks_buffer_[rdst * 3] = attn_right_eye_buffer_[k * 2];
+      landmarks_buffer_[rdst * 3 + 1] = attn_right_eye_buffer_[k * 2 + 1];
+    }
+    // Irises appended at 468..472 / 473..477; z is the average z of the
+    // corresponding eye contour (assign_average in the reference graph).
+    const float left_iris_z = AverageContourZ(0);
+    const float right_iris_z = AverageContourZ(kEyeLandmarkCount);
+    for (int k = 0; k < kIrisLandmarkCount; ++k) {
+      const int ldst = kFaceLandmarkCount + k;
+      landmarks_buffer_[ldst * 3] = attn_left_iris_buffer_[k * 2];
+      landmarks_buffer_[ldst * 3 + 1] = attn_left_iris_buffer_[k * 2 + 1];
+      landmarks_buffer_[ldst * 3 + 2] = left_iris_z;
+      const int rdst = kFaceLandmarkCount + kIrisLandmarkCount + k;
+      landmarks_buffer_[rdst * 3] = attn_right_iris_buffer_[k * 2];
+      landmarks_buffer_[rdst * 3 + 1] = attn_right_iris_buffer_[k * 2 + 1];
+      landmarks_buffer_[rdst * 3 + 2] = right_iris_z;
+    }
+
+    float raw = 0.0f;
+    if (runtime_.TensorCopyToBuffer(attn_faceflag_tensor_, &raw,
+                                    sizeof(float)) != kTfLiteOk) {
+      SetError("Unable to read attention face-flag output.");
+      return false;
+    }
+    *raw_score_out = raw;
+    return true;
+  }
+
+  // Average z over the first kIrisZAverageCount contour points starting at
+  // [offset] within kEyeLandmarkIndicesInFaceLandmarks.
+  float AverageContourZ(int offset) const {
+    float sum = 0.0f;
+    for (int i = 0; i < kIrisZAverageCount; ++i) {
+      const int idx = kEyeLandmarkIndicesInFaceLandmarks[offset + i];
+      sum += landmarks_buffer_[idx * 3 + 2];
+    }
+    return sum / static_cast<float>(kIrisZAverageCount);
+  }
+
   size_t TensorElementCount(const TfLiteTensor* tensor) const {
     int total = 1;
     const int dims = runtime_.TensorNumDims(tensor);
@@ -1674,6 +1844,15 @@ class FaceMeshContext {
   const TfLiteTensor* iris_eye_tensor_ = nullptr;
   const TfLiteTensor* iris_landmarks_tensor_ = nullptr;
 
+  // Attention model output tensors (face_landmark_with_attention).
+  const TfLiteTensor* attn_mesh_tensor_ = nullptr;
+  const TfLiteTensor* attn_lips_tensor_ = nullptr;
+  const TfLiteTensor* attn_left_eye_tensor_ = nullptr;
+  const TfLiteTensor* attn_right_eye_tensor_ = nullptr;
+  const TfLiteTensor* attn_left_iris_tensor_ = nullptr;
+  const TfLiteTensor* attn_right_iris_tensor_ = nullptr;
+  const TfLiteTensor* attn_faceflag_tensor_ = nullptr;
+
   int input_width_ = 0;
   int input_height_ = 0;
   int output_landmark_count_ = 0;
@@ -1687,11 +1866,17 @@ class FaceMeshContext {
   bool smoothing_enabled_ = true;
   bool roi_tracking_enabled_ = true;
   bool iris_enabled_ = false;
+  bool attention_enabled_ = false;
   MpDelegateType active_delegate_ = MP_DELEGATE_CPU;
   MpDelegateType active_iris_delegate_ = MP_DELEGATE_CPU;
 
   std::vector<float> input_buffer_;
   std::vector<float> landmarks_buffer_;
+  std::vector<float> attn_lips_buffer_;
+  std::vector<float> attn_left_eye_buffer_;
+  std::vector<float> attn_right_eye_buffer_;
+  std::vector<float> attn_left_iris_buffer_;
+  std::vector<float> attn_right_iris_buffer_;
   std::vector<float> iris_input_buffer_;
   std::vector<float> iris_eye_buffer_;
   std::vector<float> iris_landmarks_buffer_;

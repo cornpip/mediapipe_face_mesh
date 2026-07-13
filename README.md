@@ -1,16 +1,19 @@
 # mediapipe_face_mesh
 
 Bundled files:
-- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`) and iOS
+- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`) and iOS,
+  built with the MediaPipe custom ops the attention mesh model needs
 - Model Source
   - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
     - face mesh
+    - face mesh with attention
     - iris
     - short-range face detection
     - full-range dense and sparse face detection
   - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
     - face_blendshapes
 
+<img src="./readme_img/44.png" alt="app_image_2" width="300"/>
 <img src="./readme_img/22.png" alt="app_image_2" width="300"/> <img src="./readme_img/33.png" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
@@ -68,6 +71,24 @@ When `enableIris` is enabled, Face Mesh runs an additional iris landmark pass
 after the base 468-point face mesh result. The final result keeps the existing
 Face Mesh index layout, updates the eye-region landmarks with more precise eye
 contour coordinates, and appends 10 iris landmarks at indices `468..477`.
+
+#### Attention mesh
+
+`enableAttentionMesh` swaps the base mesh model for the unified
+`face_landmark_with_attention` model, which refines the lips, eyes, and irises in
+a single inference and is more accurate around those regions than the base mesh
+(plus iris pass).
+
+```dart
+final faceMeshProcessor = await FaceMeshProcessor.create(
+  delegate: FaceMeshDelegate.xnnpack,
+  enableAttentionMesh: true, // default is false
+);
+```
+
+It returns the same 478-landmark layout as `enableIris`, so anything that
+consumes those landmarks keeps working — in one inference instead of the base
+mesh plus a separate iris pass. If you set both, `enableIris` is ignored.
 
 Delegate options:
 - `FaceMeshDelegate.cpu` (default)
@@ -236,8 +257,8 @@ Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
 smile, etc.) — useful for avatars, Animoji-style effects, AR filters, and
 expression detection. They are optional: create a `FaceBlendshapesProcessor`
 once (it loads the model), then run it on each `FaceMeshResult` to get the
-coefficients. The mesh must be created with `enableIris: true`, since the model
-reads the iris landmarks.
+coefficients. The mesh must be created with `enableIris: true` or
+`enableAttentionMesh: true`, since the model reads the iris landmarks.
 
 ```dart
 final blendshapesProcessor = await FaceBlendshapesProcessor.create(
@@ -263,8 +284,8 @@ if (meshResult != null) {
 }
 ```
 
-`process` throws an `ArgumentError` if the mesh was created without `enableIris`
-(fewer than 478 landmarks). Use `activeDelegate` to inspect the delegate selected
+`process` throws an `ArgumentError` if the mesh has fewer than 478 landmarks
+(created without `enableIris` or `enableAttentionMesh`). Use `activeDelegate` to inspect the delegate selected
 after fallback. 
 
 Call `close()` to release the `FaceBlendshapesProcessor` when you

@@ -106,6 +106,13 @@ typedef struct {
   uint8_t enable_smoothing;
   uint8_t enable_roi_tracking;
   uint8_t enable_iris;
+  // When non-zero, [model_path] points to the unified
+  // `face_landmark_with_attention` model, which refines lips, eyes, and irises
+  // in a single inference and outputs 478 landmarks directly. Requires a
+  // libtensorflowlite_c that registers the MediaPipe custom ops. When set, the
+  // separate iris pass ([enable_iris]/[iris_model_path]) is not used; iris is
+  // always included in the result.
+  uint8_t enable_attention_mesh;
   // When non-zero, fail creation instead of falling back to CPU if the
   // requested delegate is unavailable or cannot be created.
   uint8_t disable_delegate_fallback;
