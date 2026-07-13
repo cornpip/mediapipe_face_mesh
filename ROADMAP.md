@@ -60,19 +60,41 @@ Scope:
 - Benchmark per-frame allocation and latency against the per-face path with
   2–4 tracked faces before switching
 
-## Attention-based landmark refinement model
+## Attention mesh: partial XNNPACK acceleration
 
-Eye/iris refinement currently follows the legacy official pipeline: base
-468-landmark mesh plus a separate `iris_landmark.tflite` pass merged into the
-result. The current official FaceLandmarker uses the unified
-`face_landmark_with_attention` model, which refines lips, eyes, and irises in
-one inference with better accuracy around those regions.
+The attention model (`face_landmark_with_attention`) shipped in 2.1.0 as the
+opt-in `enableAttentionMesh`. XNNPACK cannot run its three MediaPipe custom ops,
+so TFLite partitions the graph and those nodes fall back to the reference CPU
+kernels — `FaceMeshDelegate.xnnpack` accelerates only the rest of the model on
+the attention path. It works, but the delegate buys less here than it does for
+the base mesh. Worth knowing before chasing attention-path latency; GPU is a
+separate matter, see "GPU delegate" below.
+
+## GPU delegate
+
+`FaceMeshDelegate.gpuV2` is effectively a no-op right now. The bundled
+`libtensorflowlite_c.so` / `TensorFlowLiteC.framework` do not export
+`TfLiteGpuDelegateV2Create` — in TFLite the GPU delegate is a *separate*
+binary (`libtensorflowlite_gpu_delegate.so` on Android, the Metal delegate
+framework on iOS) and this package has never bundled one. `tflite_runtime.h`
+loads the symbol with `LoadSymbolOptional`, does not find it, and the request
+silently degrades to CPU (or fails outright when `allowDelegateFallback` is
+false). This predates the attention work and affects every model, not just the
+attention one.
 
 Scope:
 
-- Bundle and support the attention model as an alternative to the
-  mesh + iris two-pass setup (model availability/licensing check first)
-- Map its outputs to the existing 478-landmark index layout so `enableIris`
-  consumers and blendshapes keep working unchanged
-- Compare accuracy/latency against the current two-pass pipeline on-device
-  before switching any default
+- Build and bundle the GPU delegate binaries (Android per ABI, iOS Metal) and
+  wire them into `tflite_runtime.h` so `gpuV2` actually engages
+- Build them **from the MediaPipe workspace**, not from stock TensorFlow:
+  MediaPipe's `org_tensorflow_custom_ops.diff` adds GPU support for the
+  attention model's custom ops (`custom_parsers.cc`, the GL kernels under
+  `gpu/gl/kernels/mediapipe/`, and the compute tasks). A stock GPU delegate
+  does not know `TransformTensorBilinear` / `TransformLandmarks` /
+  `Landmarks2TransformMatrix`, so it could not run the attention model on GPU.
+  The same custom-op resolver work already done for the C API applies here
+- Until the delegate ships, make the degradation observable rather than silent
+  (surface it through the active-delegate getter, or document it plainly)
+- Benchmark GPU against CPU/XNNPACK for both the base mesh and the attention
+  model, including how graph partitioning behaves when the delegate cannot take
+  every node

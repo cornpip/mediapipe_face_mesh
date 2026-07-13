@@ -249,6 +249,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   _MeshMode _meshMode = _MeshMode.attention;
   bool _isMultiFaceActive = false;
   static const int _maxMeshFaces = 4;
+  final ScrollController _controlsScrollController = ScrollController();
 
   @override
   void initState() {
@@ -733,6 +734,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _faceDetectorProcessor.close();
     _faceMeshProcessor.close();
     _blendshapesProcessor?.close();
+    _controlsScrollController.dispose();
     super.dispose();
   }
 
@@ -758,14 +760,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                   Center(child: _buildCameraPreview(isCameraAvailable)),
                   SizedBox(height: 10),
                   Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          _buildModelSelector(),
-                          _buildMeshModelSelector(),
-                          _buildMultiFaceSwitch(),
-                          _buildControlButtons(),
-                        ],
+                    child: Scrollbar(
+                      controller: _controlsScrollController,
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        controller: _controlsScrollController,
+                        child: Column(
+                          children: [
+                            _buildModelSelector(),
+                            _buildMeshModelSelector(),
+                            _buildMultiFaceSwitch(),
+                            _buildControlButtons(),
+                          ],
+                        ),
                       ),
                     ),
                   ),

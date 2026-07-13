@@ -21,7 +21,7 @@ migrate_working_dir/
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
 # is commented out by default.
-#.vscode/
+.vscode/
 
 # Flutter/Dart/Pub related
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
@@ -41,6 +41,11 @@ example/build/
 # FVM Version Cache
 .fvm/
 .fvmrc
+
+# Local scratch / handoff docs (not for the public package)
+# NOTE: .pubignore replaces .gitignore for publishing, so anything ignored in
+# .gitignore must be repeated here or it ships to pub.dev.
+temp_doc/
 
 # Not needed in the published package (pub.dev loads README images from GitHub)
 readme_img/

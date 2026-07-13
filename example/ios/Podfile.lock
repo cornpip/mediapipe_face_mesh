@@ -2,7 +2,7 @@ PODS:
   - camera_avfoundation (0.0.1):
     - Flutter
   - Flutter (1.0.0)
-  - mediapipe_face_mesh (2.0.0):
+  - mediapipe_face_mesh (2.1.0):
     - Flutter
   - permission_handler_apple (9.4.8):
     - Flutter

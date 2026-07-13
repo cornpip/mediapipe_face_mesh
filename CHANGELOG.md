@@ -1,3 +1,27 @@
+## 2.1.0
+
+- add `enableAttentionMesh` on `FaceMeshProcessor.create` and
+  `FaceMeshProcessor.createForMultiFace` (default `false`, so existing setups are unchanged)
+  - runs the official `face_landmark_with_attention` model, which refines lips, eyes, and
+    irises in a single inference and outputs the 478-landmark layout directly, instead of the
+    base 468-point mesh plus a separate iris pass
+  - iris is always included when it is enabled, so it supersedes `enableIris` (the separate
+    iris model is not loaded and `activeIrisDelegate` is null); `irisEnabled` stays true, so
+    `FaceBlendshapesProcessor` keeps working
+  - the attention outputs are merged into the existing index layout exactly as the official
+    `LandmarksRefinementCalculator` does, so mesh/iris/blendshape/geometry consumers need no changes
+  - XNNPACK does not support the model's custom ops; TFLite partitions the graph and runs those
+    nodes on the reference CPU kernels, so `FaceMeshDelegate.xnnpack` accelerates only the rest
+    of the model on the attention path
+- add `FaceMeshProcessor.irisEnabled` (true whenever the processor returns 478 landmarks) and
+  `FaceMeshProcessor.attentionMeshEnabled`
+- rebuild the bundled TensorFlow Lite C runtimes (Android `arm64-v8a`/`x86_64`, iOS
+  `TensorFlowLiteC.framework`) with the MediaPipe custom ops the attention model requires;
+  the iOS framework also shrinks from ~47 MB to ~18 MB
+- bundle `assets/models/face_landmark_with_attention.tflite` (~2.4 MB); it is only
+  materialized to disk when `enableAttentionMesh` is set
+- example: replace the `Iris` toggle with a mesh-mode selector (Base / Iris / Attention Mesh)
+
 ## 2.0.0
 
 - **BREAKING**: `FaceMeshInferencePipeline` single-face flow now follows the official MediaPipe Face Mesh design — the detector runs only to (re)acquire a face, and tracked frames derive the mesh ROI from the previous frame's landmarks
