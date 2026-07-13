@@ -2,7 +2,7 @@ PODS:
   - camera_avfoundation (0.0.1):
     - Flutter
   - Flutter (1.0.0)
-  - mediapipe_face_mesh (1.10.1):
+  - mediapipe_face_mesh (2.0.0):
     - Flutter
   - permission_handler_apple (9.4.8):
     - Flutter
@@ -26,9 +26,9 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   camera_avfoundation: be3be85408cd4126f250386828e9b1dfa40ab436
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
-  mediapipe_face_mesh: dd2af7bfc5a0b06991e185b5900d8ad8b210c86f
+  mediapipe_face_mesh: 0012d44ccd51981b1fcc77493348dd6c32a91689
   permission_handler_apple: 92d754bbaa7361d436db2d6c3c1c2a0fdcec462e
 
 PODFILE CHECKSUM: d1113c5f0d239100493b6088af869ef6311828b7
 
-COCOAPODS: 1.16.2
+COCOAPODS: 1.17.0
