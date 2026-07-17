@@ -1377,10 +1377,12 @@ class FaceMeshProcessor {
     required bool attentionMeshEnabled,
     required bool roiTrackingEnabled,
     required double minTrackingConfidence,
+    required double minFacePresenceConfidence,
   }) : _irisEnabled = irisEnabled,
        _attentionMeshEnabled = attentionMeshEnabled,
        _roiTrackingEnabled = roiTrackingEnabled,
-       _minTrackingConfidence = minTrackingConfidence {
+       _minTrackingConfidence = minTrackingConfidence,
+       _minFacePresenceConfidence = minFacePresenceConfidence {
     _contextFinalizer.attach(this, _context, detach: this);
   }
 
@@ -1391,6 +1393,7 @@ class FaceMeshProcessor {
   final bool _attentionMeshEnabled;
   final bool _roiTrackingEnabled;
   final double _minTrackingConfidence;
+  final double _minFacePresenceConfidence;
   bool _closed = false;
 
   /// Whether this processor returns iris landmarks (478 landmarks instead of
@@ -1410,6 +1413,24 @@ class FaceMeshProcessor {
   /// [FaceMeshInferencePipeline]'s multi-face flow drops a tracked face when
   /// its mesh presence score falls below this value.
   double get minTrackingConfidence => _minTrackingConfidence;
+
+  /// Face-presence threshold this processor was created with.
+  ///
+  /// Frames whose mesh presence score falls below this value return a
+  /// [FaceMeshResult] with no landmarks.
+  double get minFacePresenceConfidence => _minFacePresenceConfidence;
+
+  /// Whether the internal tracked ROI is currently following a face.
+  ///
+  /// True after a [process]/[processNv21] call seeded the ROI from face
+  /// landmarks; false initially, after a face-presence or
+  /// tracking-confidence failure dropped the ROI, or after an input
+  /// rotation/mirroring change reset it. Always false when this processor
+  /// was created with `enableRoiTracking: false`.
+  bool get isTracking {
+    _ensureNotClosed();
+    return faceBindings.mp_face_mesh_is_tracking(_context) != 0;
+  }
 
   /// Delegate that the native face mesh model is actively using after fallback.
   FaceMeshDelegate get activeDelegate {
@@ -1451,10 +1472,14 @@ class FaceMeshProcessor {
   /// - [minTrackingConfidence] is the mesh presence score below which
   ///   tracking stops trusting a followed face. The multi-face pipeline flow
   ///   drops the track and re-acquires it via the detector. The single-face
-  ///   native tracking only stops updating its ROI, so raising this above
-  ///   0.5 there creates a score window where landmarks are still returned
-  ///   but the tracked ROI stops following the face — prefer the default for
-  ///   the single-face flow unless you handle re-detection yourself.
+  ///   native tracking drops its internal ROI the same way (observable
+  ///   through [isTracking]); [FaceMeshInferencePipeline] re-acquires via
+  ///   the detector, while raw [process] calls without an ROI fall back to
+  ///   full-frame inference on the next frame.
+  /// - [minFacePresenceConfidence] is the mesh presence score below which a
+  ///   frame is treated as having no usable face: the result carries no
+  ///   landmarks and internal ROI tracking resets. Scores are compared after
+  ///   sigmoid, like the official graph's face-presence threshold.
   /// - [enableIris] runs a separate iris pass after the base 468-point mesh: it
   ///   refines the eye landmarks and appends iris landmarks, returning 478
   ///   landmarks instead of the base 468 landmarks.
@@ -1470,6 +1495,7 @@ class FaceMeshProcessor {
     int threads = 2,
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
+    double minFacePresenceConfidence = 0.5,
     bool enableSmoothing = true,
     bool enableRoiTracking = true,
     bool enableIris = false,
@@ -1498,6 +1524,7 @@ class FaceMeshProcessor {
         ..threads = threads
         ..min_detection_confidence = minDetectionConfidence
         ..min_tracking_confidence = minTrackingConfidence
+        ..min_face_presence_confidence = minFacePresenceConfidence
         ..delegate = delegate.index
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
         ..enable_smoothing = enableSmoothing ? 1 : 0
@@ -1521,6 +1548,7 @@ class FaceMeshProcessor {
         attentionMeshEnabled: enableAttentionMesh,
         roiTrackingEnabled: enableRoiTracking,
         minTrackingConfidence: minTrackingConfidence,
+        minFacePresenceConfidence: minFacePresenceConfidence,
       );
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
@@ -1541,6 +1569,7 @@ class FaceMeshProcessor {
     int threads = 2,
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
+    double minFacePresenceConfidence = 0.5,
     bool enableIris = false,
     bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
@@ -1550,6 +1579,7 @@ class FaceMeshProcessor {
       threads: threads,
       minDetectionConfidence: minDetectionConfidence,
       minTrackingConfidence: minTrackingConfidence,
+      minFacePresenceConfidence: minFacePresenceConfidence,
       enableSmoothing: false,
       enableRoiTracking: false,
       enableIris: enableIris,
@@ -1710,12 +1740,106 @@ class FaceMeshProcessor {
     return processed;
   }
 
+  /// Runs one mesh inference per ROI on a single native frame upload.
+  ///
+  /// Unlike calling [process] once per face, the frame is copied into native
+  /// memory once regardless of how many ROIs are provided. Returns one
+  /// [FaceMeshResult] per ROI, in input order; results whose face presence
+  /// score fell below the threshold have no landmarks, matching [process].
+  List<FaceMeshResult> processRois(
+    FaceMeshImage image, {
+    required List<NormalizedRect> rois,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+  }) {
+    _ensureNotClosed();
+    _validateRotationDegrees(rotationDegrees);
+    if (rois.isEmpty) {
+      return <FaceMeshResult>[];
+    }
+    final _NativeImage nativeImage = _toNativeImage(image);
+    final ffi.Pointer<MpNormalizedRect> roisPtr = _toNativeRectArray(rois);
+    try {
+      final ffi.Pointer<MpFaceMeshMultiResult> resultPtr = faceBindings
+          .mp_face_mesh_process_rois(
+            _context,
+            nativeImage.image,
+            roisPtr,
+            rois.length,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
+          );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+              'Native face mesh error.',
+        );
+      }
+      try {
+        return _copyMultiResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_mesh_release_multi_result(resultPtr);
+      }
+    } finally {
+      pkg_ffi.calloc.free(nativeImage.pixels);
+      pkg_ffi.calloc.free(nativeImage.image);
+      pkg_ffi.calloc.free(roisPtr);
+    }
+  }
+
+  /// Runs one NV21 mesh inference per ROI on a single native frame upload.
+  ///
+  /// This is the NV21 counterpart of [processRois]; see that method for the
+  /// result semantics.
+  List<FaceMeshResult> processNv21Rois(
+    FaceMeshNv21Image image, {
+    required List<NormalizedRect> rois,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+  }) {
+    _ensureNotClosed();
+    _validateRotationDegrees(rotationDegrees);
+    if (rois.isEmpty) {
+      return <FaceMeshResult>[];
+    }
+    final _NativeNv21Image nativeImage = _toNativeNv21Image(image);
+    final ffi.Pointer<MpNormalizedRect> roisPtr = _toNativeRectArray(rois);
+    try {
+      final ffi.Pointer<MpFaceMeshMultiResult> resultPtr = faceBindings
+          .mp_face_mesh_process_rois_nv21(
+            _context,
+            nativeImage.image,
+            roisPtr,
+            rois.length,
+            rotationDegrees,
+            mirrorHorizontal ? 1 : 0,
+          );
+      if (resultPtr == ffi.nullptr) {
+        throw MediapipeFaceMeshException(
+          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+              'Native face mesh error.',
+        );
+      }
+      try {
+        return _copyMultiResult(resultPtr.ref);
+      } finally {
+        faceBindings.mp_face_mesh_release_multi_result(resultPtr);
+      }
+    } finally {
+      pkg_ffi.calloc.free(nativeImage.yPlane);
+      pkg_ffi.calloc.free(nativeImage.vuPlane);
+      pkg_ffi.calloc.free(nativeImage.image);
+      pkg_ffi.calloc.free(roisPtr);
+    }
+  }
+
   /// Processes one mesh inference for each detector result with a usable ROI.
   ///
   /// This mirrors MediaPipe Face Mesh graph behavior at the Dart API level:
   /// each [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect] when
-  /// the expanded ROI is unavailable, is fed to [process] and collected into a
-  /// single list.
+  /// the expanded ROI is unavailable, is run through one mesh inference and
+  /// collected into a single list. The frame is uploaded to native memory
+  /// once for all faces (see [processRois]).
   ///
   /// [maxMeshFaces] limits how many mesh inferences are run from the provided
   /// [detections]. Detections without an ROI are skipped.
@@ -1726,28 +1850,13 @@ class FaceMeshProcessor {
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
   }) {
-    _ensureNotClosed();
-    _validateRotationDegrees(rotationDegrees);
     _validateMaxMeshFaces(maxMeshFaces);
-    final List<FaceMeshResult> results = <FaceMeshResult>[];
-    for (final FaceDetection detection in detections) {
-      if (maxMeshFaces != null && results.length >= maxMeshFaces) {
-        break;
-      }
-      final NormalizedRect? roi = _roiForDetection(detection);
-      if (roi == null) {
-        continue;
-      }
-      results.add(
-        process(
-          image,
-          roi: roi,
-          rotationDegrees: rotationDegrees,
-          mirrorHorizontal: mirrorHorizontal,
-        ),
-      );
-    }
-    return results;
+    return processRois(
+      image,
+      rois: _roisForDetections(detections, maxMeshFaces),
+      rotationDegrees: rotationDegrees,
+      mirrorHorizontal: mirrorHorizontal,
+    );
   }
 
   /// Processes one NV21 mesh inference for each detector result with a usable
@@ -1764,28 +1873,31 @@ class FaceMeshProcessor {
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
   }) {
-    _ensureNotClosed();
-    _validateRotationDegrees(rotationDegrees);
     _validateMaxMeshFaces(maxMeshFaces);
-    final List<FaceMeshResult> results = <FaceMeshResult>[];
+    return processNv21Rois(
+      image,
+      rois: _roisForDetections(detections, maxMeshFaces),
+      rotationDegrees: rotationDegrees,
+      mirrorHorizontal: mirrorHorizontal,
+    );
+  }
+
+  List<NormalizedRect> _roisForDetections(
+    Iterable<FaceDetection> detections,
+    int? maxMeshFaces,
+  ) {
+    final List<NormalizedRect> rois = <NormalizedRect>[];
     for (final FaceDetection detection in detections) {
-      if (maxMeshFaces != null && results.length >= maxMeshFaces) {
+      if (maxMeshFaces != null && rois.length >= maxMeshFaces) {
         break;
       }
       final NormalizedRect? roi = _roiForDetection(detection);
       if (roi == null) {
         continue;
       }
-      results.add(
-        processNv21(
-          image,
-          roi: roi,
-          rotationDegrees: rotationDegrees,
-          mirrorHorizontal: mirrorHorizontal,
-        ),
-      );
+      rois.add(roi);
     }
-    return results;
+    return rois;
   }
 
   FaceMeshResult _copyResult(MpFaceMeshResult nativeResult) {
@@ -1806,6 +1918,17 @@ class FaceMeshProcessor {
       score: nativeResult.score,
       imageWidth: nativeResult.image_width,
       imageHeight: nativeResult.image_height,
+    );
+  }
+
+  List<FaceMeshResult> _copyMultiResult(MpFaceMeshMultiResult nativeResult) {
+    final ffi.Pointer<MpFaceMeshResult> resultsPtr = nativeResult.results;
+    if (resultsPtr == ffi.nullptr || nativeResult.results_count <= 0) {
+      return <FaceMeshResult>[];
+    }
+    return List<FaceMeshResult>.generate(
+      nativeResult.results_count,
+      (int i) => _copyResult((resultsPtr + i).ref),
     );
   }
 

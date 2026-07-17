@@ -303,6 +303,10 @@ processor's `minTrackingConfidence`.
 Use `maxResults` on the detector to control how many faces a detection pass can
 return, and `maxMeshFaces` to bound how many faces are tracked simultaneously.
 
+The mesh inferences for a frame run through one batched native call, so the
+frame is copied into native memory once per frame regardless of how many faces
+are tracked.
+
 Create the mesh processor with `createForMultiFace(...)`, which disables native
 single-ROI tracking and smoothing for multi-face use.
 

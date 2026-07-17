@@ -69,6 +69,14 @@ typedef struct {
 } MpFaceMeshResult;
 
 typedef struct {
+  // One entry per input ROI, in input order. Entries whose face presence
+  // score fell below the threshold have landmarks_count == 0, matching
+  // mp_face_mesh_process.
+  MpFaceMeshResult* results;
+  int32_t results_count;
+} MpFaceMeshMultiResult;
+
+typedef struct {
   // Vertical field of view of the virtual camera in degrees.
   float vertical_fov_degrees;
   // Near and far clip planes of the virtual frustum in the same units as the
@@ -174,7 +182,37 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     int32_t rotation_degrees,
     uint8_t mirror_horizontal);
 
+// Runs one mesh inference per ROI on a single frame upload, avoiding the
+// per-face frame copy of calling mp_face_mesh_process once per face. Returns
+// null and sets the context error if any ROI fails. Release the result with
+// mp_face_mesh_release_multi_result.
+FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois(
+    MpFaceMeshContext* context,
+    const MpImage* image,
+    const MpNormalizedRect* rois,
+    int32_t rois_count,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal);
+
+FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois_nv21(
+    MpFaceMeshContext* context,
+    const MpNv21Image* image,
+    const MpNormalizedRect* rois,
+    int32_t rois_count,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal);
+
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result);
+
+FFI_PLUGIN_EXPORT void mp_face_mesh_release_multi_result(
+    MpFaceMeshMultiResult* result);
+
+// Non-zero while the internal tracked ROI follows a face — it was seeded
+// from landmarks and has not been dropped by a face-presence or
+// tracking-confidence failure, or an input-geometry change. Always zero when
+// the context was created with enable_roi_tracking off.
+FFI_PLUGIN_EXPORT uint8_t mp_face_mesh_is_tracking(
+    const MpFaceMeshContext* context);
 
 FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_error(
     const MpFaceMeshContext* context);

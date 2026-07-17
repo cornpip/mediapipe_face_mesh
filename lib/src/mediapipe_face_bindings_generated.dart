@@ -139,6 +139,97 @@ class MediapipeFaceBindings {
         )
       >();
 
+  /// Runs one mesh inference per ROI on a single frame upload, avoiding the
+  /// per-face frame copy of calling mp_face_mesh_process once per face. Returns
+  /// null and sets the context error if any ROI fails. Release the result with
+  /// mp_face_mesh_release_multi_result.
+  ffi.Pointer<MpFaceMeshMultiResult> mp_face_mesh_process_rois(
+    ffi.Pointer<MpFaceMeshContext> context,
+    ffi.Pointer<MpImage> image,
+    ffi.Pointer<MpNormalizedRect> rois,
+    int rois_count,
+    int rotation_degrees,
+    int mirror_horizontal,
+  ) {
+    return _mp_face_mesh_process_rois(
+      context,
+      image,
+      rois,
+      rois_count,
+      rotation_degrees,
+      mirror_horizontal,
+    );
+  }
+
+  late final _mp_face_mesh_process_roisPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceMeshMultiResult> Function(
+            ffi.Pointer<MpFaceMeshContext>,
+            ffi.Pointer<MpImage>,
+            ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Uint8,
+          )
+        >
+      >('mp_face_mesh_process_rois');
+  late final _mp_face_mesh_process_rois = _mp_face_mesh_process_roisPtr
+      .asFunction<
+        ffi.Pointer<MpFaceMeshMultiResult> Function(
+          ffi.Pointer<MpFaceMeshContext>,
+          ffi.Pointer<MpImage>,
+          ffi.Pointer<MpNormalizedRect>,
+          int,
+          int,
+          int,
+        )
+      >();
+
+  ffi.Pointer<MpFaceMeshMultiResult> mp_face_mesh_process_rois_nv21(
+    ffi.Pointer<MpFaceMeshContext> context,
+    ffi.Pointer<MpNv21Image> image,
+    ffi.Pointer<MpNormalizedRect> rois,
+    int rois_count,
+    int rotation_degrees,
+    int mirror_horizontal,
+  ) {
+    return _mp_face_mesh_process_rois_nv21(
+      context,
+      image,
+      rois,
+      rois_count,
+      rotation_degrees,
+      mirror_horizontal,
+    );
+  }
+
+  late final _mp_face_mesh_process_rois_nv21Ptr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpFaceMeshMultiResult> Function(
+            ffi.Pointer<MpFaceMeshContext>,
+            ffi.Pointer<MpNv21Image>,
+            ffi.Pointer<MpNormalizedRect>,
+            ffi.Int32,
+            ffi.Int32,
+            ffi.Uint8,
+          )
+        >
+      >('mp_face_mesh_process_rois_nv21');
+  late final _mp_face_mesh_process_rois_nv21 =
+      _mp_face_mesh_process_rois_nv21Ptr
+          .asFunction<
+            ffi.Pointer<MpFaceMeshMultiResult> Function(
+              ffi.Pointer<MpFaceMeshContext>,
+              ffi.Pointer<MpNv21Image>,
+              ffi.Pointer<MpNormalizedRect>,
+              int,
+              int,
+              int,
+            )
+          >();
+
   void mp_face_mesh_release_result(ffi.Pointer<MpFaceMeshResult> result) {
     return _mp_face_mesh_release_result(result);
   }
@@ -149,6 +240,37 @@ class MediapipeFaceBindings {
       >('mp_face_mesh_release_result');
   late final _mp_face_mesh_release_result = _mp_face_mesh_release_resultPtr
       .asFunction<void Function(ffi.Pointer<MpFaceMeshResult>)>();
+
+  void mp_face_mesh_release_multi_result(
+    ffi.Pointer<MpFaceMeshMultiResult> result,
+  ) {
+    return _mp_face_mesh_release_multi_result(result);
+  }
+
+  late final _mp_face_mesh_release_multi_resultPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<MpFaceMeshMultiResult>)
+        >
+      >('mp_face_mesh_release_multi_result');
+  late final _mp_face_mesh_release_multi_result =
+      _mp_face_mesh_release_multi_resultPtr
+          .asFunction<void Function(ffi.Pointer<MpFaceMeshMultiResult>)>();
+
+  /// Non-zero while the internal tracked ROI follows a face — it was seeded
+  /// from landmarks and has not been dropped by a face-presence or
+  /// tracking-confidence failure, or an input-geometry change. Always zero when
+  /// the context was created with enable_roi_tracking off.
+  int mp_face_mesh_is_tracking(ffi.Pointer<MpFaceMeshContext> context) {
+    return _mp_face_mesh_is_tracking(context);
+  }
+
+  late final _mp_face_mesh_is_trackingPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Uint8 Function(ffi.Pointer<MpFaceMeshContext>)>
+      >('mp_face_mesh_is_tracking');
+  late final _mp_face_mesh_is_tracking = _mp_face_mesh_is_trackingPtr
+      .asFunction<int Function(ffi.Pointer<MpFaceMeshContext>)>();
 
   ffi.Pointer<ffi.Char> mp_face_mesh_last_error(
     ffi.Pointer<MpFaceMeshContext> context,
@@ -705,6 +827,16 @@ final class MpFaceMeshResult extends ffi.Struct {
 
   @ffi.Int32()
   external int image_height;
+}
+
+final class MpFaceMeshMultiResult extends ffi.Struct {
+  /// One entry per input ROI, in input order. Entries whose face presence
+  /// score fell below the threshold have landmarks_count == 0, matching
+  /// mp_face_mesh_process.
+  external ffi.Pointer<MpFaceMeshResult> results;
+
+  @ffi.Int32()
+  external int results_count;
 }
 
 final class MpFaceGeometryOptions extends ffi.Struct {
