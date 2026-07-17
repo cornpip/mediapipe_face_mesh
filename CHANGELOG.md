@@ -1,3 +1,31 @@
+## 2.2.0
+
+- align tracking-confidence semantics with the official graph: when a tracked
+  face's presence score falls below `minTrackingConfidence`, the native tracked
+  ROI is now dropped (and `FaceMeshInferencePipeline` re-acquires via the
+  detector on the next frame) instead of freezing the last ROI while landmarks
+  kept coming — previously a documented caveat when raising
+  `minTrackingConfidence` above 0.5
+  - the first tracked ROI seed is no longer smoothed against the initial
+    full-frame rect, so the first tracked frame crops the actual face extent
+- add `FaceMeshProcessor.isTracking`, backed by the new native
+  `mp_face_mesh_is_tracking`: whether the internal ROI currently follows a face
+- expose `minFacePresenceConfidence` on `FaceMeshProcessor.create` and
+  `createForMultiFace` (the score below which a frame returns no landmarks;
+  was always the native default 0.5 before) plus a matching getter
+- add `FaceMeshProcessor.processRois` / `processNv21Rois`, backed by the new
+  native `mp_face_mesh_process_rois` / `mp_face_mesh_process_rois_nv21`: one
+  mesh inference per ROI on a single native frame upload, instead of copying
+  the full frame into native memory once per face
+  - `processMultiFace` / `processNv21MultiFace` and the
+    `FaceMeshInferencePipeline` multi-face flow now route through it, so
+    multi-face frames copy the frame across the FFI boundary once regardless
+    of face count
+  - pipeline multi-face acquisition now dedupes candidate detection ROIs
+    against tracked faces and each other (same official IoU threshold) before
+    one batched mesh call; per-face mesh results and track association are
+    unchanged
+
 ## 2.1.0
 
 - add `enableAttentionMesh` on `FaceMeshProcessor.create` and
