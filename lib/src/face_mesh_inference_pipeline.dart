@@ -283,6 +283,13 @@ class FaceMeshInferencePipeline {
       _isTracking = false;
       return null;
     }
+    // The native side drops its tracked ROI when the presence score falls
+    // below the tracking confidence (official graph semantics). Re-acquire
+    // via the detector on the next frame instead of letting the mesh run on
+    // a full-frame default ROI; this frame's landmarks are still valid.
+    if (!_mesh.isTracking) {
+      _isTracking = false;
+    }
     return FaceMeshInferenceResult(
       detectionResult: null,
       selectedDetection: null,
@@ -309,7 +316,8 @@ class FaceMeshInferencePipeline {
     required int rotationDegrees,
     required bool mirrorHorizontal,
     required FaceDetectionResult Function() runDetector,
-    required FaceMeshResult Function(NormalizedRect roi) runMeshWithRoi,
+    required List<FaceMeshResult> Function(List<NormalizedRect> rois)
+    runMeshWithRois,
     required List<FaceMeshResult> Function(FaceDetectionResult detectionResult)
     runLegacyMultiMesh,
   }) {
@@ -349,46 +357,67 @@ class FaceMeshInferencePipeline {
       _multiTracks.removeRange(maxMeshFaces, _multiTracks.length);
     }
 
-    // Advance every tracked face on its landmark-derived ROI; drop the ones
+    // Advance every tracked face on its landmark-derived ROI — one batched
+    // native call uploads the frame once for all of them; drop the ones
     // that lost their face or whose presence score fell below the tracking
     // confidence, so their slot is re-acquired via the detector (official
     // tracking-confidence semantics).
     final double minTrackingConfidence = _mesh.minTrackingConfidence;
     final List<_FaceTrack> survivors = <_FaceTrack>[];
     try {
-      for (final _FaceTrack track in _multiTracks) {
-        final FaceMeshResult mesh = runMeshWithRoi(track.roi);
-        if (mesh.landmarks.isEmpty || mesh.score < minTrackingConfidence) {
-          continue;
+      if (_multiTracks.isNotEmpty) {
+        final List<FaceMeshResult> advanced = runMeshWithRois(
+          <NormalizedRect>[
+            for (final _FaceTrack track in _multiTracks) track.roi,
+          ],
+        );
+        for (int i = 0; i < _multiTracks.length; i++) {
+          final FaceMeshResult mesh = advanced[i];
+          if (mesh.landmarks.isEmpty || mesh.score < minTrackingConfidence) {
+            continue;
+          }
+          final _FaceTrack track = _multiTracks[i];
+          track.mesh = mesh;
+          track.roi = mesh.trackingRoi();
+          survivors.add(track);
         }
-        track.mesh = mesh;
-        track.roi = mesh.trackingRoi();
-        survivors.add(track);
       }
       _multiTracks
         ..clear()
         ..addAll(survivors);
 
       // Acquire new faces only while slots are free, like the official
-      // graph's detector gate.
+      // graph's detector gate. Candidate ROIs that do not overlap a tracked
+      // face or an earlier candidate are meshed in one batched call.
       FaceDetectionResult? detectionResult;
       if (maxMeshFaces == null || _multiTracks.length < maxMeshFaces) {
         detectionResult = runDetector();
+        final List<NormalizedRect> candidateRois = <NormalizedRect>[];
         for (final FaceDetection detection in detectionResult.detections) {
-          if (maxMeshFaces != null && _multiTracks.length >= maxMeshFaces) {
+          if (maxMeshFaces != null &&
+              _multiTracks.length + candidateRois.length >= maxMeshFaces) {
             break;
           }
           final NormalizedRect? roi = _roiForDetection(detection);
-          if (roi == null || _overlapsTrackedFace(roi)) {
+          if (roi == null ||
+              _overlapsTrackedFace(roi) ||
+              candidateRois.any(
+                (NormalizedRect other) =>
+                    _rectIou(roi, other) > _trackAssociationIou,
+              )) {
             continue;
           }
-          final FaceMeshResult mesh = runMeshWithRoi(roi);
-          if (mesh.landmarks.isEmpty) {
-            continue;
+          candidateRois.add(roi);
+        }
+        if (candidateRois.isNotEmpty) {
+          for (final FaceMeshResult mesh in runMeshWithRois(candidateRois)) {
+            if (mesh.landmarks.isEmpty) {
+              continue;
+            }
+            _multiTracks.add(
+              _FaceTrack(_nextTrackId++, mesh, mesh.trackingRoi()),
+            );
           }
-          _multiTracks.add(
-            _FaceTrack(_nextTrackId++, mesh, mesh.trackingRoi()),
-          );
         }
       }
       return FaceMeshMultiInferenceResult(
@@ -646,9 +675,9 @@ class FaceMeshInferencePipeline {
         roiShiftX: detectorRoiShiftX,
         roiShiftY: detectorRoiShiftY,
       ),
-      runMeshWithRoi: (NormalizedRect roi) => _mesh.process(
+      runMeshWithRois: (List<NormalizedRect> rois) => _mesh.processRois(
         image,
-        roi: roi,
+        rois: rois,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
       ),
@@ -697,9 +726,9 @@ class FaceMeshInferencePipeline {
         roiShiftX: detectorRoiShiftX,
         roiShiftY: detectorRoiShiftY,
       ),
-      runMeshWithRoi: (NormalizedRect roi) => _mesh.processNv21(
+      runMeshWithRois: (List<NormalizedRect> rois) => _mesh.processNv21Rois(
         image,
-        roi: roi,
+        rois: rois,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
       ),

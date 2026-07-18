@@ -66,6 +66,20 @@ ffi.Pointer<MpNormalizedRect> _toNativeRect(NormalizedRect rect) {
   return roiPtr;
 }
 
+ffi.Pointer<MpNormalizedRect> _toNativeRectArray(List<NormalizedRect> rects) {
+  final ffi.Pointer<MpNormalizedRect> rectsPtr = pkg_ffi
+      .calloc<MpNormalizedRect>(rects.length);
+  for (int i = 0; i < rects.length; i++) {
+    (rectsPtr + i).ref
+      ..x_center = rects[i].xCenter
+      ..y_center = rects[i].yCenter
+      ..width = rects[i].width
+      ..height = rects[i].height
+      ..rotation = rects[i].rotation;
+  }
+  return rectsPtr;
+}
+
 String? _readCString(ffi.Pointer<ffi.Char> pointer) {
   if (pointer == ffi.nullptr) {
     return null;

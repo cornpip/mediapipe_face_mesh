@@ -360,6 +360,7 @@ class FaceMeshContext {
 
     roi_ = DefaultRect();
     has_valid_rect_ = roi_tracking_enabled_;
+    tracking_active_ = false;
     MP_LOGI("Initialize success\n");
     return true;
   }
@@ -394,6 +395,7 @@ class FaceMeshContext {
         mirror_horizontal != last_mirror_horizontal_) {
       if (roi_tracking_enabled_) {
         has_valid_rect_ = false;
+        tracking_active_ = false;
       }
       last_rotation_degrees_ = rot;
       last_mirror_horizontal_ = mirror_horizontal;
@@ -472,6 +474,7 @@ class FaceMeshContext {
       result->landmarks = nullptr;
       if (roi_tracking_enabled_ && !override_rect) {
         has_valid_rect_ = false;
+        tracking_active_ = false;
       }
       return result;
     }
@@ -495,6 +498,7 @@ class FaceMeshContext {
             result->landmarks, result->landmarks_count,
             result->image_width, result->image_height));
         has_valid_rect_ = true;
+        tracking_active_ = true;
       }
     }
 
@@ -526,6 +530,7 @@ class FaceMeshContext {
         mirror_horizontal != last_mirror_horizontal_) {
       if (roi_tracking_enabled_) {
         has_valid_rect_ = false;
+        tracking_active_ = false;
       }
       last_rotation_degrees_ = rot;
       last_mirror_horizontal_ = mirror_horizontal;
@@ -603,6 +608,7 @@ class FaceMeshContext {
       result->landmarks = nullptr;
       if (roi_tracking_enabled_ && !override_rect) {
         has_valid_rect_ = false;
+        tracking_active_ = false;
       }
       return result;
     }
@@ -626,6 +632,7 @@ class FaceMeshContext {
             result->landmarks, result->landmarks_count,
             result->image_width, result->image_height));
         has_valid_rect_ = true;
+        tracking_active_ = true;
       }
     }
 
@@ -633,6 +640,11 @@ class FaceMeshContext {
   }
 
   const char* last_error() const { return last_error_.c_str(); }
+
+  // Whether the internal ROI currently follows a face (was seeded from
+  // landmarks and has not been dropped by a confidence failure, tracking
+  // loss, or an input-geometry change).
+  bool is_tracking() const { return tracking_active_; }
 
   MpDelegateType active_delegate() const { return active_delegate_; }
 
@@ -1724,19 +1736,25 @@ class FaceMeshContext {
 
   void UpdateTrackingState(const MpFaceMeshResult& result, float score) {
     const float threshold =
-        has_valid_rect_ ? min_tracking_confidence_ : min_detection_confidence_;
+        tracking_active_ ? min_tracking_confidence_ : min_detection_confidence_;
     if (score < threshold) {
+      // Official graph semantics: a tracked face whose confidence falls below
+      // the threshold is released so the caller re-acquires it via the
+      // detector, instead of freezing the last ROI.
+      has_valid_rect_ = false;
+      tracking_active_ = false;
       return;
     }
     const MpNormalizedRect target =
         RectFromLandmarks(result.landmarks, result.landmarks_count,
                           result.image_width, result.image_height);
     MpNormalizedRect updated = target;
-    if (has_valid_rect_ && smoothing_enabled_) {
+    if (tracking_active_ && smoothing_enabled_) {
       updated = SmoothRect(roi_, target);
     }
     roi_ = SanitizeRect(updated);
     has_valid_rect_ = true;
+    tracking_active_ = true;
   }
 
   // Mirrored in Dart as FaceMeshResult.trackingRoi()
@@ -1883,6 +1901,9 @@ class FaceMeshContext {
 
   MpNormalizedRect roi_;
   bool has_valid_rect_ = false;
+  // True only while roi_ was derived from face landmarks; has_valid_rect_
+  // also covers the initial full-frame DefaultRect seed.
+  bool tracking_active_ = false;
   int last_rotation_degrees_ = 0;
   bool last_mirror_horizontal_ = false;
   std::string last_error_;
@@ -1899,6 +1920,38 @@ void SetGlobalError(const std::string& message) {
 struct MpFaceMeshContext {
   FaceMeshContext impl;
 };
+
+namespace {
+
+// Shared body of mp_face_mesh_process_rois / mp_face_mesh_process_rois_nv21:
+// runs [process_one] per ROI and packs the results into one heap array,
+// taking ownership of each result's landmarks. Returns null (with the
+// context error already set by [process_one]) if any ROI fails.
+template <typename ProcessOneFn>
+MpFaceMeshMultiResult* ProcessRoisImpl(const MpNormalizedRect* rois,
+                                       int32_t rois_count,
+                                       ProcessOneFn&& process_one) {
+  auto* multi = new MpFaceMeshMultiResult();
+  multi->results_count = rois_count;
+  multi->results =
+      rois_count > 0 ? new MpFaceMeshResult[rois_count]() : nullptr;
+  for (int32_t i = 0; i < rois_count; ++i) {
+    MpFaceMeshResult* result = process_one(rois[i]);
+    if (!result) {
+      for (int32_t j = 0; j < i; ++j) {
+        delete[] multi->results[j].landmarks;
+      }
+      delete[] multi->results;
+      delete multi;
+      return nullptr;
+    }
+    multi->results[i] = *result;  // Takes ownership of result->landmarks.
+    delete result;
+  }
+  return multi;
+}
+
+}  // namespace
 
 extern "C" {
 
@@ -1962,6 +2015,58 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
                                    mirror_horizontal != 0);
 }
 
+FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois(
+    MpFaceMeshContext* context,
+    const MpImage* image,
+    const MpNormalizedRect* rois,
+    int32_t rois_count,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal) {
+  if (!context) {
+    SetGlobalError("Context is null.");
+    return nullptr;
+  }
+  if (!image) {
+    SetGlobalError("Image is null.");
+    return nullptr;
+  }
+  if (rois_count < 0 || (rois_count > 0 && !rois)) {
+    SetGlobalError("Invalid ROI list.");
+    return nullptr;
+  }
+  return ProcessRoisImpl(
+      rois, rois_count, [&](const MpNormalizedRect& roi) {
+        return context->impl.Process(*image, &roi, rotation_degrees,
+                                     mirror_horizontal != 0);
+      });
+}
+
+FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois_nv21(
+    MpFaceMeshContext* context,
+    const MpNv21Image* image,
+    const MpNormalizedRect* rois,
+    int32_t rois_count,
+    int32_t rotation_degrees,
+    uint8_t mirror_horizontal) {
+  if (!context) {
+    SetGlobalError("Context is null.");
+    return nullptr;
+  }
+  if (!image) {
+    SetGlobalError("Image is null.");
+    return nullptr;
+  }
+  if (rois_count < 0 || (rois_count > 0 && !rois)) {
+    SetGlobalError("Invalid ROI list.");
+    return nullptr;
+  }
+  return ProcessRoisImpl(
+      rois, rois_count, [&](const MpNormalizedRect& roi) {
+        return context->impl.ProcessNv21(*image, &roi, rotation_degrees,
+                                         mirror_horizontal != 0);
+      });
+}
+
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result) {
   if (!result) {
     return;
@@ -1969,6 +2074,27 @@ FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result) {
   delete[] result->landmarks;
   result->landmarks = nullptr;
   delete result;
+}
+
+FFI_PLUGIN_EXPORT void mp_face_mesh_release_multi_result(
+    MpFaceMeshMultiResult* result) {
+  if (!result) {
+    return;
+  }
+  for (int32_t i = 0; i < result->results_count; ++i) {
+    delete[] result->results[i].landmarks;
+  }
+  delete[] result->results;
+  result->results = nullptr;
+  delete result;
+}
+
+FFI_PLUGIN_EXPORT uint8_t mp_face_mesh_is_tracking(
+    const MpFaceMeshContext* context) {
+  if (!context) {
+    return 0;
+  }
+  return context->impl.is_tracking() ? 1 : 0;
 }
 
 FFI_PLUGIN_EXPORT const char* mp_face_mesh_last_error(

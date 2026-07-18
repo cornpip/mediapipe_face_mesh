@@ -179,6 +179,13 @@ default `enableRoiTracking: true`.
 frames. When switching input sources, call `resetTracking()` so the next frame
 re-acquires the face instead of reusing the previous stream's tracked ROI.
 
+When a tracked face's mesh presence score falls below the mesh processor's
+`minTrackingConfidence`, the tracked ROI is dropped — matching the official
+graph — and the pipeline re-acquires the face via the detector on the next
+frame. `FaceMeshProcessor.isTracking` reports whether the processor's internal
+ROI is currently following a face; it is always false when the processor was
+created with `enableRoiTracking: false`.
+
 For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
 
 ### Single Inference
@@ -303,6 +310,10 @@ processor's `minTrackingConfidence`.
 Use `maxResults` on the detector to control how many faces a detection pass can
 return, and `maxMeshFaces` to bound how many faces are tracked simultaneously.
 
+The mesh inferences for a frame run through one batched native call, so the
+frame is copied into native memory once per frame regardless of how many faces
+are tracked.
+
 Create the mesh processor with `createForMultiFace(...)`, which disables native
 single-ROI tracking and smoothing for multi-face use.
 
@@ -359,6 +370,11 @@ final FaceMeshMultiInferenceResult result = pipeline.processNv21MultiFace(
 
 final List<TrackedFaceMesh> faces = result.faces;
 ```
+
+If you manage face ROIs yourself instead of using the pipeline,
+`processRois(...)` / `processNv21Rois(...)` expose the same batched path
+directly: one mesh inference per ROI on a single frame upload, returning one
+`FaceMeshResult` per ROI in input order.
 
 ### Close Resource
 
