@@ -1422,7 +1422,8 @@ class FaceMeshProcessor {
 
   /// Whether the internal tracked ROI is currently following a face.
   ///
-  /// True after a [process]/[processNv21] call seeded the ROI from face
+  /// True after a mesh call ([process]/[processNv21], or their
+  /// [processRois]/[processNv21Rois] batch forms) seeded the ROI from face
   /// landmarks; false initially, after a face-presence or
   /// tracking-confidence failure dropped the ROI, or after an input
   /// rotation/mirroring change reset it. Always false when this processor
@@ -1478,8 +1479,9 @@ class FaceMeshProcessor {
   ///   full-frame inference on the next frame.
   /// - [minFacePresenceConfidence] is the mesh presence score below which a
   ///   frame is treated as having no usable face: the result carries no
-  ///   landmarks and internal ROI tracking resets. Scores are compared after
-  ///   sigmoid, like the official graph's face-presence threshold.
+  ///   landmarks, and calls without an explicit ROI also reset internal ROI
+  ///   tracking. Scores are compared after sigmoid, like the official
+  ///   graph's face-presence threshold.
   /// - [enableIris] runs a separate iris pass after the base 468-point mesh: it
   ///   refines the eye landmarks and appends iris landmarks, returning 478
   ///   landmarks instead of the base 468 landmarks.
@@ -1746,6 +1748,11 @@ class FaceMeshProcessor {
   /// memory once regardless of how many ROIs are provided. Returns one
   /// [FaceMeshResult] per ROI, in input order; results whose face presence
   /// score fell below the threshold have no landmarks, matching [process].
+  ///
+  /// Like [process] with an explicit ROI, each successful inference seeds
+  /// the internal tracked ROI when the processor was created with
+  /// `enableRoiTracking: true` — after this call it follows the last entry
+  /// in [rois] that produced landmarks (observable through [isTracking]).
   List<FaceMeshResult> processRois(
     FaceMeshImage image, {
     required List<NormalizedRect> rois,
