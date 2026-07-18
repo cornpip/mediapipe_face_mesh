@@ -32,7 +32,8 @@ migrate_working_dir/
 /build/
 /coverage/
 .codex
-/.claude
+/.claude/*
+!/.claude/skills/
 SECRET_AGENTS_RULE.md
 
 # Example build artifacts
