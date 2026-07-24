@@ -10,9 +10,9 @@ environment:
 topics:
   - mediapipe
   - face-mesh
-  - litert
+  - face-detection
+  - face-landmark
   - tflite
-  - ffi
 
 dependencies:
   flutter:
