@@ -9,20 +9,29 @@ import 'package:mediapipe_face_mesh/face_detection_painter.dart';
 import 'package:mediapipe_face_mesh/face_mesh_painter.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-import 'utils/face_mesh_camera_image_adapter.dart';
+import 'sources/camera_frame_source.dart';
+import 'sources/frame_source.dart';
+import 'sources/uvc_frame_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Windows frames come from a USB (UVC) camera; the camera plugin has no
+  // image stream there and orientation control only exists on mobile
+  // embedders.
+  if (Platform.isWindows) {
+    runApp(MyApp(frameSource: UvcFrameSource()));
+    return;
+  }
   // The demo UI (preview layout and overlay mapping) assumes portrait.
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final List<CameraDescription> cameras = await availableCameras();
-  runApp(MyApp(cameras: cameras));
+  runApp(MyApp(frameSource: CameraFrameSource(cameras)));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, required this.cameras});
+  const MyApp({super.key, required this.frameSource});
 
-  final List<CameraDescription> cameras;
+  final DemoFrameSource frameSource;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +41,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: MediaPipeFacePage(cameras: cameras),
+      home: MediaPipeFacePage(frameSource: frameSource),
     );
   }
 }
@@ -170,9 +179,9 @@ class _StageInputControllers {
 }
 
 class MediaPipeFacePage extends StatefulWidget {
-  const MediaPipeFacePage({super.key, required this.cameras});
+  const MediaPipeFacePage({super.key, required this.frameSource});
 
-  final List<CameraDescription> cameras;
+  final DemoFrameSource frameSource;
 
   @override
   State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
@@ -203,22 +212,13 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   static const String _shortRangeModel = 'short_range';
   static const String _fullRangeDenseModel = 'full_range_dense';
   static const String _fullRangeSparseModel = 'full_range_sparse';
-  static const Map<DeviceOrientation, int> _deviceOrientationDegrees = {
-    DeviceOrientation.portraitUp: 0,
-    DeviceOrientation.landscapeLeft: 90,
-    DeviceOrientation.portraitDown: 180,
-    DeviceOrientation.landscapeRight: 270,
-  };
 
-  CameraController? _cameraController;
+  DemoFrameSource get _frameSource => widget.frameSource;
   String? _errorMessage;
   bool _isInitializing = true;
   bool _isCameraActive = false;
   bool _isCameraBusy = false;
   bool _isChangingCamera = false;
-  int _currentCameraIndex = 0;
-  int? _backCameraIndex;
-  int? _frontCameraIndex;
   bool _isDetectionActive = false;
   bool _isMeshActive = false;
   bool _isProcessingFrame = false;
@@ -246,7 +246,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   StreamSubscription<Object>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
-  _MeshMode _meshMode = _MeshMode.attention;
+  // The attention model needs MediaPipe custom TFLite ops, which the bundled
+  // Windows runtime does not include — default to the iris two-pass there.
+  _MeshMode _meshMode = Platform.isWindows
+      ? _MeshMode.iris
+      : _MeshMode.attention;
   bool _isMultiFaceActive = false;
   static const int _maxMeshFaces = 4;
   final ScrollController _controlsScrollController = ScrollController();
@@ -255,16 +259,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _frameSource.onFrame = _handleSourceFrame;
+    _frameSource.addListener(_onFrameSourceChanged);
     _initialize();
+  }
+
+  void _onFrameSourceChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _initialize() async {
     try {
-      if (widget.cameras.isEmpty) {
-        throw StateError('No available cameras on this device.');
-      }
-      _resolveCameraIndices();
-
       _faceDetectorProcessor = await _createFaceDetectorProcessor();
 
       final faceMeshProcessor = await _createFaceMeshProcessor(
@@ -305,28 +312,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       }
     }
   }
-
-  void _resolveCameraIndices() {
-    _backCameraIndex = _preferredCameraIndex(CameraLensDirection.back);
-    _frontCameraIndex = _preferredCameraIndex(CameraLensDirection.front);
-    if (_backCameraIndex != null) {
-      _currentCameraIndex = _backCameraIndex!;
-    } else if (_frontCameraIndex != null) {
-      _currentCameraIndex = _frontCameraIndex!;
-    }
-  }
-
-  int? _preferredCameraIndex(CameraLensDirection direction) {
-    int? result;
-    for (var i = 0; i < widget.cameras.length; i++) {
-      if (widget.cameras[i].lensDirection == direction) {
-        result ??= i;
-      }
-    }
-    return result;
-  }
-
-  CameraDescription get _currentCamera => widget.cameras[_currentCameraIndex];
 
   FaceDetectionModel _faceDetectionModelForSelection(String value) {
     switch (value) {
@@ -420,65 +405,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  Future<bool> _initializeCamera(CameraDescription description) async {
-    final previousController = _cameraController;
-    if (previousController != null) {
-      if (previousController.value.isStreamingImages) {
-        await previousController.stopImageStream();
-      }
-      if (mounted) {
-        setState(() => _cameraController = null);
-      } else {
-        _cameraController = null;
-      }
-      await previousController.dispose();
+  Future<bool> _startFrameSource() async {
+    _clearCameraFps();
+    _stopInferenceStream();
+    _clearDetections();
+    _frameSource.lastError = null;
+    final bool started = await _frameSource.start();
+    if (!started) {
+      _errorMessage = _frameSource.lastError ?? 'Failed to start the camera.';
     }
-
-    final controller = CameraController(
-      description,
-      ResolutionPreset.veryHigh,
-      enableAudio: false,
-      imageFormatGroup: Platform.isIOS
-          ? ImageFormatGroup.bgra8888
-          : ImageFormatGroup.nv21,
-    );
-    _cameraController = controller;
-
-    try {
-      await controller.initialize();
-      _clearCameraFps();
-      _stopInferenceStream();
-      _clearDetections();
-      await _startImageStreamIfNeeded();
-      if (mounted) {
-        setState(() {});
-      }
-      return true;
-    } on CameraException catch (error) {
-      await controller.dispose();
-      _cameraController = null;
-      _errorMessage = 'Camera error: ${error.description ?? error.code}';
-      if (mounted) {
-        setState(() {});
-      }
-      return false;
-    } catch (error) {
-      await controller.dispose();
-      _cameraController = null;
-      _errorMessage = 'Camera stream error: $error';
-      if (mounted) {
-        setState(() {});
-      }
-      return false;
+    if (mounted) {
+      setState(() {});
     }
-  }
-
-  Future<void> _startImageStreamIfNeeded() async {
-    final controller = _cameraController;
-    if (controller == null || controller.value.isStreamingImages) {
-      return;
-    }
-    await controller.startImageStream(_processCameraImage);
+    return started;
   }
 
   void _updateCameraFps(DateTime timestamp) {
@@ -531,7 +470,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _isProcessingFrame = false;
   }
 
-  void _ensureInferenceStageReady({required int rotationDegrees}) {
+  void _ensureInferenceStageReady({
+    required int rotationDegrees,
+    required bool nv21,
+  }) {
     if (_inferenceStreamSubscription != null &&
         _inferenceStreamRotation == rotationDegrees) {
       return;
@@ -542,7 +484,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _faceMeshInferencePipeline.resetTracking();
     _inferenceStreamRotation = rotationDegrees;
 
-    if (Platform.isAndroid) {
+    if (nv21) {
       _inferenceStageInput.nv21Controller =
           StreamController<FaceMeshNv21Image>();
       final Stream<FaceMeshNv21Image> frames =
@@ -566,7 +508,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                   rotationDegrees: rotationDegrees,
                 )
                 .listen(_handleInferenceResult, onError: _handleInferenceError);
-    } else if (Platform.isIOS) {
+    } else {
       _inferenceStageInput.bgraController = StreamController<FaceMeshImage>();
       final Stream<FaceMeshImage> frames =
           _inferenceStageInput.bgraController!.stream;
@@ -696,14 +638,14 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) {
+    // Desktop windows report inactive whenever they lose focus; only mobile
+    // camera sources need the release/reacquire dance.
+    if (!_frameSource.supportsLifecyclePause || !_frameSource.isReady) {
       return;
     }
 
     if (state == AppLifecycleState.inactive) {
       void reset() {
-        _cameraController = null;
         _isCameraActive = false;
         _isDetectionActive = false;
         _isMeshActive = false;
@@ -718,18 +660,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       } else {
         reset();
       }
-      controller.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      if (_isCameraActive) {
-        _initializeCamera(_currentCamera);
-      }
+      _frameSource.stop();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _cameraController?.dispose();
+    _frameSource.onFrame = null;
+    _frameSource.removeListener(_onFrameSourceChanged);
+    _frameSource.dispose();
     _stopInferenceStream();
     _faceDetectorProcessor.close();
     _faceMeshProcessor.close();
@@ -740,9 +680,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   @override
   Widget build(BuildContext context) {
-    final controller = _cameraController;
-    final isCameraAvailable =
-        _isCameraActive && controller != null && controller.value.isInitialized;
+    final isCameraAvailable = _isCameraActive && _frameSource.isReady;
 
     return Scaffold(
       appBar: AppBar(
@@ -767,6 +705,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                         controller: _controlsScrollController,
                         child: Column(
                           children: [
+                            ..._buildSourceSelectors(),
                             _buildModelSelector(),
                             _buildMeshModelSelector(),
                             _buildMultiFaceSwitch(),
@@ -796,22 +735,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Widget _buildCameraPreview(bool isCameraAvailable) {
-    final controller = _cameraController;
-    final isControllerReady = controller?.value.isInitialized == true;
-    final previewSize = isControllerReady
-        ? controller!.value.previewSize
-        : null;
-    // Native sensor ratio (landscape sensor → height/width < 1).
-    final nativeAspectRatio = (previewSize != null && previewSize.width != 0)
-        ? previewSize.height / previewSize.width
-        : 3 / 4;
+    final nativeAspectRatio = _frameSource.nativeAspectRatio;
+    final displayAspectRatio = _frameSource.displayAspectRatio;
+    final mirror = _frameSource.mirrorHorizontal;
     final fpsText =
         'Cam: ${_cameraFps > 0 ? _cameraFps.toStringAsFixed(1) : '--'} fps';
 
     return Builder(
       builder: (context) {
-        final displayWidth = MediaQuery.of(context).size.width * 0.9;
-        const displayAspectRatio = 3 / 4;
+        final Size screen = MediaQuery.of(context).size;
+        // Cap by height too so wide desktop windows keep room for controls.
+        final displayWidth = math.min(
+          screen.width * 0.9,
+          screen.height * 0.55 * displayAspectRatio,
+        );
         // Inner SizedBox keeps the camera's native ratio so it renders correctly.
         final nativeHeight = displayWidth / nativeAspectRatio;
 
@@ -832,8 +769,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (isCameraAvailable && controller != null)
-                            CameraPreview(controller)
+                          if (isCameraAvailable)
+                            _frameSource.buildPreview()
                           else
                             Container(
                               color: Colors.black12,
@@ -843,17 +780,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                 style: TextStyle(color: Colors.black54),
                               ),
                             ),
-                          if (isCameraAvailable &&
-                              controller != null &&
-                              _detectionResult != null)
+                          if (isCameraAvailable && _detectionResult != null)
                             RepaintBoundary(
                               child: CustomPaint(
                                 painter: FaceDetectionPainter(
                                   result: _detectionResult!,
-                                  mirrorHorizontal:
-                                      !Platform.isIOS &&
-                                      controller.description.lensDirection ==
-                                          CameraLensDirection.front,
+                                  mirrorHorizontal: mirror,
                                   showConfidence: false,
                                   showFaceBox: false,
                                   showRoiBox: true,
@@ -861,22 +793,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                               ),
                             ),
                           if (isCameraAvailable &&
-                              controller != null &&
                               _trackedRoiOverlays.isNotEmpty)
                             RepaintBoundary(
                               child: CustomPaint(
                                 painter: _TrackedRoiPainter(
                                   overlays: _trackedRoiOverlays,
-                                  mirrorHorizontal:
-                                      !Platform.isIOS &&
-                                      controller.description.lensDirection ==
-                                          CameraLensDirection.front,
+                                  mirrorHorizontal: mirror,
                                 ),
                               ),
                             ),
-                          if (isCameraAvailable &&
-                              controller != null &&
-                              _meshResult != null)
+                          if (isCameraAvailable && _meshResult != null)
                             RepaintBoundary(
                               child: IgnorePointer(
                                 child: CustomPaint(
@@ -886,17 +812,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                     scaleWithFace: true,
                                     rotationDegrees:
                                         _meshRotationCompensation ?? 0,
-                                    mirrorHorizontal:
-                                        !Platform.isIOS &&
-                                        controller.description.lensDirection ==
-                                            CameraLensDirection.front,
+                                    mirrorHorizontal: mirror,
                                   ),
                                 ),
                               ),
                             ),
-                          if (isCameraAvailable &&
-                              controller != null &&
-                              _multiFaces.isNotEmpty)
+                          if (isCameraAvailable && _multiFaces.isNotEmpty)
                             RepaintBoundary(
                               child: IgnorePointer(
                                 child: CustomPaint(
@@ -908,10 +829,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                                     ],
                                     irisDotRadius: 2,
                                     scaleWithFace: true,
-                                    mirrorHorizontal:
-                                        !Platform.isIOS &&
-                                        controller.description.lensDirection ==
-                                            CameraLensDirection.front,
+                                    mirrorHorizontal: mirror,
                                   ),
                                 ),
                               ),
@@ -1070,6 +988,65 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     );
   }
 
+  /// Source-provided chip filters and dropdowns (UVC format filter, device
+  /// and camera mode on Windows), styled like the model selectors below.
+  /// Empty for the mobile camera source.
+  List<Widget> _buildSourceSelectors() {
+    return [
+      for (final FrameSourceTagFilter filter in _frameSource.tagFilters)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: 8,
+              children: [
+                for (var i = 0; i < filter.options.length; i++)
+                  ChoiceChip(
+                    label: Text(filter.options[i]),
+                    selected: filter.selectedIndex == i,
+                    onSelected: _isCameraBusy
+                        ? null
+                        : (_) => filter.onSelect(i),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      for (final FrameSourceSelector selector in _frameSource.selectors)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: DropdownButtonFormField<int>(
+            value: selector.selectedIndex >= 0 ? selector.selectedIndex : null,
+            isDense: true,
+            isExpanded: true,
+            borderRadius: BorderRadius.circular(12),
+            style: _selectorTextStyle,
+            icon: const Icon(Icons.expand_more_rounded, size: 20),
+            decoration: _selectorDecoration(selector.label),
+            items: [
+              for (var i = 0; i < selector.options.length; i++)
+                DropdownMenuItem<int>(
+                  value: i,
+                  child: Text(
+                    selector.options[i],
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: _isCameraBusy
+                ? null
+                : (index) {
+                    if (index == null || index == selector.selectedIndex) {
+                      return;
+                    }
+                    selector.onSelect(index);
+                  },
+          ),
+        ),
+    ];
+  }
+
   Widget _buildModelSelector() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
@@ -1116,10 +1093,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         decoration: _selectorDecoration('Mesh Model'),
         items: [
           for (final _MeshMode mode in _MeshMode.values)
-            DropdownMenuItem<_MeshMode>(
-              value: mode,
-              child: Text(mode.label),
-            ),
+            // Attention needs custom TFLite ops the Windows runtime lacks.
+            if (!(Platform.isWindows && mode.enableAttention))
+              DropdownMenuItem<_MeshMode>(
+                value: mode,
+                child: Text(mode.label),
+              ),
         ],
         onChanged: _isCameraBusy
             ? null
@@ -1132,9 +1111,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Widget _buildControlButtons() {
-    final controller = _cameraController;
-    final isControllerReady =
-        controller != null && controller.value.isInitialized;
+    final isControllerReady = _frameSource.isReady;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1212,7 +1189,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed:
-                      (widget.cameras.length < 2 ||
+                      (!_frameSource.canSwitch ||
                           _isChangingCamera ||
                           _isCameraBusy ||
                           !_isCameraActive ||
@@ -1312,7 +1289,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       });
     }
     try {
-      final initialized = await _initializeCamera(_currentCamera);
+      final initialized = await _startFrameSource();
       if (mounted) {
         setState(() => _isCameraActive = initialized);
       } else {
@@ -1328,7 +1305,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Future<void> _stopCamera() async {
-    final controller = _cameraController;
     void reset() {
       _isCameraActive = false;
       _isDetectionActive = false;
@@ -1339,7 +1315,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _clearDetections();
     }
 
-    if (controller == null || !_isCameraActive) {
+    if (!_isCameraActive) {
       if (mounted) {
         setState(reset);
       } else {
@@ -1356,13 +1332,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _isCameraBusy = true;
       reset();
     }
-    _cameraController = null;
 
     try {
-      if (controller.value.isStreamingImages) {
-        await controller.stopImageStream();
-      }
-      await controller.dispose();
+      await _frameSource.stop();
     } catch (error) {
       _errorMessage ??= '$error';
     } finally {
@@ -1375,35 +1347,27 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Future<void> _switchCamera() async {
-    if (widget.cameras.length < 2 ||
+    if (!_frameSource.canSwitch ||
         _isChangingCamera ||
         _isCameraBusy ||
         !_isCameraActive) {
       return;
     }
 
-    final currentLens = _currentCamera.lensDirection;
-    final nextIndex = currentLens == CameraLensDirection.back
-        ? (_frontCameraIndex ?? _backCameraIndex)
-        : (_backCameraIndex ?? _frontCameraIndex);
-
-    if (nextIndex == null || nextIndex == _currentCameraIndex) {
-      return;
-    }
-
     if (mounted) {
-      setState(() {
-        _isChangingCamera = true;
-        _currentCameraIndex = nextIndex;
-      });
+      setState(() => _isChangingCamera = true);
     } else {
       _isChangingCamera = true;
-      _currentCameraIndex = nextIndex;
     }
 
+    _stopInferenceStream();
+    _clearDetections();
+    _clearCameraFps();
+
     try {
-      final initialized = await _initializeCamera(widget.cameras[nextIndex]);
+      final initialized = await _frameSource.switchSource();
       if (!initialized) {
+        _errorMessage ??= _frameSource.lastError;
         if (mounted) {
           setState(() => _isCameraActive = false);
         } else {
@@ -1419,26 +1383,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  void _processCameraImage(CameraImage cameraImage) {
+  void _handleSourceFrame(DemoFrame frame) {
     if (_isProcessingFrame) {
       return;
     }
     _updateCameraFps(DateTime.now());
-    if (_cameraController == null || !_isCameraActive || !_isDetectionActive) {
+    if (!_frameSource.isReady || !_isCameraActive || !_isDetectionActive) {
       return;
     }
-    _handleCameraFrame(cameraImage, _cameraController!);
-  }
-
-  void _handleCameraFrame(
-    CameraImage cameraImage,
-    CameraController controller,
-  ) {
     try {
-      _pushFrameToDetectionStage(
-        cameraImage: cameraImage,
-        controller: controller,
-      );
+      _pushFrameToDetectionStage(frame);
     } catch (error) {
       if (mounted) {
         setState(() => _errorMessage ??= '$error');
@@ -1452,41 +1406,39 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return mounted && _isCameraActive && _isDetectionActive;
   }
 
-  void _pushFrameToDetectionStage({
-    required CameraImage cameraImage,
-    required CameraController controller,
-  }) {
-    final rotationCompensation = _rotationCompensationDegrees(
-      controller: controller,
-    );
+  void _pushFrameToDetectionStage(DemoFrame frame) {
+    final rotationCompensation = _frameSource.rotationCompensationDegrees;
     if (rotationCompensation == null) {
       return;
     }
 
-    if (Platform.isAndroid) {
-      final nv21Image = FaceMeshCameraImageAdapter.toNv21(cameraImage);
-      if (nv21Image == null) {
-        return;
-      }
-      _ensureInferenceStageReady(rotationDegrees: rotationCompensation);
+    final FaceMeshNv21Image? nv21Image = frame.nv21;
+    if (nv21Image != null) {
+      _ensureInferenceStageReady(
+        rotationDegrees: rotationCompensation,
+        nv21: true,
+      );
       final controller = _inferenceStageInput.nv21Controller;
       if (controller == null || controller.isClosed) {
         return;
       }
       _isProcessingFrame = true;
       controller.add(nv21Image);
-    } else if (Platform.isIOS) {
-      final bgraImage = FaceMeshCameraImageAdapter.toBgra(cameraImage);
-      if (bgraImage == null) {
-        return;
-      }
-      _ensureInferenceStageReady(rotationDegrees: rotationCompensation);
+      return;
+    }
+
+    final FaceMeshImage? image = frame.image;
+    if (image != null) {
+      _ensureInferenceStageReady(
+        rotationDegrees: rotationCompensation,
+        nv21: false,
+      );
       final controller = _inferenceStageInput.bgraController;
       if (controller == null || controller.isClosed) {
         return;
       }
       _isProcessingFrame = true;
-      controller.add(bgraImage);
+      controller.add(image);
     }
   }
 
@@ -1512,29 +1464,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  int? _rotationCompensationDegrees({required CameraController controller}) {
-    if (Platform.isAndroid) {
-      final deviceRotation =
-          _deviceOrientationDegrees[controller.value.deviceOrientation];
-      if (deviceRotation == null) {
-        return null;
-      }
-      if (_currentCamera.lensDirection == CameraLensDirection.front) {
-        return (_currentCamera.sensorOrientation + deviceRotation) % 360;
-      }
-      return (_currentCamera.sensorOrientation - deviceRotation + 360) % 360;
-    }
-    if (Platform.isIOS) {
-      return _deviceOrientationDegrees[controller.value.deviceOrientation];
-    }
-    return null;
-  }
-
   Future<void> _toggleDetection() async {
-    final controller = _cameraController;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _isCameraBusy) {
+    if (!_frameSource.isReady || _isCameraBusy) {
       return;
     }
 
@@ -1553,7 +1484,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
 
     try {
-      await _startImageStreamIfNeeded();
+      await _frameSource.ensureFrames();
       if (mounted) {
         setState(() {
           _isDetectionActive = true;
@@ -1563,22 +1494,15 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _isDetectionActive = true;
         _clearDetections();
       }
-    } on CameraException catch (error) {
+    } catch (error) {
       if (mounted) {
-        setState(
-          () => _errorMessage =
-              'Detection start error: ${error.description ?? error.code}',
-        );
+        setState(() => _errorMessage = 'Detection start error: $error');
       }
     }
   }
 
   Future<void> _toggleMesh() async {
-    if (_isCameraBusy) {
-      return;
-    }
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) {
+    if (_isCameraBusy || !_frameSource.isReady) {
       return;
     }
 

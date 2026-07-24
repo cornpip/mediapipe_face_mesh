@@ -1,6 +1,6 @@
 name: mediapipe_face_mesh
-description: "Real-time MediaPipe face detection, face mesh and iris tracking, ARKit-style face blendshapes, and 3D face geometry with head pose for Flutter on Android and iOS."
-version: 2.2.0
+description: "Real-time MediaPipe face mesh for Flutter — 478 landmarks with iris, multi-face tracking, ARKit-style blendshapes, and 3D head pose."
+version: 2.3.0
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:
@@ -31,6 +31,8 @@ flutter:
       android:
         ffiPlugin: true
       ios:
+        ffiPlugin: true
+      windows:
         ffiPlugin: true
 
   assets:

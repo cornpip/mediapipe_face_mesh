@@ -126,6 +126,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_ffi_uvc:
+    dependency: "direct main"
+    description:
+      name: flutter_ffi_uvc
+      sha256: "21d0d782bf6afa86d4f81212b6fc43953631ee9bb1cafb37bfd8fb34bfbef22d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.8.1"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -214,7 +222,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "2.2.0"
+    version: "2.3.0"
   meta:
     dependency: transitive
     description:

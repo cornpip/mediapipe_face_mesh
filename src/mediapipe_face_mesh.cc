@@ -1703,7 +1703,7 @@ class FaceMeshContext {
     const float dx = end_x - start_x;
     const float dy = end_y - start_y;
     const float distance = std::sqrt(dx * dx + dy * dy);
-    MpNormalizedRect rect;
+    MpNormalizedRect rect{};
     if (distance < 1.0f || width <= 0 || height <= 0) {
       return rect;
     }

@@ -1,25 +1,19 @@
 # mediapipe_face_mesh
 
 Bundled files:
-- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`) and iOS,
-  built with the MediaPipe custom ops the attention mesh model needs
+- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS,
+  and Windows (`x64`)
 - Model Source
   - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
-    - face mesh
-    - face mesh with attention
-    - iris
-    - short-range face detection
-    - full-range dense and sparse face detection
   - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
-    - face_blendshapes
 
-<img src="./readme_img/44.png" alt="app_image_2" width="300"/>
 <img src="./readme_img/22.png" alt="app_image_2" width="300"/> <img src="./readme_img/33.png" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 
 - Android(arm64-v8a, x86_64)
 - iOS
+- Windows(x64) — attention mesh not supported yet (support planned)
 - Dart SDK: `>=3.8.1 <4.0.0`
 - Android minSdk: `24`
 
@@ -45,14 +39,6 @@ final faceDetectorProcessor = await FaceDetectorProcessor.create(
 `FaceDetectionModel` selects the bundled detector model:
 `shortRange` is the default short-range BlazeFace model, `fullRange` is the
 dense full-range model, and `fullRangeSparse` is the sparse full-range model.
-
-Optional ROI options (`roiScaleX`, `roiScaleY`, `roiShiftX`, `roiShiftY`)
-control how the detected face box is expanded and shifted into
-`expandedFaceRect` — the region the face mesh looks at. The defaults match
-the official face mesh pipeline, and since the pipeline tracks the face after
-the first detection (see [Landmark tracking](#landmark-tracking)), these
-options apply only when a face is (re)acquired and can usually be left at
-their defaults.
 
 ### Create Face Mesh Processor
 
@@ -90,6 +76,9 @@ It returns the same 478-landmark layout as `enableIris`, so anything that
 consumes those landmarks keeps working — in one inference instead of the base
 mesh plus a separate iris pass. If you set both, `enableIris` is ignored.
 
+Windows — `create` throws an `UnsupportedError`. Use `enableIris` there
+instead. Windows support for the attention model is planned.
+
 Delegate options:
 - `FaceMeshDelegate.cpu` (default)
 - `FaceMeshDelegate.xnnpack`
@@ -110,7 +99,8 @@ The package supports two image input types:
 - `FaceMeshNv21Image`
   Use this for Android camera frames in NV21 layout.
 - `FaceMeshImage`
-  Use this for RGBA or BGRA buffers. This is used for iOS camera frames.
+  Use this for RGBA or BGRA buffers — iOS camera frames, desktop/USB (UVC)
+  camera frames, or any decoded image.
 
 On Android, camera frame streams are commonly delivered as YUV420-family buffers
 in layouts such as single-plane NV21, Y + interleaved VU, or YUV420 Y/U/V
@@ -131,6 +121,7 @@ final pipeline = FaceMeshInferencePipeline(
 final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 final frameController = StreamController<FaceMeshNv21Image>();
 bool _isBusy = false;
+bool _isMeshActive = true; // e.g. driven by a UI toggle
 
 inferenceStreamProcessor
     .processNv21(
@@ -161,30 +152,22 @@ Use `runMesh: false` when an entire stream should run detector-only. Use
 `runMeshResolver` when mesh execution should be decided per frame, such as a UI
 toggle that can change while the stream is active.
 
+`rotationDegrees` is fixed per subscription — when the camera rotation (or the
+input source) changes, re-subscribe with the new value; see the example app
+for a complete flow.
+
 For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
 
 #### Landmark tracking
 
-By default, `FaceMeshInferencePipeline` runs the detector only when it needs to
-acquire or re-acquire a face. Once tracking starts, mesh inference uses an ROI
-derived from the previous frame's landmarks, so tracked frames skip detection.
-On those frames, `FaceMeshInferenceResult.detectionResult` is null and
-`selectedRoi` contains the tracked ROI.
-
-Pass `enableLandmarkTracking: false` to `FaceMeshInferencePipeline` to run the
-detector on every frame. Landmark tracking also requires the mesh processor's
-default `enableRoiTracking: true`.
-
-`detectorRoi` and detector ROI scale/shift options apply only to acquisition
-frames. When switching input sources, call `resetTracking()` so the next frame
-re-acquires the face instead of reusing the previous stream's tracked ROI.
-
-When a tracked face's mesh presence score falls below the mesh processor's
-`minTrackingConfidence`, the tracked ROI is dropped — matching the official
-graph — and the pipeline re-acquires the face via the detector on the next
-frame. `FaceMeshProcessor.isTracking` reports whether the processor's internal
-ROI is currently following a face; it is always false when the processor was
-created with `enableRoiTracking: false`.
+By default, `FaceMeshInferencePipeline` runs the detector only to acquire or
+re-acquire a face; tracked frames reuse an ROI derived from the previous
+frame's landmarks and report `detectionResult` as null. When the face is lost
+(mesh presence below `minTrackingConfidence`), the detector re-acquires it on
+the next frame — `FaceMeshProcessor.isTracking` reports the current state.
+Pass `enableLandmarkTracking: false` to run the detector on every frame, and
+call `resetTracking()` when switching input sources so the next frame does not
+reuse the previous stream's ROI.
 
 For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
 
@@ -209,15 +192,7 @@ if (meshResult != null) {
 }
 ```
 
-For detector-only, set `runMesh: false`.
-
-```dart
-final result = pipeline.processNv21(
-  nv21Image,
-  runMesh: false,
-  rotationDegrees: rotationDegrees,
-);
-```
+For detector-only inference, pass `runMesh: false`.
 
 ### Geometry and Measurements
 
@@ -230,7 +205,7 @@ final pixelDistance = meshResult.distancePixels(33, 263);
 
 // 3D geometry estimation (native call — one per frame is typical)
 final geometry = meshResult.estimateGeometry();
-// Pass actual camera FOV for more accurate centimeter estimates (default: 63°)                                                                                                                                                                                                                                   
+// Pass actual camera FOV for more accurate centimeter estimates (default: 63°)
 // final geometry = meshResult.estimateGeometry(verticalFovDegrees: 72.0);
 
 // Head pose: yaw (left/right), pitch (up/down), roll (tilt)
@@ -244,9 +219,9 @@ final eyeDistanceCm = geometry.distanceCm(33, 263);
 // faceWidth        234 ↔ 454  cheek-to-cheek
 // faceHeight        10 ↔ 152  forehead-to-chin
 // eyeOuterDistance  33 ↔ 263  outer eye corners
-// eyeInnerDistance 133 ↔ 362  inner eye corners                                                                                                                                                                                                                                                
-// interpupillaryDistance 468 ↔ 473  pupils (iris only, else null)                                                                                                                                                                                                                                  
-// mouthWidth        61 ↔ 291                                                                                                                                                                                                                                                                                     
+// eyeInnerDistance 133 ↔ 362  inner eye corners
+// interpupillaryDistance 468 ↔ 473  pupils (iris only, else null)
+// mouthWidth        61 ↔ 291
 // noseWidth         98 ↔ 327 
 final measurements = geometry.measurements;
 final faceWidthCm = measurements.faceWidth.valueCm;
@@ -261,70 +236,43 @@ To look up landmark indices visually, use https://cornpip.github.io/mediapipe_la
 ### Face Blendshapes
 
 Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
-smile, etc.) — useful for avatars, Animoji-style effects, AR filters, and
-expression detection. They are optional: create a `FaceBlendshapesProcessor`
-once (it loads the model), then run it on each `FaceMeshResult` to get the
-coefficients. The mesh must be created with `enableIris: true` or
-`enableAttentionMesh: true`, since the model reads the iris landmarks.
+smile, etc.) — useful for avatars, AR filters, and expression detection.
+Requires a mesh created with `enableIris: true` or `enableAttentionMesh: true`,
+since the model reads the iris landmarks.
 
 ```dart
 final blendshapesProcessor = await FaceBlendshapesProcessor.create(
   delegate: FaceMeshDelegate.xnnpack,
 );
-```
 
-Call `process` on a `FaceMeshResult` to get the coefficients as a
-`Map<FaceBlendshape, double>` with values in `[0, 1]`. It returns null when the
-result has no landmarks (no face was present in the frame).
-
-```dart
-if (meshResult != null) {
-  final blendshapes = blendshapesProcessor.process(meshResult);
-  if (blendshapes != null) {
-    final smile = (blendshapes[FaceBlendshape.mouthSmileLeft]! +
-            blendshapes[FaceBlendshape.mouthSmileRight]!) /
-        2;
-    if (smile > 0.5) {
-      // smiling
-    }
+// Map<FaceBlendshape, double> with values in [0, 1];
+// null when the frame had no face.
+final blendshapes = blendshapesProcessor.process(meshResult);
+if (blendshapes != null) {
+  final smile = (blendshapes[FaceBlendshape.mouthSmileLeft]! +
+          blendshapes[FaceBlendshape.mouthSmileRight]!) /
+      2;
+  if (smile > 0.5) {
+    // smiling
   }
 }
 ```
 
-`process` throws an `ArgumentError` if the mesh has fewer than 478 landmarks
-(created without `enableIris` or `enableAttentionMesh`). Use `activeDelegate` to inspect the delegate selected
-after fallback. 
-
-Call `close()` to release the `FaceBlendshapesProcessor` when you
-no longer need it.
+Call `close()` when the processor is no longer needed.
 
 ### Multi-Face Inference
 
-Multi-face inference tracks each face across frames. Each tracked face runs mesh
-inference on an ROI derived from its previous landmarks, and the detector runs
-only while fewer than `maxMeshFaces` faces are tracked. Each face keeps a stable
-`trackId` while it is tracked, and a face is dropped — freeing its slot for
-detector re-acquisition — when its mesh presence score falls below the mesh
-processor's `minTrackingConfidence`.
-
-Use `maxResults` on the detector to control how many faces a detection pass can
-return, and `maxMeshFaces` to bound how many faces are tracked simultaneously.
-
-The mesh inferences for a frame run through one batched native call, so the
-frame is copied into native memory once per frame regardless of how many faces
-are tracked.
-
-Create the mesh processor with `createForMultiFace(...)`, which disables native
-single-ROI tracking and smoothing for multi-face use.
+Multi-face inference tracks each face across frames with a stable `trackId`;
+the detector runs only while fewer than `maxMeshFaces` faces are tracked, and
+each frame's mesh inferences run through one batched native call regardless of
+face count. Create the mesh processor with `createForMultiFace(...)`, which
+disables native single-ROI tracking and smoothing for multi-face use.
 
 ```dart
 final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
   delegate: FaceMeshDelegate.xnnpack,
   enableIris: true,
 );
-```
-
-```dart
 final faceDetectorProcessor = await FaceDetectorProcessor.create(
   delegate: FaceMeshDelegate.xnnpack,
   maxResults: 4,
@@ -357,24 +305,15 @@ void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
 ```
 
 For BGRA / RGBA input, use `processMultiFace(...)` instead of
-`processNv21MultiFace(...)`.
+`processNv21MultiFace(...)`. For single-frame multi-face inference, call
+`pipeline.processNv21MultiFace(...)` directly.
 
-For single-frame multi-face inference, call the pipeline directly.
+### Using an External Face Detector
 
-```dart
-final FaceMeshMultiInferenceResult result = pipeline.processNv21MultiFace(
-  nv21Image,
-  maxMeshFaces: 4,
-  rotationDegrees: rotationDegrees,
-);
-
-final List<TrackedFaceMesh> faces = result.faces;
-```
-
-If you manage face ROIs yourself instead of using the pipeline,
-`processRois(...)` / `processNv21Rois(...)` expose the same batched path
-directly: one mesh inference per ROI on a single frame upload, returning one
-`FaceMeshResult` per ROI in input order.
+The bundled detector is optional. If you already use another face detector
+(e.g. ML Kit), pass its face box to `FaceMeshProcessor.process(...)` or
+`processNv21(...)` as a `FaceMeshBox` or `NormalizedRect` and skip
+`FaceDetectorProcessor` entirely.
 
 ### Close Resource
 
@@ -387,11 +326,5 @@ faceMeshProcessor.close();
 
 ## Example app
 
-The example app in `example/` uses the bundled MediaPipe face detector with
-MediaPipe Face Mesh. The `Multi` toggle switches it to the multi-face tracking
-flow, rendering every tracked face's mesh and ROI with its `trackId` label.
-
-If you already use another face detector, pass its face box to
-`FaceMeshProcessor.process(...)` or `processNv21(...)` as a `FaceMeshBox` or
-`NormalizedRect`. For an older ML Kit detector integration example, see the
-[v1.10.1 ML Kit example](https://github.com/cornpip/mediapipe_face_mesh/blob/v1.10.1/example/lib/page/mediapipe_face/mediapipe_face_page_mlkit.dart).
+A demo app lives in the `example/` directory at the root of this
+repository.

@@ -1,3 +1,17 @@
+## 2.3.0
+
+- add Windows (x64) desktop support: the same native pipeline (detector, mesh,
+  iris, blendshapes, geometry) now builds and runs on Windows via the Flutter
+  Windows CMake toolchain
+  - `enableAttentionMesh` is not supported on Windows — `create` throws an
+    `UnsupportedError` there
+  - GPU delegate (`FaceMeshDelegate.gpuV2`) is not available on Windows; the
+    existing delegate fallback resolves to CPU/XNNPACK
+  - the example app gains a Windows live demo using a USB (UVC) camera via
+    `flutter_ffi_uvc`, feeding its RGBA frames straight into `FaceMeshImage`
+- fix: `IrisRectFromEyeCorners` returned an uninitialized rect on a degenerate
+  eye distance, which could bypass the invalid-ROI check with garbage values
+
 ## 2.2.0
 
 - align tracking-confidence semantics with the official graph: when a tracked
