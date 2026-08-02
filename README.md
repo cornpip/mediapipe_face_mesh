@@ -171,6 +171,32 @@ reuse the previous stream's ROI.
 
 For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
 
+#### Landmark smoothing
+
+Landmarks are re-inferred every frame, so they jitter slightly even on a
+still face. Pass `landmarkSmoothing` to smooth output landmarks across
+frames with a OneEuro filter, matching the official MediaPipe FaceLandmarker
+stream-mode behavior:
+
+```dart
+final pipeline = FaceMeshInferencePipeline(
+  detector: faceDetectorProcessor,
+  mesh: faceMeshProcessor,
+  landmarkSmoothing: const LandmarkSmoothingOptions(), // official defaults
+);
+```
+
+The filter adapts to motion: a still face is smoothed strongly while fast
+head movement passes through with almost no lag. Enabling it changes only
+the returned landmarks — detection and tracking behave exactly as before.
+In the multi-face flow each tracked face is smoothed independently.
+
+Frame timestamps default to an internal clock; pass `timestamp` to the
+process methods when replaying recorded video. Tune the
+stillness-vs-responsiveness trade-off with `LandmarkSmoothingOptions`
+(`minCutoff`, `beta`), or use `FaceLandmarkSmoother` directly when driving
+`FaceMeshProcessor` without the pipeline.
+
 ### Single Inference
 
 Use single-frame inference in one call without a stream processor.

@@ -6,6 +6,9 @@ import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
 import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
 import 'src/native_bindings_loader.dart';
+import 'src/one_euro_filter.dart';
+
+export 'src/one_euro_filter.dart';
 
 part 'src/native_converters.dart';
 
@@ -16,6 +19,8 @@ part 'src/face_mesh_result_utils.dart';
 part 'src/face_mesh_geometry.dart';
 
 part 'src/face_mesh_inference_pipeline.dart';
+
+part 'src/face_mesh_landmark_smoothing.dart';
 
 part 'src/face_mesh_topology.dart';
 

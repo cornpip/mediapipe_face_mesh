@@ -252,6 +252,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       ? _MeshMode.iris
       : _MeshMode.attention;
   bool _isMultiFaceActive = false;
+
+  /// OneEuro landmark smoothing (official FaceLandmarker stream-mode
+  /// behavior): removes per-point jitter on a still face while fast head
+  /// motion passes through with almost no lag. The demo always enables it.
+  static const LandmarkSmoothingOptions _landmarkSmoothing =
+      LandmarkSmoothingOptions();
   static const int _maxMeshFaces = 4;
   final ScrollController _controlsScrollController = ScrollController();
 
@@ -287,6 +293,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       final inferencePipeline = FaceMeshInferencePipeline(
         detector: _faceDetectorProcessor,
         mesh: faceMeshProcessor,
+        landmarkSmoothing: _landmarkSmoothing,
       );
       final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
         inferencePipeline,
@@ -387,6 +394,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _faceMeshInferencePipeline = FaceMeshInferencePipeline(
         detector: newFaceDetectorProcessor,
         mesh: _faceMeshProcessor,
+        landmarkSmoothing: _landmarkSmoothing,
       );
       _faceMeshInferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
         _faceMeshInferencePipeline,
@@ -1599,10 +1607,12 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _faceMeshInferencePipeline = FaceMeshInferencePipeline(
       detector: _faceDetectorProcessor,
       mesh: _faceMeshProcessor,
+      landmarkSmoothing: _landmarkSmoothing,
     );
     _faceMeshInferenceStreamProcessor = FaceMeshInferenceStreamProcessor(
       _faceMeshInferencePipeline,
     );
     oldProcessor.close();
   }
+
 }

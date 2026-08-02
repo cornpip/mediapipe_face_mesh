@@ -180,17 +180,31 @@ class FaceMeshInferencePipeline {
   ///
   /// Set [enableLandmarkTracking] to false to run the detector on every
   /// frame and always derive the mesh ROI from the detection result.
+  ///
+  /// Pass [landmarkSmoothing] to smooth output landmarks across frames with
+  /// a OneEuro filter, matching the official FaceLandmarker stream-mode
+  /// behavior; `const LandmarkSmoothingOptions()` selects the official
+  /// configuration. Smoothing affects only the returned landmarks — ROI
+  /// tracking keeps running on the raw mesh output. In the multi-face flow
+  /// each tracked face is smoothed independently while its
+  /// [TrackedFaceMesh.trackId] lives; with [enableLandmarkTracking] false
+  /// the multi-face flow has no stable face identity, so smoothing applies
+  /// only to the single-face flow there. Frame timestamps default to an
+  /// internal clock; pass `timestamp` to the process methods when replaying
+  /// recorded video.
   FaceMeshInferencePipeline({
     required FaceDetectorProcessor detector,
     required FaceMeshProcessor mesh,
     FaceDetectionSelector? detectionSelector,
     bool enableLandmarkTracking = true,
+    LandmarkSmoothingOptions? landmarkSmoothing,
   }) : _detector = detector,
        _mesh = mesh,
        _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
        _landmarkTrackingEnabled =
            enableLandmarkTracking && mesh.roiTrackingEnabled,
-       _multiTrackingEnabled = enableLandmarkTracking;
+       _multiTrackingEnabled = enableLandmarkTracking,
+       _smoothingOptions = landmarkSmoothing;
 
   /// Minimum IoU between a detection ROI and a tracked face ROI for the two
   /// to be considered the same face — matches the official
@@ -207,6 +221,10 @@ class FaceMeshInferencePipeline {
   /// tracking.
   final bool _multiTrackingEnabled;
 
+  final LandmarkSmoothingOptions? _smoothingOptions;
+  FaceLandmarkSmoother? _singleSmoother;
+  final Stopwatch _smoothingClock = Stopwatch()..start();
+
   bool _isTracking = false;
   final List<_FaceTrack> _multiTracks = <_FaceTrack>[];
   int _nextTrackId = 0;
@@ -219,6 +237,9 @@ class FaceMeshInferencePipeline {
   /// Whether the single-face flow is currently following a face via landmark
   /// tracking instead of running the detector.
   bool get isTracking => _isTracking;
+
+  /// Whether output landmarks are smoothed across frames.
+  bool get landmarkSmoothingEnabled => _smoothingOptions != null;
 
   /// Track ids of the faces the multi-face flow is currently following.
   List<int> get trackedFaceIds => <int>[
@@ -238,6 +259,51 @@ class FaceMeshInferencePipeline {
   void _resetTrackingState() {
     _isTracking = false;
     _multiTracks.clear();
+    _singleSmoother?.reset();
+  }
+
+  Duration _frameTimestamp(Duration? timestamp) =>
+      timestamp ?? _smoothingClock.elapsed;
+
+  /// Replaces the single-face result's mesh with its smoothed version, or
+  /// resets the smoother when the face was lost so a re-acquired face starts
+  /// a fresh smoothing sequence.
+  FaceMeshInferenceResult _smoothSingleResult(
+    FaceMeshInferenceResult result,
+    Duration timestamp,
+  ) {
+    final LandmarkSmoothingOptions? options = _smoothingOptions;
+    if (options == null) {
+      return result;
+    }
+    final FaceMeshResult? mesh = result.meshResult;
+    if (mesh == null || mesh.landmarks.isEmpty) {
+      _singleSmoother?.reset();
+      return result;
+    }
+    final FaceLandmarkSmoother smoother = _singleSmoother ??=
+        FaceLandmarkSmoother(options: options);
+    return FaceMeshInferenceResult(
+      detectionResult: result.detectionResult,
+      selectedDetection: result.selectedDetection,
+      selectedRoi: result.selectedRoi,
+      meshResult: smoother.smooth(mesh, timestamp: timestamp),
+    );
+  }
+
+  /// Smooths a tracked face's mesh with the face's own smoother.
+  FaceMeshResult _smoothTrackMesh(
+    _FaceTrack track,
+    FaceMeshResult mesh,
+    Duration timestamp,
+  ) {
+    final LandmarkSmoothingOptions? options = _smoothingOptions;
+    if (options == null) {
+      return mesh;
+    }
+    final FaceLandmarkSmoother smoother = track.smoother ??=
+        FaceLandmarkSmoother(options: options);
+    return smoother.smooth(mesh, timestamp: timestamp);
   }
 
   void _syncInput({
@@ -315,6 +381,7 @@ class FaceMeshInferencePipeline {
     required int height,
     required int rotationDegrees,
     required bool mirrorHorizontal,
+    required Duration timestamp,
     required FaceDetectionResult Function() runDetector,
     required List<FaceMeshResult> Function(List<NormalizedRect> rois)
     runMeshWithRois,
@@ -332,6 +399,7 @@ class FaceMeshInferencePipeline {
     // The per-face mesh calls overwrite the native tracked ROI, so force the
     // next single-face frame to re-acquire via the detector.
     _isTracking = false;
+    _singleSmoother?.reset();
 
     if (!runMesh) {
       _multiTracks.clear();
@@ -377,8 +445,10 @@ class FaceMeshInferencePipeline {
             continue;
           }
           final _FaceTrack track = _multiTracks[i];
-          track.mesh = mesh;
+          // The next-frame ROI comes from the raw mesh so smoothing never
+          // feeds back into tracking; only the reported mesh is smoothed.
           track.roi = mesh.trackingRoi();
+          track.mesh = _smoothTrackMesh(track, mesh, timestamp);
           survivors.add(track);
         }
       }
@@ -414,9 +484,13 @@ class FaceMeshInferencePipeline {
             if (mesh.landmarks.isEmpty) {
               continue;
             }
-            _multiTracks.add(
-              _FaceTrack(_nextTrackId++, mesh, mesh.trackingRoi()),
+            final _FaceTrack track = _FaceTrack(
+              _nextTrackId++,
+              mesh,
+              mesh.trackingRoi(),
             );
+            track.mesh = _smoothTrackMesh(track, mesh, timestamp);
+            _multiTracks.add(track);
           }
         }
       }
@@ -495,7 +569,9 @@ class FaceMeshInferencePipeline {
     double? detectorRoiScaleY,
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
+    Duration? timestamp,
   }) {
+    final Duration frameTimestamp = _frameTimestamp(timestamp);
     _syncInput(
       inputKind: _FaceMeshInputKind.image,
       width: image.width,
@@ -516,7 +592,7 @@ class FaceMeshInferencePipeline {
       ),
     );
     if (trackedResult != null) {
-      return trackedResult;
+      return _smoothSingleResult(trackedResult, frameTimestamp);
     }
 
     final FaceDetectionResult detectionResult = _detector.process(
@@ -543,11 +619,14 @@ class FaceMeshInferencePipeline {
           );
     _updateTracking(meshResult);
 
-    return FaceMeshInferenceResult(
-      detectionResult: detectionResult,
-      selectedDetection: selectedDetection,
-      selectedRoi: selectedRoi,
-      meshResult: meshResult,
+    return _smoothSingleResult(
+      FaceMeshInferenceResult(
+        detectionResult: detectionResult,
+        selectedDetection: selectedDetection,
+        selectedRoi: selectedRoi,
+        meshResult: meshResult,
+      ),
+      frameTimestamp,
     );
   }
 
@@ -571,7 +650,9 @@ class FaceMeshInferencePipeline {
     double? detectorRoiScaleY,
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
+    Duration? timestamp,
   }) {
+    final Duration frameTimestamp = _frameTimestamp(timestamp);
     _syncInput(
       inputKind: _FaceMeshInputKind.nv21,
       width: image.width,
@@ -592,7 +673,7 @@ class FaceMeshInferencePipeline {
       ),
     );
     if (trackedResult != null) {
-      return trackedResult;
+      return _smoothSingleResult(trackedResult, frameTimestamp);
     }
 
     final FaceDetectionResult detectionResult = _detector.processNv21(
@@ -619,11 +700,14 @@ class FaceMeshInferencePipeline {
           );
     _updateTracking(meshResult);
 
-    return FaceMeshInferenceResult(
-      detectionResult: detectionResult,
-      selectedDetection: selectedDetection,
-      selectedRoi: selectedRoi,
-      meshResult: meshResult,
+    return _smoothSingleResult(
+      FaceMeshInferenceResult(
+        detectionResult: detectionResult,
+        selectedDetection: selectedDetection,
+        selectedRoi: selectedRoi,
+        meshResult: meshResult,
+      ),
+      frameTimestamp,
     );
   }
 
@@ -656,6 +740,7 @@ class FaceMeshInferencePipeline {
     double? detectorRoiScaleY,
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
+    Duration? timestamp,
   }) {
     return _processMulti(
       runMesh: runMesh,
@@ -665,6 +750,7 @@ class FaceMeshInferencePipeline {
       height: image.height,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
+      timestamp: _frameTimestamp(timestamp),
       runDetector: () => _detector.process(
         image,
         roi: detectorRoi,
@@ -707,6 +793,7 @@ class FaceMeshInferencePipeline {
     double? detectorRoiScaleY,
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
+    Duration? timestamp,
   }) {
     return _processMulti(
       runMesh: runMesh,
@@ -716,6 +803,7 @@ class FaceMeshInferencePipeline {
       height: image.height,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
+      timestamp: _frameTimestamp(timestamp),
       runDetector: () => _detector.processNv21(
         image,
         roi: detectorRoi,
@@ -762,9 +850,13 @@ class _FaceTrack {
   final int id;
   FaceMeshResult mesh;
 
-  /// ROI to run the next frame's mesh inference on, derived from [mesh]'s
-  /// landmarks.
+  /// ROI to run the next frame's mesh inference on, derived from the raw
+  /// (unsmoothed) mesh landmarks.
   NormalizedRect roi;
+
+  /// Landmark smoother for this face, created on first use when the
+  /// pipeline has smoothing enabled.
+  FaceLandmarkSmoother? smoother;
 }
 
 /// Helper that turns a stream of frames into high-level inference results.

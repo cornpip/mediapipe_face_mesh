@@ -1,11 +1,20 @@
 # Roadmap
 
-## Landmark smoothing
+## Landmark smoothing: default-on at 3.0.0
 
-Add an optional OneEuro-style temporal filter on the landmark coordinates,
-matching the official MediaPipe video-mode behavior. The existing
-`enableSmoothing` only stabilizes the tracked ROI; per-point output noise
-still reaches consumers such as blendshapes and head pose estimation.
+The official FaceLandmarker enables landmark smoothing by default in stream
+mode; 2.4.0 shipped it opt-in so a minor update does not change existing
+users' output. After field validation, flip the default at the next major
+version with `landmarkSmoothing: null` as the opt-out, and call the behavior
+change out in the migration notes. Caveats and tuning notes live in
+`mediapipe_docs/landmark-smoothing-notes.md`.
+
+## Derived metrics utilities
+
+Pure-Dart helpers on top of the existing landmark/iris/geometry outputs, so
+apps get answers instead of raw points: eye aspect ratio and blink detection,
+approximate gaze direction from the iris landmarks, head pose as
+yaw/pitch/roll, and simple mouth-open/smile scalars. No native changes.
 
 ## Windows: attention mesh support
 

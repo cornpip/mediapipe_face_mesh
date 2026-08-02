@@ -1,3 +1,24 @@
+## 2.4.0
+
+- add optional OneEuro landmark smoothing, a Dart port of the official
+  FaceLandmarker stream-mode behavior (`LandmarksSmoothingCalculator`
+  one_euro path, `min_cutoff 0.05 / beta 80 / derivate_cutoff 1.0`): pass
+  `landmarkSmoothing: LandmarkSmoothingOptions()` to
+  `FaceMeshInferencePipeline` (default off, so existing setups are unchanged)
+  - smoothing applies to output landmarks only; ROI tracking keeps running on
+    the raw mesh output, so tracking behavior is identical with it on or off
+  - the multi-face flow smooths each tracked face independently; with
+    `enableLandmarkTracking: false` the multi-face flow is not smoothed
+  - filter state resets on face loss/re-acquisition, input geometry changes,
+    and `resetTracking()`
+  - the pipeline `process*` methods accept an optional `timestamp`; it
+    defaults to an internal clock, pass frame timestamps when replaying
+    recorded video
+  - `FaceLandmarkSmoother` (smooths a `FaceMeshResult`), plus the underlying
+    `OneEuroLandmarksSmoother` / `OneEuroFilter` / `LandmarkSmoothingOptions`,
+    are public for custom pipelines
+- example: the demo enables landmark smoothing on all its pipelines
+
 ## 2.3.0
 
 - add Windows (x64) desktop support: the same native pipeline (detector, mesh,
