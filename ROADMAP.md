@@ -16,14 +16,6 @@ apps get answers instead of raw points: eye aspect ratio and blink detection,
 approximate gaze direction from the iris landmarks, head pose as
 yaw/pitch/roll, and simple mouth-open/smile scalars. No native changes.
 
-## Windows: attention mesh support
-
-Ship a Windows TensorFlow Lite runtime that includes the MediaPipe custom ops
-so `enableAttentionMesh` works there too (since 2.3.0 it throws
-`UnsupportedError` on Windows). Key constraint: the runtime must be built from
-the MediaPipe workspace — like the bundled Android/iOS runtimes — because the
-custom ops do not exist in stock TensorFlow.
-
 ## GPU delegate
 
 Make `FaceMeshDelegate.gpuV2` actually engage: the GPU delegate is a separate

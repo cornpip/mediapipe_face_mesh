@@ -1,3 +1,15 @@
+## 2.5.0
+
+- Windows: `enableAttentionMesh` is now supported. The bundled
+  `tensorflowlite_c.dll` includes the MediaPipe custom TFLite ops the
+  `face_landmark_with_attention` model needs
+  - `FaceMeshProcessor.create(enableAttentionMesh: true)` no longer throws
+    `UnsupportedError` on Windows
+  - XNNPACK note: the custom ops run on the reference CPU kernels (XNNPACK
+    partitions around them), same as on the other platforms
+- example: the mesh-model dropdown now offers Attention Mesh on Windows too,
+  and the default mesh mode is attention on all platforms
+
 ## 2.4.0
 
 - add optional OneEuro landmark smoothing, a Dart port of the official

@@ -1510,16 +1510,6 @@ class FaceMeshProcessor {
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
-    if (enableAttentionMesh && Platform.isWindows) {
-      // The bundled Windows TensorFlow Lite runtime does not register the
-      // MediaPipe custom ops the attention model needs; fail fast with a
-      // clear message instead of an `unresolved custom op` native error.
-      throw UnsupportedError(
-        'enableAttentionMesh is not supported on Windows: the bundled '
-        'TensorFlow Lite runtime lacks the MediaPipe custom ops the '
-        'attention model needs. Use enableIris instead.',
-      );
-    }
     // The attention model already includes refined irises in its 478 output, so
     // it replaces the base mesh model and the separate iris pass.
     final bool irisIncluded = enableIris || enableAttentionMesh;

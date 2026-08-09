@@ -13,7 +13,7 @@ Bundled files:
 
 - Android(arm64-v8a, x86_64)
 - iOS
-- Windows(x64) — attention mesh not supported yet (support planned)
+- Windows(x64)
 - Dart SDK: `>=3.8.1 <4.0.0`
 - Android minSdk: `24`
 
@@ -75,9 +75,6 @@ final faceMeshProcessor = await FaceMeshProcessor.create(
 It returns the same 478-landmark layout as `enableIris`, so anything that
 consumes those landmarks keeps working — in one inference instead of the base
 mesh plus a separate iris pass. If you set both, `enableIris` is ignored.
-
-Windows — `create` throws an `UnsupportedError`. Use `enableIris` there
-instead. Windows support for the attention model is planned.
 
 Delegate options:
 - `FaceMeshDelegate.cpu` (default)

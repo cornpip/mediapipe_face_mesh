@@ -246,11 +246,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   StreamSubscription<Object>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
-  // The attention model needs MediaPipe custom TFLite ops, which the bundled
-  // Windows runtime does not include — default to the iris two-pass there.
-  _MeshMode _meshMode = Platform.isWindows
-      ? _MeshMode.iris
-      : _MeshMode.attention;
+  _MeshMode _meshMode = _MeshMode.attention;
   bool _isMultiFaceActive = false;
 
   /// OneEuro landmark smoothing (official FaceLandmarker stream-mode
@@ -354,20 +350,25 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     required bool multi,
     required bool iris,
     bool attention = false,
-  }) {
+  }) async {
     // Multi-face tracking is managed by the pipeline with explicit per-face
     // ROIs, so the mesh processor must not keep native per-call state.
-    return multi
-        ? FaceMeshProcessor.createForMultiFace(
+    final FaceMeshProcessor processor = multi
+        ? await FaceMeshProcessor.createForMultiFace(
             delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
             enableAttentionMesh: attention,
           )
-        : FaceMeshProcessor.create(
+        : await FaceMeshProcessor.create(
             delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
             enableAttentionMesh: attention,
           );
+    debugPrint(
+      'FaceMeshProcessor created: multi=$multi iris=$iris '
+      'attention=$attention delegate=${processor.activeDelegate}',
+    );
+    return processor;
   }
 
   Future<void> _changeDetectionModel(String value) async {
@@ -1101,12 +1102,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         decoration: _selectorDecoration('Mesh Model'),
         items: [
           for (final _MeshMode mode in _MeshMode.values)
-            // Attention needs custom TFLite ops the Windows runtime lacks.
-            if (!(Platform.isWindows && mode.enableAttention))
-              DropdownMenuItem<_MeshMode>(
-                value: mode,
-                child: Text(mode.label),
-              ),
+            DropdownMenuItem<_MeshMode>(
+              value: mode,
+              child: Text(mode.label),
+            ),
         ],
         onChanged: _isCameraBusy
             ? null
