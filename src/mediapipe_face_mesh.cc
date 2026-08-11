@@ -265,12 +265,36 @@ class FaceMeshContext {
     }
 
     interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
+    bool tensors_ready =
+        interpreter_ &&
+        runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+    // A delegate can also fail after it is attached, while the interpreter
+    // builds or allocates tensors (e.g. the GPU delegate rejecting a graph
+    // with custom ops). Honor delegate fallback for that stage too.
+    if (!tensors_ready && active_delegate_ != MP_DELEGATE_CPU &&
+        allow_delegate_fallback) {
+      MP_LOGE("Interpreter creation with the requested delegate failed. "
+              "Falling back to CPU.\n");
+      interpreter_.reset();
+      options_.reset(runtime_.InterpreterOptionsCreate());
+      delegate_.reset();
+      if (!options_) {
+        SetError("Failed to allocate interpreter options.");
+        return false;
+      }
+      runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+      active_delegate_ = MP_DELEGATE_CPU;
+      interpreter_.reset(
+          runtime_.InterpreterCreate(model_.get(), options_.get()));
+      tensors_ready =
+          interpreter_ &&
+          runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+    }
     if (!interpreter_) {
       SetError("Failed to create interpreter.");
       return false;
     }
-
-    if (runtime_.InterpreterAllocateTensors(interpreter_.get()) != kTfLiteOk) {
+    if (!tensors_ready) {
       SetError("Tensor allocation failed.");
       return false;
     }
@@ -784,12 +808,38 @@ class FaceMeshContext {
 
     iris_interpreter_.reset(
         runtime_.InterpreterCreate(iris_model_.get(), iris_options_.get()));
+    bool iris_tensors_ready =
+        iris_interpreter_ &&
+        runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) ==
+            kTfLiteOk;
+    // A delegate can also fail after it is attached, while the interpreter
+    // builds or allocates tensors (e.g. the GPU delegate rejecting a graph
+    // with custom ops). Honor delegate fallback for that stage too.
+    if (!iris_tensors_ready && active_iris_delegate_ != MP_DELEGATE_CPU &&
+        allow_delegate_fallback) {
+      MP_LOGE("Iris interpreter creation with the requested delegate failed. "
+              "Falling back to CPU.\n");
+      iris_interpreter_.reset();
+      iris_options_.reset(runtime_.InterpreterOptionsCreate());
+      iris_delegate_.reset();
+      if (!iris_options_) {
+        SetError("Failed to allocate iris interpreter options.");
+        return false;
+      }
+      runtime_.InterpreterOptionsSetThreads(iris_options_.get(), threads_);
+      active_iris_delegate_ = MP_DELEGATE_CPU;
+      iris_interpreter_.reset(
+          runtime_.InterpreterCreate(iris_model_.get(), iris_options_.get()));
+      iris_tensors_ready =
+          iris_interpreter_ &&
+          runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) ==
+              kTfLiteOk;
+    }
     if (!iris_interpreter_) {
       SetError("Failed to create iris interpreter.");
       return false;
     }
-    if (runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) !=
-        kTfLiteOk) {
+    if (!iris_tensors_ready) {
       SetError("Iris tensor allocation failed.");
       return false;
     }

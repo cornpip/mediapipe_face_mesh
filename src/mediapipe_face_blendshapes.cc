@@ -162,11 +162,37 @@ class BlendshapesContext {
     }
 
     interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
+    bool tensors_ready =
+        interpreter_ &&
+        runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+    // A delegate can also fail after it is attached, while the interpreter
+    // builds or allocates tensors (e.g. the GPU delegate rejecting a graph
+    // with custom ops). Honor delegate fallback for that stage too.
+    if (!tensors_ready && active_delegate_ != MP_DELEGATE_CPU &&
+        allow_delegate_fallback) {
+      MP_BS_LOGE(
+          "Blendshapes interpreter creation with the requested delegate "
+          "failed. Falling back to CPU.\n");
+      interpreter_.reset();
+      options_.reset(runtime_.InterpreterOptionsCreate());
+      delegate_.reset();
+      if (!options_) {
+        SetError("Failed to allocate interpreter options.");
+        return false;
+      }
+      runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+      active_delegate_ = MP_DELEGATE_CPU;
+      interpreter_.reset(
+          runtime_.InterpreterCreate(model_.get(), options_.get()));
+      tensors_ready =
+          interpreter_ &&
+          runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+    }
     if (!interpreter_) {
       SetError("Failed to create blendshapes interpreter.");
       return false;
     }
-    if (runtime_.InterpreterAllocateTensors(interpreter_.get()) != kTfLiteOk) {
+    if (!tensors_ready) {
       SetError("Blendshapes tensor allocation failed.");
       return false;
     }

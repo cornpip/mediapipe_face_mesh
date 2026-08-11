@@ -1145,8 +1145,8 @@ class FaceDetectorProcessor {
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
-  ///   is unavailable or cannot be created. Set it to false to fail creation
-  ///   instead.
+  ///   is unavailable, cannot be created, or fails while the interpreter is
+  ///   built. Set it to false to fail creation instead.
   /// - [maxResults] limits the number of detections returned per frame.
   /// - [roiScaleX], [roiScaleY], [roiShiftX], and [roiShiftY] control how
   ///   the detector-generated [FaceDetection.expandedFaceRect] is produced.
@@ -1489,8 +1489,8 @@ class FaceMeshProcessor {
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
-  ///   is unavailable or cannot be created. Set it to false to fail creation
-  ///   instead.
+  ///   is unavailable, cannot be created, or fails while the interpreter is
+  ///   built. Set it to false to fail creation instead.
   /// - [enableSmoothing] smooths the internally tracked ROI across frames
   ///   (used when [roi]/[box] are omitted), which stabilizes the crop fed to
   ///   the model and indirectly reduces landmark jitter. It does not filter
@@ -2041,7 +2041,8 @@ class FaceBlendshapesProcessor {
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
-  ///   is unavailable. Set it to false to fail creation instead.
+  ///   is unavailable, cannot be created, or fails while the interpreter is
+  ///   built. Set it to false to fail creation instead.
   static Future<FaceBlendshapesProcessor> create({
     int? threads,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
