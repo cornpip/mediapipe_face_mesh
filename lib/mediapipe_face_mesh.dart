@@ -255,7 +255,19 @@ enum FaceMeshDelegate {
   /// Use the XNNPACK delegate when available.
   xnnpack,
 
-  /// Use the GPU delegate (V2) when supported by the runtime.
+  /// Use the GPU delegate (V2) when the loaded TensorFlow Lite runtime
+  /// exports it.
+  ///
+  /// The bundled runtimes do not include the GPU delegate, so requesting
+  /// this value falls back to CPU (or fails creation with
+  /// `allowDelegateFallback: false`). Benchmarks showed the GPU delegate
+  /// running these small models several times slower than CPU/XNNPACK while
+  /// adding megabytes per ABI, so GPU support will not be added and this
+  /// value is scheduled for removal in 3.0.0.
+  @Deprecated(
+    'Falls back to CPU (the bundled runtimes have no GPU delegate) and will '
+    'be removed in 3.0.0. Use cpu or xnnpack.',
+  )
   gpuV2,
 }
 
@@ -1141,7 +1153,9 @@ class FaceDetectorProcessor {
   ///
   /// Commonly adjusted options:
   /// - [model] selects short-range, full-range dense, or full-range sparse.
-  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
+  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
+  ///   check `activeDelegate` for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
@@ -1485,7 +1499,9 @@ class FaceMeshProcessor {
   /// Creates the native interpreter and loads a model.
   ///
   /// Commonly adjusted options:
-  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
+  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
+  ///   check `activeDelegate` for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
@@ -2037,7 +2053,9 @@ class FaceBlendshapesProcessor {
 
   /// Loads the bundled face blendshapes model.
   ///
-  /// - [delegate] selects CPU, XNNPACK, or GPU execution.
+  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
+  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
+  ///   check `activeDelegate` for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
