@@ -1,13 +1,26 @@
 # Roadmap
 
-## Landmark smoothing: default-on at 3.0.0
+## Changes held for the next major version
 
-The official FaceLandmarker enables landmark smoothing by default in stream
-mode; 2.4.0 shipped it opt-in so a minor update does not change existing
-users' output. After field validation, flip the default at the next major
-version with `landmarkSmoothing: null` as the opt-out, and call the behavior
-change out in the migration notes. Caveats and tuning notes live in
-`mediapipe_docs/landmark-smoothing-notes.md`.
+Breaking or behavior-changing items batched for the next major, called out
+in migration notes:
+
+- Landmark smoothing default-on (`landmarkSmoothing: null` as the opt-out).
+  The official FaceLandmarker smooths by default in stream mode; 2.4.0
+  shipped it opt-in. Caveats and tuning notes live in
+  `mediapipe_docs/landmark-smoothing-notes.md`.
+- Attention mesh default-on (`enableAttentionMesh` currently defaults to
+  false; README already recommends enabling it).
+- Remove `FaceMeshDelegate.gpuV2` (deprecated in 2.6.0; benchmarks showed
+  the GPU delegate several times slower than CPU/XNNPACK for these models).
+
+## FaceMesh-V2 model (opt-in)
+
+The upstream FaceLandmarker task bundle has moved to FaceMesh-V2: 256x256
+input, 478 landmarks with irises built in, fp16 weights, and no custom ops.
+That means XNNPACK can delegate the whole graph (unlike the attention
+model) and fp16 runs natively on ARMv8.2+ CPUs. Evaluate accuracy and speed
+against the current attention path, then add it as an opt-in model choice.
 
 ## Derived metrics utilities
 
@@ -15,18 +28,3 @@ Pure-Dart helpers on top of the existing landmark/iris/geometry outputs, so
 apps get answers instead of raw points: eye aspect ratio and blink detection,
 approximate gaze direction from the iris landmarks, head pose as
 yaw/pitch/roll, and simple mouth-open/smile scalars. No native changes.
-
-## GPU delegate
-
-Make `FaceMeshDelegate.gpuV2` actually engage: the GPU delegate is a separate
-binary that this package has never bundled, so today the request silently
-falls back to CPU. Key constraint: build the delegate from the MediaPipe
-workspace so the attention model's custom ops can run on GPU as well. Windows
-stays CPU/XNNPACK.
-
-## Note: attention path and XNNPACK
-
-Not planned work, just a known behavior: XNNPACK cannot run the attention
-model's custom ops, so TFLite partitions the graph and those nodes run on the
-reference CPU kernels — the delegate accelerates less of the attention path
-than it does the base mesh.

@@ -45,3 +45,5 @@ example/build/
 
 # Local scratch / handoff docs (not for the public package)
 temp_doc/
+# Local benchmark suite (lives on the bench branch; leftovers ignored here)
+bench/

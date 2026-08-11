@@ -1,3 +1,33 @@
+## 2.6.0
+
+- Performance: large cross-the-board speedup of the inference path. On a
+  Dimensity 9400 test device, streaming dropped from ~9.7ms to ~1.5ms per
+  frame (468 mesh) and ~2.2ms with attention; a cold detector+mesh pass
+  dropped from ~16ms to ~3ms. The changes:
+  - native code is now always compiled with optimization (`-O3` / `/O2`),
+    including Flutter debug and profile app builds, which previously built
+    the plugin's C++ at `-O0`
+  - per-call frame upload now reuses a per-processor native scratch buffer
+    instead of allocating, zero-filling, copying, and freeing the whole
+    frame on every call
+  - `FaceMeshResult.triangles` is now built lazily on first access
+    (the field became a getter; reading code is source-compatible)
+  - landmark results are read through one typed-data view instead of a
+    per-landmark FFI struct view
+- `threads` now defaults to half the CPU cores clamped to 1..4 (MediaPipe's
+  own default) instead of 2. The parameter type widened to `int?`; passing
+  an explicit value behaves as before
+- Delegate robustness: previously `allowDelegateFallback` only covered a
+  delegate that could not be created. A delegate that was created but then
+  failed while the interpreter was built or allocated made creation fail
+  outright; that stage now falls back to CPU as well
+- `FaceMeshDelegate.gpuV2` is now `@Deprecated` and will be removed in
+  3.0.0. The bundled runtimes have never included the GPU delegate (the
+  value has always fallen back to CPU), and benchmarks with a GPU-enabled
+  runtime showed the delegate running these small models several times
+  slower than CPU/XNNPACK while adding megabytes per ABI, so GPU support
+  is not planned. Use `cpu` or `xnnpack`
+
 ## 2.5.0
 
 - Windows: `enableAttentionMesh` is now supported. The bundled

@@ -67,3 +67,6 @@ src/include/**/*.md
 src/include/**/BUILD
 src/include/**/testdata/
 src/include/**/tutorials/
+
+# Local benchmark suite (not part of the package)
+bench/
