@@ -20,6 +20,11 @@ set_target_properties(mediapipe_face_mesh PROPERTIES
   OUTPUT_NAME "mediapipe_face_mesh"
 )
 
+# Flutter debug/profile app builds configure this target as a CMake Debug
+# build, which compiles at -O0 and makes the pixel-processing hot paths
+# several times slower. Inference-adjacent code must always be optimized.
+target_compile_options(mediapipe_face_mesh PRIVATE -O3 -ffp-contract=fast)
+
 target_compile_definitions(mediapipe_face_mesh PUBLIC DART_SHARED_LIB)
 target_include_directories(mediapipe_face_mesh PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../src

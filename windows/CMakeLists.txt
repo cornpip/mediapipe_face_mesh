@@ -21,6 +21,18 @@ set_target_properties(mediapipe_face_mesh PROPERTIES
   OUTPUT_NAME "mediapipe_face_mesh"
 )
 
+# Flutter debug/profile app builds configure this target as a CMake Debug
+# build, which compiles without optimization and makes the pixel-processing
+# hot paths several times slower. Inference-adjacent code must always be
+# optimized. MSVC Debug defaults (/Od /RTC1) conflict with /O2, so rewrite
+# the debug flags for this target's directory instead of appending.
+if (MSVC)
+  string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+  string(REPLACE "/Od" "/O2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+else()
+  target_compile_options(mediapipe_face_mesh PRIVATE -O3 -ffp-contract=fast)
+endif()
+
 target_compile_definitions(mediapipe_face_mesh PUBLIC DART_SHARED_LIB)
 target_compile_definitions(mediapipe_face_mesh PRIVATE NOMINMAX)
 target_include_directories(mediapipe_face_mesh PRIVATE
