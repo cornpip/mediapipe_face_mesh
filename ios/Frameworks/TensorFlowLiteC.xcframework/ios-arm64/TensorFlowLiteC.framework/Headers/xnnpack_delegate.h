@@ -16,6 +16,9 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_DELEGATES_XNNPACK_XNNPACK_DELEGATE_H_
 #define TENSORFLOW_LITE_DELEGATES_XNNPACK_XNNPACK_DELEGATE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "common.h"
 
 #ifdef __cplusplus
@@ -45,6 +48,17 @@ extern "C" {
 // Enable XNNPack subgraph reshaping. This means that models with dynamic
 // tensors are supported and that inputs may be efficiently resized.
 #define TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING 0x00000080
+// This flag indicates that XNNPACK should attempt to produce numerically
+// consistent results from a specific build of XNNPACK. This causes XNNPACK
+// to avoid using faster codepaths that are numerically inconsistent with any
+// other codepath that could be used in the same compiled delegate.
+#define TFLITE_XNNPACK_DELEGATE_FLAG_SLOW_CONSISTENT_ARITHMETIC 0x00000200
+// Disable XNNPack subgraph reshaping. This means that models with dynamic
+// tensors are not supported.
+#define TFLITE_XNNPACK_DELEGATE_FLAG_DISABLE_SUBGRAPH_RESHAPING 0x00000400
+// Disable delegation of dynamically quantized ops.
+#define TFLITE_XNNPACK_DELEGATE_FLAG_DISABLE_DYNAMICALLY_QUANTIZED_OPS \
+  0x00000800
 
 struct TfLiteXNNPackDelegateWeightsCache;
 
@@ -52,6 +66,8 @@ typedef struct {
   // Number of threads to use in the thread pool.
   // 0 or negative value means no thread pool used.
   int32_t num_threads;
+  // Flags to pass to `xnn_create_runtime`
+  uint32_t runtime_flags;
   // Bitfield with any combination of the following binary options:
   // - TFLITE_XNNPACK_DELEGATE_FLAG_QS8
   // - TFLITE_XNNPACK_DELEGATE_FLAG_QU8
@@ -61,6 +77,9 @@ typedef struct {
   // - TFLITE_XNNPACK_DELEGATE_FLAG_TRANSIENT_INDIRECTION_BUFFER
   // - TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_LATEST_OPERATORS
   // - TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING
+  // - TFLITE_XNNPACK_DELEGATE_FLAG_DISABLE_DYNAMICALLY_QUANTIZED_OPS
+  // - TFLITE_XNNPACK_DELEGATE_FLAG_DISABLE_SUBGRAPH_RESHAPING
+  // - TFLITE_XNNPACK_DELEGATE_FLAG_SLOW_CONSISTENT_ARITHMETIC
   uint32_t flags;
   // Cache for packed weights, can be shared between multiple instances of
   // delegates.
@@ -68,11 +87,49 @@ typedef struct {
   // Deprecated. Use the flags bitfield with the
   // TFLITE_XNNPACK_DELEGATE_FLAG_VARIABLE_OPERATORS mask.
   bool handle_variable_ops;
-  // Path to the weight cache to load if `weight_cache` is undefined.
+  // Path to the weight cache to load.
   //
-  // WARNING this is an experimental flag.
-  const char* experimental_weight_cache_file_path;
+  // Note: To keep backwards compatibility with the previous caching mechanism,
+  // the weight cache will only be loaded from this if `weights_cache` is
+  // undefined.
+  const char* weight_cache_file_path;
+  // Explicit file descriptor for the weight cache.
+  //
+  // Warning: This will override opening the file from `weight_cache_file_path`.
+  //
+  // Warning: Because value initialization of a C structure will initialize this
+  // field to 0, we cannot accept a file descriptor with that value to remain
+  // compatible with existing code. Hopefully this won't cause issues as the
+  // file descriptor 0 is usually a special one.
+  //
+  // Warning: Ownership of the file descriptor is taken by the XNNPack delegate
+  // weight cache. `dup` it if you want to keep it open for longer.
+  //
+  // Note: To keep backwards compatibility with the previous caching mechanism,
+  // the weight cache will only be loaded from this if `weights_cache` is
+  // undefined.
+  int weight_cache_file_descriptor;
+  // Points to an existing instance of a weight cache provider.
+  //
+  // Warning: Ownership of the cache provider is **NOT** taken by the XNNPack
+  // delegate.
+  //
+  // Warning: This will override opening the file from `weight_cache_file_path`
+  // and `weight_cache_file_descriptor`.
+  //
+  // Note: To keep backwards compatibility with the previous caching mechanism,
+  // the weight cache will only be loaded from this if `weights_cache` is
+  // undefined.
+  void* weight_cache_provider;
 } TfLiteXNNPackDelegateOptions;
+
+// Returns true on systems that support running the in-memory weight cache
+// provider.
+TFL_CAPI_EXPORT bool TfLiteXNNPackDelegateCanUseInMemoryWeightCacheProvider();
+
+// Returns a file path that will activate the in-memory weight cache that
+// enables weight deduplication.
+TFL_CAPI_EXPORT const char* TfLiteXNNPackDelegateInMemoryFilePath();
 
 // Returns a structure with the default XNNPack delegate options.
 TFL_CAPI_EXPORT TfLiteXNNPackDelegateOptions

@@ -23,6 +23,10 @@ face detector, and TensorFlow Lite runtime binaries for Android and iOS.
   # double compilation; only headers are exposed here.
   s.source_files = 'Classes/**/*', '../src/**/*.h'
   s.dependency 'Flutter'
+  # The arm64 simulator slice of TensorFlowLiteC.xcframework has a minimum of
+  # iOS 14.0 (an Apple constraint for arm64 simulators). Apps targeting less
+  # than that still link against it; the linker may warn about the newer
+  # minimum.
   s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.
@@ -34,5 +38,8 @@ face detector, and TensorFlow Lite runtime binaries for Android and iOS.
   s.swift_version = '5.0'
 
   # Bundle the TensorFlow Lite C runtime copied into ios/Frameworks.
-  s.vendored_frameworks = 'Frameworks/TensorFlowLiteC.framework'
+  # An xcframework, so the device slice (ios-arm64) and the simulator slice
+  # (ios-arm64_x86_64-simulator) can coexist. A plain fat framework cannot hold
+  # both: arm64 device and arm64 simulator differ by platform, not by arch.
+  s.vendored_frameworks = 'Frameworks/TensorFlowLiteC.xcframework'
 end
