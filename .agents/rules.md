@@ -11,6 +11,9 @@ Read this first. Read other docs only when the task touches that area.
 
 ## Always Apply
 
+- Git actions that write history (commit, push, amend, tag, reset) require
+  the user's explicit permission for that specific action, asked in the
+  current exchange. Prior stated intent is not permission.
 - Published production package: never break the public API or change default
   behavior. New capabilities are opt-in (default off).
 - Native declarations changed: regenerate bindings with
