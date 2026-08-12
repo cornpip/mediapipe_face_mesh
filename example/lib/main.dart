@@ -283,9 +283,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
-      _blendshapesProcessor = await FaceBlendshapesProcessor.create(
-        delegate: FaceMeshDelegate.xnnpack,
-      );
+      _blendshapesProcessor = await FaceBlendshapesProcessor.create();
       final inferencePipeline = FaceMeshInferencePipeline(
         detector: _faceDetectorProcessor,
         mesh: faceMeshProcessor,
@@ -333,7 +331,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     final isFullRange = model != FaceDetectionModel.shortRange;
     return FaceDetectorProcessor.create(
       model: model,
-      delegate: FaceMeshDelegate.xnnpack,
       // Let the detector return several candidates; the single-face flow
       // still picks the best one, and the multi-face flow needs them all.
       maxResults: _maxMeshFaces,
@@ -355,12 +352,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     // ROIs, so the mesh processor must not keep native per-call state.
     final FaceMeshProcessor processor = multi
         ? await FaceMeshProcessor.createForMultiFace(
-            delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
             enableAttentionMesh: attention,
           )
         : await FaceMeshProcessor.create(
-            delegate: FaceMeshDelegate.xnnpack,
             enableIris: iris,
             enableAttentionMesh: attention,
           );

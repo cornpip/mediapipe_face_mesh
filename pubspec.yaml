@@ -1,11 +1,11 @@
 name: mediapipe_face_mesh
 description: "Real-time MediaPipe face mesh for Flutter — 478 landmarks with iris, multi-face tracking, ARKit-style blendshapes, and 3D head pose."
-version: 2.6.0
+version: 2.7.0
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:
   sdk: ^3.8.1
-  flutter: '>=3.3.0'
+  flutter: '>=3.32.0'
 
 topics:
   - mediapipe

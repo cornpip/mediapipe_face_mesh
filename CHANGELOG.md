@@ -1,3 +1,25 @@
+## 2.7.0
+
+- fix a crash on iOS when `FaceMeshDelegate.xnnpack` was selected, present
+  since 2.1.0
+  - the bundled `TensorFlowLiteC` headers and the shipped binary disagreed on
+    the layout of `TfLiteXNNPackDelegateOptions`, so creating the delegate
+    corrupted the stack
+  - the default CPU delegate was never affected, and neither were Android,
+    Windows, or macOS
+  - the rest of the bundled iOS headers are now synced with the declarations
+    the other platforms use, so the mismatch cannot recur in another header
+- add native Apple Silicon simulator (arm64) support: the iOS runtime now ships
+  as `TensorFlowLiteC.xcframework` instead of a fat `TensorFlowLiteC.framework`
+  - Intel Macs keep an `x86_64` simulator slice
+  - the bundled runtime grows from ~18 MB to ~25 MB, all of it simulator-only,
+    so a shipped app is unaffected
+  - **upgrading may need `pod deintegrate && pod install`** in `ios/` and a cleared
+    build folder and DerivedData; a build that fails to link against
+    `TensorFlowLiteC` is still picking up the old cached copy
+- doc: a debug `flutter run` on a physical iOS 17+ device can hang on Flutter
+  older than 3.38.0 (`doc/IOS_DEBUG_RUN.md`)
+
 ## 2.6.0
 
 - Performance: large cross-the-board speedup of the inference path. On a

@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'mediapipe_face_mesh'
-  s.version          = '2.6.0'
+  s.version          = '2.7.0'
   s.summary          = 'MediaPipe Face Mesh for Flutter.'
   s.description      = <<-DESC
 Real-time face mesh detection for Flutter with bundled MediaPipe face mesh,

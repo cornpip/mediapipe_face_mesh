@@ -1,8 +1,8 @@
 # mediapipe_face_mesh
 
 Bundled files:
-- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS,
-  and Windows (`x64`)
+- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS
+  (device `arm64`, simulator `arm64`/`x86_64`), and Windows (`x64`)
 - Model Source
   - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
   - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
@@ -11,11 +11,13 @@ Bundled files:
 
 ## Supported Platforms
 
-- Android(arm64-v8a, x86_64)
+- Android
 - iOS
-- Windows(x64)
+- Windows
 - Dart SDK: `>=3.8.1 <4.0.0`
+- Flutter: `>=3.32.0`
 - Android minSdk: `24`
+- iOS deployment target: `13.0`
 
 ## Install
 
@@ -311,3 +313,18 @@ faceMeshProcessor.close();
 
 A demo app lives in the `example/` directory at the root of this
 repository.
+
+## Notes
+
+- On Flutter older than 3.38.0, a debug `flutter run` on a physical iOS 17+
+  device can hang at `Installing and launching...`. Release and profile builds
+  run fine, as does launching from Xcode; Flutter 3.38.0 fixes `flutter run`
+  itself. See
+  [Running debug builds on a physical iOS device](doc/IOS_DEBUG_RUN.md). This is
+  Flutter tooling behavior and applies to any Flutter iOS project.
+- Upgrading from 2.6.0 or earlier on iOS: the bundled TensorFlow Lite runtime
+  changed from a fat `.framework` to an `.xcframework`. If a build still fails
+  with `building for 'iOS-simulator', but linking in object file built for
+  'iOS'`, a stale copy of the old framework is being picked up. Run
+  `pod deintegrate && pod install` in `ios/` and delete the build folder and
+  DerivedData.
