@@ -1,3 +1,8 @@
+## 2.7.1
+
+- docs: add a Performance section to the README and a benchmark report
+  (`doc/BENCHMARKS.md`): single-image and streaming latency, and app size
+
 ## 2.7.0
 
 - fix a crash on iOS when `FaceMeshDelegate.xnnpack` was selected, present

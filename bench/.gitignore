@@ -1,0 +1,9 @@
+# Generated/copied assets (source of truth: bench/assets + prepare_assets.py)
+assets/frames/
+baseline/assets/
+mine/assets/
+mlkit/assets/
+fdt/assets/
+
+# Run logs
+logs/

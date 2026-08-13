@@ -1,23 +1,37 @@
 # mediapipe_face_mesh
 
-Bundled files:
-- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS
-  (device `arm64`, simulator `arm64`/`x86_64`), and Windows (`x64`)
-- Model Source
-  - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
-  - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
+Face detection and a 478-landmark face mesh pipeline, on device, in a few
+milliseconds per frame. Models and the TensorFlow Lite runtime ship inside
+the package.
 
 <img src="./readme_img/22.png" alt="app_image_2" width="300"/> <img src="./readme_img/33.png" alt="app_image_2" width="300"/>
 
 ## Supported Platforms
 
-- Android
-- iOS
-- Windows
-- Dart SDK: `>=3.8.1 <4.0.0`
-- Flutter: `>=3.32.0`
-- Android minSdk: `24`
-- iOS deployment target: `13.0`
+| platform | requirement |
+| --- | --- |
+| Android | minSdk 24 (arm64-v8a, x86_64) |
+| iOS | 13.0+ |
+| Windows | x64 |
+
+Requires Dart `>=3.8.1 <4.0.0` and Flutter `>=3.32.0`.
+
+## Performance
+
+Same device (Dimensity 9400, Android 16), same inputs. One call runs
+detection plus the full 468-landmark mesh in both packages:
+
+| | mediapipe_face_mesh | google_mlkit_face_mesh_detection 0.5.0 |
+| --- | --- | --- |
+| single image, per call | 2.9 ms | 43.7 ms |
+| streaming, per frame | 1.54 ms | 49.6 ms |
+| streaming, attention mesh (478, recommended) | 2.10 ms | - |
+
+In streaming, mediapipe_face_mesh tracks the face between frames, while
+ML Kit re-runs detection every frame (it has no tracking mode).
+Single-image latency varies with device thermal state; streaming is the
+stable metric. Method, full matrix, and caveats in
+[doc/BENCHMARKS.md](doc/BENCHMARKS.md).
 
 ## Install
 
@@ -69,8 +83,8 @@ Every processor (`FaceDetectorProcessor`, `FaceMeshProcessor`,
 - `FaceMeshDelegate.xnnpack`
 - `FaceMeshDelegate.gpuV2` (deprecated, removed in 3.0.0)
 
-The bundled runtime supports `cpu` and `xnnpack`; the two benchmark about
-the same. `gpuV2` currently falls back to CPU and is being removed: in our
+The bundled runtime supports `cpu` and `xnnpack`, which benchmark within
+noise of each other. `gpuV2` currently falls back to CPU and is being removed: in our
 benchmarks the GPU delegate was slower for these models and only added
 binary size.
 
@@ -313,6 +327,14 @@ faceMeshProcessor.close();
 
 A demo app lives in the `example/` directory at the root of this
 repository.
+
+## Bundled Runtime and Models
+
+- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS
+  (device `arm64`, simulator `arm64`/`x86_64`), and Windows (`x64`)
+- Model source
+  - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
+  - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
 
 ## Notes
 
