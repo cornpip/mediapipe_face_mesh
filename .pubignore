@@ -53,6 +53,7 @@ readme_img/
 ROADMAP.md
 AGENTS.md
 CLAUDE.md
+CONTRIBUTING.md
 .agents/
 
 # Vendored TensorFlow tree: consumer builds compile only src/*.cc and read

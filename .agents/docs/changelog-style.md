@@ -6,6 +6,8 @@ Rules for `CHANGELOG.md` entries.
 
 - One `## <version>` section per release, newest first. No headings inside a
   section except an optional `### Migrating from <version>` block.
+- Exception: a single `## <version>-wip` section may sit at the top,
+  accumulating bullets for the next release (see below).
 - Flat `- ` bullets, no Added/Changed/Fixed subheadings. Details and platform
   caveats of a single feature go in nested sub-bullets under that feature.
 
@@ -15,6 +17,13 @@ Rules for `CHANGELOG.md` entries.
   `fix`, `improve`, ... Scope prefixes for non-package changes: `docs:`,
   `example:`.
 - Name public symbols in backticks (`startPreviewAuto()`).
+
+## Accumulating between releases (-wip)
+
+- The flow (when to open the section, bump sizing, `chore` discretion) is
+  defined in `CONTRIBUTING.md`.
+- Only pubspec and the changelog carry `-wip`; the iOS podspec keeps the
+  last released version until release day.
 
 ## Classification
 

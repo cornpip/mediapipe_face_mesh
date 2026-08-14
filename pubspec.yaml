@@ -1,6 +1,6 @@
 name: mediapipe_face_mesh
 description: "Real-time on-device MediaPipe face detection and face mesh: 478 landmarks with iris, multi-face tracking, ARKit-style blendshapes, and 3D head pose."
-version: 2.7.1
+version: 2.7.2-wip
 homepage: "https://github.com/cornpip/mediapipe_face_mesh.git"
 
 environment:

@@ -1,3 +1,8 @@
+## 2.7.2-wip
+
+- docs: refresh the benchmark report; measurements now come from a
+  harness that validates tracking, and the README quotes latency ranges
+
 ## 2.7.1
 
 - docs: add a Performance section to the README and a benchmark report
