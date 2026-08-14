@@ -58,6 +58,8 @@ void main() {
     testWidgets('stage breakdown xnnpack threads=$threads', (
       WidgetTester tester,
     ) async {
+      await thermalCooldown();
+
       final FaceDetectorProcessor detector = await FaceDetectorProcessor.create(
         delegate: FaceMeshDelegate.xnnpack,
         threads: threads,

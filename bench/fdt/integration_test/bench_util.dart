@@ -4,6 +4,12 @@ import 'dart:convert';
 const int kWarmupRuns = 10;
 const int kMeasuredRuns = 100;
 const int kStreamSettleFrames = 30;
+const int kCooldownSeconds = 30;
+
+/// Fixed idle pause before each measured config, so later configs in a run
+/// are not measured on a hotter device than earlier ones.
+Future<void> thermalCooldown() =>
+    Future<void>.delayed(const Duration(seconds: kCooldownSeconds));
 
 Map<String, double> stats(List<double> samplesMs) {
   final List<double> s = List<double>.from(samplesMs)..sort();

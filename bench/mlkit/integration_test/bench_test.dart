@@ -61,6 +61,8 @@ void main() {
   // point mesh, the same unit of work as our detector + mesh pipeline.
   group('single image', () {
     testWidgets('mode=faceMesh input=nv21', (WidgetTester tester) async {
+      await thermalCooldown();
+
       final FaceMeshDetector detector = FaceMeshDetector(
         option: FaceMeshDetectorOptions.faceMesh,
       );
@@ -103,6 +105,8 @@ void main() {
     // the full detection + mesh pass. Frames are decoded and converted to
     // nv21 outside the stopwatch, one at a time.
     testWidgets('mode=faceMesh input=nv21', (WidgetTester tester) async {
+      await thermalCooldown();
+
       final FaceMeshDetector detector = FaceMeshDetector(
         option: FaceMeshDetectorOptions.faceMesh,
       );
@@ -111,7 +115,9 @@ void main() {
           await AssetManifest.loadFromAssetBundle(rootBundle);
       final List<String> framePaths = manifest
           .listAssets()
-          .where((String p) => p.startsWith('assets/frames/'))
+          .where(
+            (String p) => p.startsWith('assets/frames/') && p.endsWith('.jpg'),
+          )
           .toList()
         ..sort();
       expect(framePaths, isNotEmpty,

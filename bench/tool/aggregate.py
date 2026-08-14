@@ -35,7 +35,7 @@ def load(paths: list[str]) -> list[dict]:
 
 
 def fmt_config(cfg: dict) -> str:
-    skip = {"width", "height", "frames"}
+    skip = {"width", "height", "frames", "fps"}
     return " ".join(f"{k}={v}" for k, v in cfg.items() if k not in skip)
 
 

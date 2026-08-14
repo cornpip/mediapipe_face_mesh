@@ -2,9 +2,10 @@
 """Extract video frames and copy shared bench assets into every bench app.
 
 Run from anywhere: python3 bench/tool/prepare_assets.py
-Requires opencv-python for the one-time frame extraction.
+Requires opencv-python for the frame extraction and fps probe.
 """
 
+import json
 import shutil
 from pathlib import Path
 
@@ -42,6 +43,22 @@ def extract_frames() -> None:
     print(f"extracted {n} frames to {FRAMES}")
 
 
+def write_meta() -> None:
+    """Record the source video fps so tests use real frame timestamps."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(VIDEO))
+    if not cap.isOpened():
+        raise SystemExit(f"cannot open {VIDEO}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+    if not fps or fps <= 0:
+        raise SystemExit(f"cannot read fps from {VIDEO}")
+    meta = {"fps": round(fps, 3), "frames": len(list(FRAMES.glob("frame_*.jpg")))}
+    (FRAMES / "meta.json").write_text(json.dumps(meta) + "\n")
+    print(f"wrote {FRAMES / 'meta.json'}: {meta}")
+
+
 def copy_into_apps() -> None:
     for app in APPS:
         dst = BENCH / app / "assets"
@@ -57,4 +74,5 @@ def copy_into_apps() -> None:
 
 if __name__ == "__main__":
     extract_frames()
+    write_meta()
     copy_into_apps()

@@ -29,6 +29,8 @@ void main() {
         testWidgets('accel=${accel.key} mode=$mode', (
           WidgetTester tester,
         ) async {
+          await thermalCooldown();
+
           final FaceDetector detector = await FaceDetector.create(
             accelerators: accel.value,
           );

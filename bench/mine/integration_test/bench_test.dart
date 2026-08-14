@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,6 +10,15 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 import 'bench_util.dart';
 
 const String kApp = 'mediapipe_face_mesh';
+
+/// Frames between independent detector probes in the streaming suites.
+const int kDriftCheckInterval = 30;
+
+/// Minimum IoU between the tracked landmark bbox and an independent
+/// detection before the run is considered drifted. The two boxes have
+/// different tightness, so healthy tracking sits well above this floor
+/// while a frozen or wandering ROI collapses toward zero.
+const double kDriftIouFloor = 0.2;
 
 /// Delegate/model matrix. cpu is the package default; xnnpack runs a single
 /// config only, to show parity with cpu. gpuV2 is deprecated and excluded.
@@ -40,21 +50,35 @@ Future<FaceMeshImage> loadRgbaAsset(String assetPath) async {
   return image;
 }
 
-Future<List<FaceMeshImage>> loadFrameSequence() async {
+Future<List<String>> listFramePaths() async {
   final AssetManifest manifest = await AssetManifest.loadFromAssetBundle(
     rootBundle,
   );
-  final List<String> framePaths =
-      manifest
-          .listAssets()
-          .where((String p) => p.startsWith('assets/frames/'))
-          .toList()
-        ..sort();
-  final List<FaceMeshImage> frames = <FaceMeshImage>[];
-  for (final String path in framePaths) {
-    frames.add(await loadRgbaAsset(path));
+  return manifest
+      .listAssets()
+      .where(
+        (String p) => p.startsWith('assets/frames/') && p.endsWith('.jpg'),
+      )
+      .toList()
+    ..sort();
+}
+
+/// Source-video fps recorded by tool/prepare_assets.py.
+Future<double> loadFrameFps() async {
+  String? raw;
+  try {
+    raw = await rootBundle.loadString('assets/frames/meta.json');
+  } catch (_) {
+    // Missing asset; reported through the expect below.
   }
-  return frames;
+  expect(
+    raw,
+    isNotNull,
+    reason: 'assets/frames/meta.json missing; re-run tool/prepare_assets.py',
+  );
+  final Map<String, Object?> meta =
+      jsonDecode(raw!) as Map<String, Object?>;
+  return (meta['fps']! as num).toDouble();
 }
 
 /// Mean per-landmark displacement between consecutive frames, in pixels.
@@ -75,6 +99,215 @@ double meanJitterPx(List<List<FaceMeshLandmark>> perFrame, int w, int h) {
   return count == 0 ? 0 : total / count;
 }
 
+/// IoU between the landmarks' axis-aligned bbox and a detection box, both in
+/// normalized coordinates.
+double landmarkDetectionIou(
+  List<FaceMeshLandmark> landmarks,
+  FaceDetection detection,
+) {
+  double minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (final FaceMeshLandmark lm in landmarks) {
+    minX = math.min(minX, lm.x);
+    minY = math.min(minY, lm.y);
+    maxX = math.max(maxX, lm.x);
+    maxY = math.max(maxY, lm.y);
+  }
+  final double ix =
+      math.min(maxX, detection.right) - math.max(minX, detection.left);
+  final double iy =
+      math.min(maxY, detection.bottom) - math.max(minY, detection.top);
+  if (ix <= 0 || iy <= 0) {
+    return 0;
+  }
+  final double inter = ix * iy;
+  final double union =
+      (maxX - minX) * (maxY - minY) +
+      (detection.right - detection.left) * (detection.bottom - detection.top) -
+      inter;
+  return union <= 0 ? 0 : inter / union;
+}
+
+/// Runs one streaming config: detector on frame 0 only, ROI tracking after.
+///
+/// The default (back-to-back) variant preloads all decoded frames so the
+/// measured loop touches nothing but the inference call (the original
+/// hot-loop protocol; per-frame decode between calls pollutes caches and
+/// roughly doubles the measured latency). With [pacedFps] set, each frame
+/// is instead decoded in the loop (outside the stopwatch, standing in for
+/// camera frame delivery) and waits for its wall-clock deadline at that
+/// cadence. Idle gaps let the CPU governor drop clocks, so a paced run
+/// measures device DVFS behavior as much as the package; treat it as an
+/// exploratory scenario test, not a tracked metric.
+Future<void> runStreamingBench({
+  required FaceMeshDelegate delegate,
+  required bool attention,
+  double? pacedFps,
+}) async {
+  await thermalCooldown();
+
+  final List<String> framePaths = await listFramePaths();
+  expect(framePaths, isNotEmpty, reason: 'run tool/prepare_assets.py first');
+  final double fps = await loadFrameFps();
+  final Duration frameInterval = Duration(
+    microseconds: (1e6 / fps).round(),
+  );
+  final bool paced = pacedFps != null;
+  final Duration? paceInterval = pacedFps == null
+      ? null
+      : Duration(microseconds: (1e6 / pacedFps).round());
+
+  final FaceDetectorProcessor detector = await FaceDetectorProcessor.create(
+    delegate: delegate,
+  );
+  final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
+    enableRoiTracking: true,
+    enableAttentionMesh: attention,
+    delegate: delegate,
+  );
+  final int expectedLandmarks = attention ? 478 : 468;
+
+  final List<double> samples = <double>[];
+  final List<FaceMeshResult> tracked = <FaceMeshResult>[];
+  final List<double> driftIous = <double>[];
+  int trackingFailFrames = 0;
+  int noFaceFrames = 0;
+  double scoreMin = double.infinity;
+  int width = 0;
+  int height = 0;
+  NormalizedRect? firstRoi;
+
+  List<FaceMeshImage>? preloaded;
+  if (!paced) {
+    preloaded = <FaceMeshImage>[];
+    for (final String p in framePaths) {
+      preloaded.add(await loadRgbaAsset(p));
+    }
+  }
+
+  final Stopwatch sw = Stopwatch();
+  final Stopwatch wall = Stopwatch();
+  for (int i = 0; i < framePaths.length; i++) {
+    final FaceMeshImage frame = paced
+        ? await loadRgbaAsset(framePaths[i])
+        : preloaded![i];
+    width = frame.width;
+    height = frame.height;
+    if (i == 0) {
+      final FaceDetectionResult det = detector.process(frame);
+      final FaceDetection? top = det.primaryDetection;
+      expect(top, isNotNull, reason: 'no face in first frame');
+      firstRoi = top!.expandedFaceRect;
+      wall.start();
+    }
+    if (paceInterval != null) {
+      final Duration ahead = paceInterval * i - wall.elapsed;
+      if (ahead > Duration.zero) {
+        await Future<void>.delayed(ahead);
+      }
+    }
+    sw
+      ..reset()
+      ..start();
+    final FaceMeshResult result = i == 0
+        ? mesh.process(frame, roi: firstRoi)
+        : mesh.process(frame);
+    sw.stop();
+
+    final bool meshValid =
+        result.landmarks.length == expectedLandmarks && result.score > 0.5;
+    if (meshValid) {
+      scoreMin = math.min(scoreMin, result.score);
+    } else if (detector.process(frame).primaryDetection != null) {
+      // Independent detection outside the stopwatch still finds a face, so
+      // the invalid mesh output is a tracking failure, not a no-face frame
+      // (the source video fades to black over its last frames).
+      trackingFailFrames++;
+    } else {
+      noFaceFrames++;
+    }
+    if (i >= kStreamSettleFrames) {
+      samples.add(sw.elapsedMicroseconds / 1000.0);
+      tracked.add(result);
+    }
+    if (meshValid && i > 0 && i % kDriftCheckInterval == 0) {
+      // Drift probe: an independent detector pass outside the stopwatch. A
+      // frozen or wandering tracker still yields low jitter and normal
+      // latency, so only a fresh detection can expose it.
+      final FaceDetection? probe = detector.process(frame).primaryDetection;
+      if (probe != null) {
+        driftIous.add(landmarkDetectionIou(result.landmarks, probe));
+      }
+    }
+  }
+
+  // OneEuro landmark smoothing: applied after the fact on the same
+  // results so raw and smoothed jitter come from one inference pass.
+  final FaceLandmarkSmoother smoother = FaceLandmarkSmoother();
+  final List<List<FaceMeshLandmark>> rawLandmarks =
+      <List<FaceMeshLandmark>>[];
+  final List<List<FaceMeshLandmark>> smoothedLandmarks =
+      <List<FaceMeshLandmark>>[];
+  double oneEuroTotalMs = 0;
+  for (int i = 0; i < tracked.length; i++) {
+    rawLandmarks.add(tracked[i].landmarks);
+    sw
+      ..reset()
+      ..start();
+    final FaceMeshResult smoothed = smoother.smooth(
+      tracked[i],
+      timestamp: frameInterval * i,
+    );
+    sw.stop();
+    oneEuroTotalMs += sw.elapsedMicroseconds / 1000.0;
+    smoothedLandmarks.add(smoothed.landmarks);
+  }
+
+  emitResult(
+    app: kApp,
+    suite: paced ? 'streaming_paced' : 'streaming',
+    config: <String, Object?>{
+      'frames': framePaths.length,
+      'width': width,
+      'height': height,
+      'fps': fps,
+      'pacedFps': ?pacedFps,
+      'delegate': delegate.name,
+      'attention': attention,
+      'activeDelegate': mesh.activeDelegate.name,
+    },
+    samplesMs: samples,
+    extra: <String, Object?>{
+      'jitterRawPx': meanJitterPx(rawLandmarks, width, height),
+      'jitterOneEuroPx': meanJitterPx(smoothedLandmarks, width, height),
+      'oneEuroCostMs': oneEuroTotalMs / tracked.length,
+      'trackingFailFrames': trackingFailFrames,
+      'noFaceFrames': noFaceFrames,
+      if (scoreMin.isFinite) 'scoreMin': scoreMin,
+      if (driftIous.isNotEmpty)
+        'roiDriftIouMean':
+            driftIous.reduce((double a, double b) => a + b) /
+            driftIous.length,
+      if (driftIous.isNotEmpty) 'roiDriftIouMin': driftIous.reduce(math.min),
+    },
+  );
+
+  mesh.close();
+  detector.close();
+
+  // Asserted after emitResult so the numbers still print on failure.
+  expect(
+    trackingFailFrames,
+    0,
+    reason: 'mesh output invalid while an independent detection finds a face',
+  );
+  expect(driftIous, isNotEmpty, reason: 'no successful drift probes');
+  expect(
+    driftIous.reduce(math.min),
+    greaterThan(kDriftIouFloor),
+    reason: 'tracked landmarks drifted away from an independent detection',
+  );
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -93,6 +326,8 @@ void main() {
         testWidgets('delegate=${delegate.name} attention=$attention', (
           WidgetTester tester,
         ) async {
+          await thermalCooldown();
+
           final FaceDetectorProcessor detector =
               await FaceDetectorProcessor.create(delegate: delegate);
           final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
@@ -149,14 +384,7 @@ void main() {
     }
   });
 
-  group('streaming (roi tracking, detector on first frame only)', () {
-    late List<FaceMeshImage> frames;
-
-    setUpAll(() async {
-      frames = await loadFrameSequence();
-      expect(frames, isNotEmpty, reason: 'run tool/prepare_assets.py first');
-    });
-
+  void streamingMatrix({double? pacedFps}) {
     for (final FaceMeshDelegate delegate in kDelegates) {
       for (final bool attention in kAttention) {
         if (skipConfig(delegate, attention)) {
@@ -165,82 +393,28 @@ void main() {
         testWidgets('delegate=${delegate.name} attention=$attention', (
           WidgetTester tester,
         ) async {
-          final FaceDetectorProcessor detector =
-              await FaceDetectorProcessor.create(delegate: delegate);
-          final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
-            enableRoiTracking: true,
-            enableAttentionMesh: attention,
+          await runStreamingBench(
             delegate: delegate,
+            attention: attention,
+            pacedFps: pacedFps,
           );
-
-          final FaceDetectionResult det = detector.process(frames.first);
-          final FaceDetection? top = det.primaryDetection;
-          expect(top, isNotNull, reason: 'no face in first frame');
-
-          final List<double> samples = <double>[];
-          final List<FaceMeshResult> tracked = <FaceMeshResult>[];
-          final Stopwatch sw = Stopwatch();
-          for (int i = 0; i < frames.length; i++) {
-            sw
-              ..reset()
-              ..start();
-            final FaceMeshResult result = i == 0
-                ? mesh.process(frames[i], roi: top!.expandedFaceRect)
-                : mesh.process(frames[i]);
-            sw.stop();
-            if (i >= kStreamSettleFrames) {
-              samples.add(sw.elapsedMicroseconds / 1000.0);
-              tracked.add(result);
-            }
-          }
-
-          // OneEuro landmark smoothing: applied after the fact on the same
-          // results so raw and smoothed jitter come from one inference pass.
-          final FaceLandmarkSmoother smoother = FaceLandmarkSmoother();
-          final List<List<FaceMeshLandmark>> rawLandmarks =
-              <List<FaceMeshLandmark>>[];
-          final List<List<FaceMeshLandmark>> smoothedLandmarks =
-              <List<FaceMeshLandmark>>[];
-          double oneEuroTotalMs = 0;
-          for (int i = 0; i < tracked.length; i++) {
-            rawLandmarks.add(tracked[i].landmarks);
-            sw
-              ..reset()
-              ..start();
-            final FaceMeshResult smoothed = smoother.smooth(
-              tracked[i],
-              timestamp: Duration(milliseconds: 33 * i),
-            );
-            sw.stop();
-            oneEuroTotalMs += sw.elapsedMicroseconds / 1000.0;
-            smoothedLandmarks.add(smoothed.landmarks);
-          }
-
-          final int w = frames.first.width;
-          final int h = frames.first.height;
-          emitResult(
-            app: kApp,
-            suite: 'streaming',
-            config: <String, Object?>{
-              'frames': frames.length,
-              'width': w,
-              'height': h,
-              'delegate': delegate.name,
-              'attention': attention,
-              'activeDelegate': mesh.activeDelegate.name,
-            },
-            samplesMs: samples,
-            extra: <String, Object?>{
-              'jitterRawPx': meanJitterPx(rawLandmarks, w, h),
-              'jitterOneEuroPx': meanJitterPx(smoothedLandmarks, w, h),
-              'oneEuroCostMs': oneEuroTotalMs / tracked.length,
-            },
-          );
-
-          mesh.close();
-          detector.close();
         });
       }
     }
-  });
+  }
+
+  group('streaming (back-to-back, roi tracking)', streamingMatrix);
+
+  // Opt-in camera-cadence scenario: pass --dart-define=PACED_FPS=<fps> to
+  // also run the streaming matrix paced at that cadence.
+  const String pacedFpsEnv = String.fromEnvironment('PACED_FPS');
+  if (pacedFpsEnv.isNotEmpty) {
+    final double? pacedFps = double.tryParse(pacedFpsEnv);
+    if (pacedFps == null || pacedFps <= 0) {
+      throw ArgumentError('invalid PACED_FPS: $pacedFpsEnv');
+    }
+    group('streaming_paced (${pacedFpsEnv}fps cadence, roi tracking)', () {
+      streamingMatrix(pacedFps: pacedFps);
+    });
+  }
 }

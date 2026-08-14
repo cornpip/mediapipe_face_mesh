@@ -22,10 +22,10 @@ Same device (Dimensity 9400, Android 16), same inputs. One call runs
 detection plus the full 468-landmark mesh in both packages:
 
 | | mediapipe_face_mesh | google_mlkit_face_mesh_detection 0.5.0 |
-| --- | --- | --- |
-| single image, per call | 2.9 ms | 43.7 ms |
-| streaming, per frame | 1.54 ms | 49.6 ms |
-| streaming, attention mesh (478, recommended) | 2.10 ms | - |
+| --- |---------------------| --- |
+| single image, per call | 3~5 ms              | ~44 ms |
+| streaming, per frame | 1~2 ms              | ~50 ms |
+| streaming, attention mesh (478, recommended) | 2~3 ms              | - |
 
 In streaming, mediapipe_face_mesh tracks the face between frames, while
 ML Kit re-runs detection every frame (it has no tracking mode).

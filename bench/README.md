@@ -22,20 +22,46 @@ Asset provenance and licenses: `assets/SOURCES.md`.
 python3 bench/tool/prepare_assets.py
 ```
 
-Extracts 300 frames from `assets/bench_face_10s.mp4` and copies
-`portrait.jpg` and `frames/` into every app's `assets/` (all gitignored).
+Extracts 300 frames from `assets/bench_face_10s.mp4`, records the source
+video fps in `frames/meta.json`, and copies `portrait.jpg` and `frames/`
+into every app's `assets/` (all gitignored). Re-run it on older checkouts:
+the streaming suites now require `frames/meta.json`.
 
 ## Protocol
 
 - Single image: full pipeline per call (detector + mesh every call, no
   cross-call state), 10 warmup runs, then 100 measured runs of per-call
   latency.
-- Streaming: 300-frame sequence, detector on frame 0 only, internal ROI
-  tracking after that (packages without tracking run the full pass every
-  frame). First 30 frames discarded, steady-state stats + landmark jitter
-  (mean per-landmark px displacement between frames).
+- Streaming (back-to-back, `streaming` suite): 300-frame sequence,
+  detector on frame 0 only, internal ROI tracking after that (packages
+  without tracking run the full pass every frame). Frames are decoded up
+  front so the measured loop touches nothing but the inference call;
+  per-frame decode between calls pollutes caches and roughly doubled the
+  measured latency in an A/B run. First 30 frames discarded,
+  steady-state stats +
+  landmark jitter (mean per-landmark px displacement between frames).
+- Streaming (paced, `streaming_paced` suite, opt-in): only runs when a
+  cadence is given via `--dart-define=PACED_FPS=<fps>`. Same sequence,
+  but each frame is decoded in the loop (outside the stopwatch, standing
+  in for camera frame delivery) and processed on its wall-clock deadline
+  at that fps. Idle gaps let the CPU governor drop clocks, so this
+  measures device DVFS behavior under the chosen cadence as much as the
+  package; treat it as an exploratory scenario test, not a tracked
+  metric. The back-to-back number is the boosted best case.
+- Validation (mine only): every frame must return the expected landmark
+  count with score > 0.5. Frames that fail are cross-checked with an
+  independent detector pass: genuine no-face frames are counted as
+  `noFaceFrames` (the clip fades to black over its last 15 frames, so 15
+  is the expected value), while `trackingFailFrames` fails the test. Every
+  30th frame an independent detection is compared against the tracked
+  landmark bbox (`roiDriftIou*`), so a frozen or drifting tracker cannot
+  hide behind a good jitter number.
+- Thermal: every measured config starts with a 30 s idle cooldown
+  (`kCooldownSeconds`) so later configs are not measured on a hotter
+  device than earlier ones.
 - Stats: mean / median / p95 over the measured samples; published numbers
-  quote mean.
+  quote mean. For paced runs read median/p95 instead; their absolute
+  values swing with session thermal state.
 
 ## Run
 
@@ -49,32 +75,45 @@ Results print as `BENCH_JSON {...}` lines; the aggregate script turns all
 logs into one markdown table. Windows desktop: `-d windows` (mine and fdt
 only; the ML Kit mesh package is Android-only).
 
+Optional camera-cadence scenario (mine only, see Protocol):
+
+```
+flutter test integration_test/bench_test.dart -d <device-id> --dart-define=PACED_FPS=30
+```
+
 Published summary of these results: `doc/BENCHMARKS.md` (package doc,
 linked from the main README). Keep it in sync when numbers change.
 
-## Results: v2.7.1, Samsung SM-X930 (Dimensity 9400, Android 16)
+## Results: v2.7.1 (reworked harness), Samsung SM-X930 (Dimensity 9400, Android 16)
 
-Measured on v2.7.1 (log `mine-android-2.7.1.log`), default settings unless
-noted. Mean ms over 100 runs after 10 warmups. Streaming cpu 468 is stable
-across sessions (observed 1.46 to 1.54ms); the single-image numbers swing
-with device thermal state (observed 2.6 to 4.5ms across sessions), so
-treat streaming as the stable headline metric.
+Measured 2026-08-14 on the reworked harness, profile build (log
+`mine-android-rework-profile.log`; debug run `mine-android-rework2.log`),
+default settings unless noted. Streaming back-to-back reproduces the
+numbers published for the previous harness (1.54 / 2.10 / 1.47), so the
+rework did not shift the headline metric. Single-image numbers swing with
+device thermal state (observed 2.6 to 4.5ms across sessions); treat
+streaming back-to-back as the stable headline metric.
 
-Single image (full detector + mesh per call):
+Single image (full detector + mesh per call, mean ms):
 
 | config | portrait (820x1024) |
 | --- | --- |
-| cpu, 468 mesh | 2.9 |
-| cpu, attention 478 | 3.7 |
-| xnnpack, 468 mesh | 2.9 |
+| cpu, 468 mesh | 3.3 |
+| cpu, attention 478 | 4.0 |
+| xnnpack, 468 mesh | 3.0 |
 
-Streaming (720p sequence, ROI tracking, steady state):
+Streaming back-to-back (720p sequence, ROI tracking, steady state, mean
+ms):
 
 | config | per frame | jitter raw / OneEuro (px) |
 | --- | --- | --- |
-| cpu, 468 mesh | 1.54ms | 1.43 / 1.21 |
-| cpu, attention 478 | 2.10ms | 1.51 / 1.28 |
-| xnnpack, 468 mesh | 1.47ms | 1.43 / 1.21 |
+| cpu, 468 mesh | 1.48 | 1.43 / 1.21 |
+| cpu, attention 478 | 2.12 | 1.51 / 1.28 |
+| xnnpack, 468 mesh | 1.50 | 1.43 / 1.21 |
+
+Tracking validation in these runs: `trackingFailFrames=0` in every
+config, drift IoU 0.77 to 0.80, `noFaceFrames=15` (the black tail),
+`scoreMin=1.00` on face-bearing frames.
 
 Comparison anchor: `google_mlkit_face_mesh_detection` 0.5.0,
 `FaceMeshDetectorOptions.faceMesh` (detection + 468 mesh in one call),
@@ -84,7 +123,7 @@ nv21 buffer prepared outside the measured call; log
 | config | portrait |
 | --- | --- |
 | single image, per call | 43.7 |
-| streaming 720p, per frame | 49.6 (15/300 no mesh) |
+| streaming 720p, per frame | 49.6 (15/300 no mesh: the black tail frames) |
 
 Notes:
 - cpu and xnnpack are within noise of each other (the bundled runtime
@@ -120,8 +159,16 @@ mlkit row was measured with `google_mlkit_face_detection`.
   with a profile run before quoting them anywhere: `flutter drive
   --driver=test_driver/integration_test.dart
   --target=integration_test/bench_test.dart --profile` (release mode is
-  not supported by Flutter Driver). The v2.7.1 numbers are confirmed this
-  way (log `mine-android-2.7.1-profile.log`, streaming slightly faster).
+  not supported by Flutter Driver). The results above are from such a
+  profile run. `oneEuroCostMs` is pure Dart and is the value most
+  distorted by debug JIT (roughly 2x: 0.14 debug vs 0.07 profile
+  observed).
+- The back-to-back suite preloads all decoded frames, about 1.1 GB of RAM
+  at 720p. On low-RAM devices run the paced suite instead
+  (`--dart-define=PACED_FPS=<fps>` with `--plain-name streaming_paced`),
+  which decodes one frame at a time.
+- Close other apps on the device before measuring; a resident background
+  app was observed in one session's logs and may add variance.
 - fdt input differs from ours: `detectFacesFromBytes` takes encoded JPEG,
   while our call takes pre-decoded RGBA. For a strict like-for-like run
   use their `detectFacesFromMatBytes` with raw pixels.
