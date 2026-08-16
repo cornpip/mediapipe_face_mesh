@@ -12,6 +12,8 @@ Read this first. Read other docs only when the task touches that area.
 - `CHANGELOG.md` entry: read `.agents/docs/changelog-style.md`.
 - iOS bundled framework binary replaced: read
   `.agents/docs/ios-binary-update.md`.
+- `LICENSE`, `NOTICES`, or a bundled binary or model changed: read
+  `.agents/docs/license-notices.md`.
 
 ## Agent-Specific
 

@@ -12,8 +12,6 @@ Apps that depend on this package pick these notices up automatically. The
 `NOTICES` file in the package root carries the same attribution in the format
 Flutter's license collector reads, so `showLicensePage()` in a consuming app
 lists the bundled Apache-2.0 components alongside this package's BSD-3 license.
-Keep `NOTICES` in sync when `LICENSE` or the components below change: it
-repeats both license texts verbatim, and Flutter reads it instead of `LICENSE`.
 
 ## TensorFlow Lite
 
