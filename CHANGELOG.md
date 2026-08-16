@@ -2,6 +2,11 @@
 
 - docs: refresh the benchmark report; measurements now come from a
   harness that validates tracking, and the README quotes latency ranges
+- docs: add `THIRD_PARTY_NOTICES.md` and the Apache-2.0 license text for the
+  bundled TensorFlow Lite runtimes and MediaPipe models, including the
+  modifications made to the runtime binaries
+- add a `NOTICES` file so `showLicensePage()` in a consuming app lists the
+  bundled Apache-2.0 components, not just this package's BSD-3 license
 
 ## 2.7.1
 

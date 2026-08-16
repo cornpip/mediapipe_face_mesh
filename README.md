@@ -328,14 +328,6 @@ faceMeshProcessor.close();
 A demo app lives in the `example/` directory at the root of this
 repository.
 
-## Bundled Runtime and Models
-
-- TensorFlow Lite C runtime binaries for Android (`arm64-v8a`, `x86_64`), iOS
-  (device `arm64`, simulator `arm64`/`x86_64`), and Windows (`x64`)
-- Model source
-  - https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/models.md
-  - https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
-
 ## Notes
 
 - On Flutter older than 3.38.0, a debug `flutter run` on a physical iOS 17+
@@ -350,3 +342,17 @@ repository.
   'iOS'`, a stale copy of the old framework is being picked up. Run
   `pod deintegrate && pod install` in `ios/` and delete the build folder and
   DerivedData.
+
+## License
+
+BSD 3-Clause ([LICENSE](LICENSE)) for this package's own source code. The
+bundled TensorFlow Lite runtimes and MediaPipe models are Apache-2.0 and stay
+under their own license. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the attributions, the
+model sources, and the modifications made to the runtime binaries, and
+[LICENSE-APACHE-2.0.txt](LICENSE-APACHE-2.0.txt) for the license text.
+
+Your app does not need to add anything: the package ships a `NOTICES` file, so
+`showLicensePage()` lists the bundled components automatically.
+
+This project is not affiliated with or endorsed by Google LLC.

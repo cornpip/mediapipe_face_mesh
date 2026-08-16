@@ -57,7 +57,7 @@ CONTRIBUTING.md
 .agents/
 
 # Vendored TensorFlow tree: consumer builds compile only src/*.cc and read
-# headers from src/include — strip everything that is not a header.
+# headers from src/include, so strip everything that is not a header.
 src/include/**/*.cc
 src/include/**/*.c
 src/include/**/*.py
