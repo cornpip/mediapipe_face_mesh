@@ -1,6 +1,8 @@
+
+
 # mediapipe_face_mesh
 
-Face detection and a 478-landmark face mesh pipeline, on device, in a few
+Face detection and a 468- or 478-landmark face mesh pipeline, on device, in a few
 milliseconds per frame. Models and the TensorFlow Lite runtime ship inside
 the package.
 
