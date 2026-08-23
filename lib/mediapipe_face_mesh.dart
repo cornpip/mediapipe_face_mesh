@@ -37,6 +37,8 @@ const String _defaultIrisModelAsset =
     'packages/mediapipe_face_mesh/assets/models/iris_landmark.tflite';
 const String _attentionModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_landmark_with_attention.tflite';
+const String _faceMeshV2ModelAsset =
+    'packages/mediapipe_face_mesh/assets/models/face_mesh_v2.tflite';
 const String _defaultBlendshapesModelAsset =
     'packages/mediapipe_face_mesh/assets/models/face_blendshapes.tflite';
 
@@ -78,10 +80,46 @@ extension on FaceDetectionModel {
   }
 }
 
+/// Bundled MediaPipe face mesh (landmark) model generations for
+/// [FaceMeshProcessor.create].
+enum FaceMeshModel {
+  /// First-generation mesh model returning 468 landmarks (upstream
+  /// `face_landmark.tflite`).
+  ///
+  /// Combine with `enableIris: true` to run the separate iris pass and get
+  /// the 478-landmark layout.
+  v1,
+
+  /// Unified `face_landmark_with_attention` model: refines lips, eyes, and
+  /// irises in a single inference and returns 478 landmarks (iris points at
+  /// indices 468..477). The lowest-latency 478 option in our benchmarks.
+  attention,
+
+  /// FaceMesh-V2, the model the current upstream FaceLandmarker task uses
+  /// (published there as `face_landmarks_detector.tflite`): 478 landmarks
+  /// with irises built in, same layout as [attention]. Recommended: the
+  /// most accurate per the upstream model cards, at some latency cost over
+  /// [attention] (`doc/BENCHMARKS.md`).
+  v2,
+}
+
+extension on FaceMeshModel {
+  String get assetKey {
+    switch (this) {
+      case FaceMeshModel.v1:
+        return _defaultModelAsset;
+      case FaceMeshModel.attention:
+        return _attentionModelAsset;
+      case FaceMeshModel.v2:
+        return _faceMeshV2ModelAsset;
+    }
+  }
+}
+
 /// Face Mesh landmark indices whose eye coordinates are refined beyond the base
 /// mesh: by the separate iris model when
-/// `FaceMeshProcessor.create(enableIris: true)` is used, or by the attention
-/// model when `enableAttentionMesh: true` is used.
+/// `FaceMeshProcessor.create(enableIris: true)` is used, or inside the mesh
+/// inference with [FaceMeshModel.attention] or [FaceMeshModel.v2].
 const Set<int> faceMeshIrisRefinedEyeLandmarkIndices = <int>{
   33,
   7,
@@ -1410,13 +1448,13 @@ class FaceDetectorProcessor {
 class FaceMeshProcessor {
   FaceMeshProcessor._(
     this._context, {
+    required FaceMeshModel model,
     required bool irisEnabled,
-    required bool attentionMeshEnabled,
     required bool roiTrackingEnabled,
     required double minTrackingConfidence,
     required double minFacePresenceConfidence,
-  }) : _irisEnabled = irisEnabled,
-       _attentionMeshEnabled = attentionMeshEnabled,
+  }) : _model = model,
+       _irisEnabled = irisEnabled,
        _roiTrackingEnabled = roiTrackingEnabled,
        _minTrackingConfidence = minTrackingConfidence,
        _minFacePresenceConfidence = minFacePresenceConfidence {
@@ -1427,8 +1465,8 @@ class FaceMeshProcessor {
   static const double _boxScale = 1.2;
 
   final ffi.Pointer<MpFaceMeshContext> _context;
+  final FaceMeshModel _model;
   final bool _irisEnabled;
-  final bool _attentionMeshEnabled;
   final bool _roiTrackingEnabled;
   final double _minTrackingConfidence;
   final double _minFacePresenceConfidence;
@@ -1438,11 +1476,15 @@ class FaceMeshProcessor {
   /// Whether this processor returns iris landmarks (478 landmarks instead of
   /// the base 468).
   ///
-  /// True when created with `enableIris: true` or `enableAttentionMesh: true`.
+  /// True when created with `enableIris: true` or with a model that has iris
+  /// built in ([FaceMeshModel.attention], [FaceMeshModel.v2]).
   bool get irisEnabled => _irisEnabled;
 
+  /// Mesh model this processor was created with.
+  FaceMeshModel get model => _model;
+
   /// Whether this processor was created with the attention mesh model.
-  bool get attentionMeshEnabled => _attentionMeshEnabled;
+  bool get attentionMeshEnabled => _model == FaceMeshModel.attention;
 
   /// Whether this processor was created with internal ROI tracking enabled.
   bool get roiTrackingEnabled => _roiTrackingEnabled;
@@ -1482,13 +1524,14 @@ class FaceMeshProcessor {
 
   /// Delegate that the separate iris model is actively using after fallback.
   ///
-  /// Returns null when no separate iris pass runs — either because this
-  /// processor was created with `enableIris: false`, or because
-  /// `enableAttentionMesh: true` produces the iris landmarks inside the mesh
-  /// inference ([activeDelegate] is the delegate running it).
+  /// Returns null when no separate iris pass runs: either this processor was
+  /// created with `enableIris: false`, or the selected model
+  /// ([FaceMeshModel.attention], [FaceMeshModel.v2]) produces the
+  /// iris landmarks inside the mesh inference ([activeDelegate] is the
+  /// delegate running it).
   FaceMeshDelegate? get activeIrisDelegate {
     _ensureNotClosed();
-    if (!_irisEnabled || _attentionMeshEnabled) {
+    if (!_irisEnabled || _model != FaceMeshModel.v1) {
       return null;
     }
     return _faceMeshDelegateFromNative(
@@ -1525,17 +1568,20 @@ class FaceMeshProcessor {
   ///   landmarks, and calls without an explicit ROI also reset internal ROI
   ///   tracking. Scores are compared after sigmoid, like the official
   ///   graph's face-presence threshold.
+  /// - [model] selects the bundled mesh model ([FaceMeshModel.v1] when
+  ///   omitted). [FaceMeshModel.attention] and [FaceMeshModel.v2]
+  ///   refine lips, eyes, and irises inside a single inference and return the
+  ///   478-landmark layout; iris is always included with them, the separate
+  ///   iris model is not loaded, and [activeIrisDelegate] is null, while
+  ///   [irisEnabled] stays true and iris-dependent consumers such as
+  ///   [FaceBlendshapesProcessor] keep working.
   /// - [enableIris] runs a separate iris pass after the base 468-point mesh: it
   ///   refines the eye landmarks and appends iris landmarks, returning 478
-  ///   landmarks instead of the base 468 landmarks.
-  /// - [enableAttentionMesh] replaces the base mesh model with the unified
-  ///   `face_landmark_with_attention` model, which refines lips, eyes, and
-  ///   irises in a single inference and returns the same 478-landmark layout
-  ///   with better accuracy around those regions. Iris is always included, so
-  ///   it supersedes [enableIris]: when both are set the separate iris model is
-  ///   not loaded and [activeIrisDelegate] is null, while [irisEnabled] stays
-  ///   true and iris-dependent consumers such as [FaceBlendshapesProcessor]
-  ///   keep working.
+  ///   landmarks instead of the base 468 landmarks. It only applies to
+  ///   [FaceMeshModel.v1] and is ignored with the other models.
+  /// - [enableAttentionMesh] is the legacy way to select the attention model,
+  ///   equivalent to `model: FaceMeshModel.attention`. Combining it with a
+  ///   conflicting [model] value throws [ArgumentError].
   static Future<FaceMeshProcessor> create({
     int? threads,
     double minDetectionConfidence = 0.5,
@@ -1543,21 +1589,35 @@ class FaceMeshProcessor {
     double minFacePresenceConfidence = 0.5,
     bool enableSmoothing = true,
     bool enableRoiTracking = true,
+    FaceMeshModel? model,
     bool enableIris = false,
     bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
-    // The attention model already includes refined irises in its 478 output, so
-    // it replaces the base mesh model and the separate iris pass.
-    final bool irisIncluded = enableIris || enableAttentionMesh;
-    final String resolvedModelPath = enableAttentionMesh
-        ? await _materializeAttentionModel()
-        : await _materializeModel();
-    final String? resolvedIrisModelPath =
-        (enableIris && !enableAttentionMesh)
-            ? await _materializeIrisModel()
-            : null;
+    if (model != null &&
+        enableAttentionMesh &&
+        model != FaceMeshModel.attention) {
+      throw ArgumentError(
+        'Conflicting mesh model selection: enableAttentionMesh: true requests '
+        'FaceMeshModel.attention but model is $model. Pass only one of them.',
+      );
+    }
+    final FaceMeshModel resolvedModel =
+        model ??
+        (enableAttentionMesh ? FaceMeshModel.attention : FaceMeshModel.v1);
+    // The attention and FaceMesh-V2 models already include refined irises in
+    // their 478 output, so the separate iris pass only runs on the v1 model.
+    final bool runsIrisPass =
+        resolvedModel == FaceMeshModel.v1 && enableIris;
+    final bool irisIncluded =
+        resolvedModel != FaceMeshModel.v1 || enableIris;
+    final String resolvedModelPath = await _materializeMeshModel(
+      resolvedModel,
+    );
+    final String? resolvedIrisModelPath = runsIrisPass
+        ? await _materializeIrisModel()
+        : null;
 
     final optionsPtr = pkg_ffi.calloc<MpFaceMeshCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
@@ -1574,8 +1634,10 @@ class FaceMeshProcessor {
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
-        ..enable_iris = enableIris ? 1 : 0
-        ..enable_attention_mesh = enableAttentionMesh ? 1 : 0
+        ..enable_iris = runsIrisPass ? 1 : 0
+        ..enable_attention_mesh = resolvedModel == FaceMeshModel.attention
+            ? 1
+            : 0
         ..iris_model_path = irisModelPathPtr.cast()
         ..tflite_library_path = ffi.nullptr;
 
@@ -1589,8 +1651,8 @@ class FaceMeshProcessor {
       }
       return FaceMeshProcessor._(
         context,
+        model: resolvedModel,
         irisEnabled: irisIncluded,
-        attentionMeshEnabled: enableAttentionMesh,
         roiTrackingEnabled: enableRoiTracking,
         minTrackingConfidence: minTrackingConfidence,
         minFacePresenceConfidence: minFacePresenceConfidence,
@@ -1615,6 +1677,7 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     double minFacePresenceConfidence = 0.5,
+    FaceMeshModel? model,
     bool enableIris = false,
     bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
@@ -1627,6 +1690,7 @@ class FaceMeshProcessor {
       minFacePresenceConfidence: minFacePresenceConfidence,
       enableSmoothing: false,
       enableRoiTracking: false,
+      model: model,
       enableIris: enableIris,
       enableAttentionMesh: enableAttentionMesh,
       delegate: delegate,
@@ -2030,8 +2094,8 @@ _blendshapesContextFinalizer =
 ///
 /// This is a separate processor from [FaceMeshProcessor]: create one once, then
 /// call [process] on any [FaceMeshResult] whose landmarks include the iris
-/// points (i.e. produced by a mesh processor created with `enableIris: true` or
-/// `enableAttentionMesh: true`).
+/// points (i.e. produced by a mesh processor created with `enableIris: true`,
+/// [FaceMeshModel.attention], or [FaceMeshModel.v2]).
 class FaceBlendshapesProcessor {
   FaceBlendshapesProcessor._(this._context) {
     _blendshapesContextFinalizer.attach(this, _context, detach: this);
@@ -2099,9 +2163,9 @@ class FaceBlendshapesProcessor {
   /// frame).
   ///
   /// Throws [ArgumentError] when [result] carries some landmarks but fewer than
-  /// [requiredLandmarkCount] — this means the source mesh was created without
-  /// `enableIris: true` or `enableAttentionMesh: true`, one of which the
-  /// blendshapes model requires for the iris landmarks.
+  /// [requiredLandmarkCount]: the source mesh was created without iris
+  /// landmarks (`enableIris: true`, [FaceMeshModel.attention], or
+  /// [FaceMeshModel.v2]), which the blendshapes model requires.
   Map<FaceBlendshape, double>? process(FaceMeshResult result) {
     _ensureNotClosed();
     final List<FaceMeshLandmark> landmarks = result.landmarks;
@@ -2111,8 +2175,9 @@ class FaceBlendshapesProcessor {
     if (landmarks.length < requiredLandmarkCount) {
       throw ArgumentError(
         'FaceBlendshapesProcessor requires $requiredLandmarkCount landmarks '
-        '(create the FaceMeshProcessor with enableIris: true or '
-        'enableAttentionMesh: true); got ${landmarks.length}.',
+        '(create the FaceMeshProcessor with enableIris: true, '
+        'FaceMeshModel.attention, or FaceMeshModel.v2); '
+        'got ${landmarks.length}.',
       );
     }
 

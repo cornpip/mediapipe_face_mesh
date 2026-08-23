@@ -19,13 +19,12 @@ Requires Dart `>=3.8.1 <4.0.0` and Flutter `>=3.32.0`.
 ## Performance
 
 Same device (Dimensity 9400, Android 16), same inputs. One call runs
-detection plus the full 468-landmark mesh in both packages:
+detection plus the full face mesh in both packages:
 
 | | mediapipe_face_mesh | google_mlkit_face_mesh_detection 0.5.0 |
 | --- |---------------------| --- |
 | single image, per call | 3~5 ms              | ~44 ms |
-| streaming, per frame | 1~2 ms              | ~50 ms |
-| streaming, attention mesh (478, recommended) | 2~3 ms              | - |
+| streaming, per frame | 1~3 ms              | ~50 ms |
 
 In streaming, mediapipe_face_mesh tracks the face between frames, while
 ML Kit re-runs detection every frame (it has no tracking mode).
@@ -48,10 +47,16 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final faceDetectorProcessor = await FaceDetectorProcessor.create();
 ```
-The `model` option selects the bundled detector model: `shortRange`
-(default, near faces), `fullRange` (dense), or `fullRangeSparse` (sparse)
-for faces farther from the camera. `maxResults` (default 1) caps the number
-of detections.
+`model` selects the detector model.
+
+- `FaceDetectionModel.shortRange` (default): for near faces, within
+  roughly 2 meters.
+- `FaceDetectionModel.fullRange`: dense model for faces farther from the
+  camera.
+- `FaceDetectionModel.fullRangeSparse`: sparse variant of the full-range
+  model.
+
+`maxResults` (default 1) caps the number of detections.
 
 ### Create Face Mesh Processor
 
@@ -59,20 +64,20 @@ of detections.
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final faceMeshProcessor = await FaceMeshProcessor.create(
-  enableAttentionMesh: true, // recommended; default is false
+  model: FaceMeshModel.v2, // recommended; default is FaceMeshModel.v1 (until 3.0.0)
 );
 ```
 
-`enableAttentionMesh` is the recommended configuration: it swaps the base
-mesh model for the unified `face_landmark_with_attention` model, which
-refines the lips, eyes, and irises in a single inference and returns 478
-landmarks (10 iris points at indices `468..477`). It is opt-in today to
-keep existing setups unchanged, and is planned to become the default from
-major version 3.
+`model` selects the mesh model.
 
-`enableIris: true` is the older alternative (base 468 mesh plus a separate
-iris pass, same 478-point layout); it is ignored when `enableAttentionMesh`
-is set.
+- `FaceMeshModel.v1` (default): the original mesh, returns 468 landmarks;
+  pass `enableIris: true` to run a separate iris pass and get the
+  478-landmark layout (10 iris points at indices `468..477`). The default
+  changes to `v2` in 3.0.0.
+- `FaceMeshModel.v2` (recommended): FaceMesh-V2, the model the current
+  upstream FaceLandmarker task uses. Same 478-landmark layout.
+- `FaceMeshModel.attention`: the `face_landmark_with_attention` model, which
+  returns 478 landmarks.
 
 ### Delegates
 
@@ -240,9 +245,8 @@ To look up landmark indices visually, use https://cornpip.github.io/mediapipe_la
 ### Face Blendshapes
 
 Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
-smile, etc.), useful for avatars, AR filters, and expression detection.
-Requires a mesh created with `enableAttentionMesh: true` (recommended) or
-`enableIris: true`, since the model reads the iris landmarks.
+smile, etc.), useful for avatars, AR filters, and expression detection. 
+Requires a mesh that returns 478 landmarks.
 
 ```dart
 final blendshapesProcessor = await FaceBlendshapesProcessor.create();
@@ -270,7 +274,7 @@ The mesh processor must be created with `createForMultiFace(...)`.
 
 ```dart
 final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
-  enableAttentionMesh: true, // recommended; default is false
+  model: FaceMeshModel.v2, // recommended; default is FaceMeshModel.v1 (until 3.0.0)
 );
 final faceDetectorProcessor = await FaceDetectorProcessor.create(
   maxResults: 4,

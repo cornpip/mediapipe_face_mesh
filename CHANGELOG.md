@@ -1,5 +1,10 @@
-## 2.7.2-wip
+## 2.8.0-wip
 
+- add the FaceMesh-V2 model, upstream `face_landmarks_detector.tflite`,
+  as `FaceMeshModel.v2`, the new recommended choice; package assets grow
+  about 2.4MB
+- add a `model` option on `FaceMeshProcessor.create` and
+  `createForMultiFace` to select the mesh model
 - docs: refresh the benchmark report; measurements now come from a
   harness that validates tracking, and the README quotes latency ranges
 - docs: add `THIRD_PARTY_NOTICES.md` and the Apache-2.0 license text for the

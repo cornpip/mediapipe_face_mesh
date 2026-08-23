@@ -94,9 +94,9 @@ class FaceMeshMeasurements {
   /// Estimated interpupillary distance.
   ///
   /// `null` when iris landmarks are unavailable (468-landmark result).
-  /// Enable iris via `FaceMeshProcessor.create(enableIris: true)` — or
-  /// `enableAttentionMesh: true`, which always includes it — for a
-  /// 478-landmark result with pupil-center landmarks.
+  /// Enable iris via `FaceMeshProcessor.create(enableIris: true)`, or use
+  /// [FaceMeshModel.attention] or [FaceMeshModel.v2] (which always
+  /// include it), for a 478-landmark result with pupil-center landmarks.
   final FaceMeshMeasurement? interpupillaryDistance;
 
   /// Estimated mouth width.

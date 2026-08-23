@@ -187,23 +187,29 @@ class MediaPipeFacePage extends StatefulWidget {
   State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
 }
 
-/// Face mesh model selection: base mesh, base + iris two-pass, or the unified
-/// attention model. Iris and attention are mutually exclusive by construction,
-/// so a single choice avoids ambiguous combinations.
+/// Face mesh model selection: base mesh, base + iris two-pass, or one of the
+/// unified 478-landmark models (attention, FaceMesh-V2). A single choice
+/// avoids ambiguous combinations.
 enum _MeshMode {
   base('Mesh (468)'),
   iris('Mesh (468) + Iris (10)'),
-  attention('Attention Mesh (478)');
+  attention('Attention Mesh (478)'),
+  faceMeshV2('FaceMesh-V2 (478)');
 
   const _MeshMode(this.label);
 
   final String label;
 
+  FaceMeshModel get model => switch (this) {
+    _MeshMode.base || _MeshMode.iris => FaceMeshModel.v1,
+    _MeshMode.attention => FaceMeshModel.attention,
+    _MeshMode.faceMeshV2 => FaceMeshModel.v2,
+  };
+
   bool get enableIris => this == _MeshMode.iris;
-  bool get enableAttention => this == _MeshMode.attention;
 
   /// Whether the result includes the 478-landmark iris set (required by
-  /// blendshapes). Both iris and attention modes produce it.
+  /// blendshapes). All modes but the base mesh produce it.
   bool get has478 => this != _MeshMode.base;
 }
 
@@ -246,7 +252,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   StreamSubscription<Object>? _inferenceStreamSubscription;
   int? _inferenceStreamRotation;
   String _selectedModel = _shortRangeModel;
-  _MeshMode _meshMode = _MeshMode.attention;
+  _MeshMode _meshMode = _MeshMode.faceMeshV2;
   bool _isMultiFaceActive = false;
 
   /// OneEuro landmark smoothing (official FaceLandmarker stream-mode
@@ -278,8 +284,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
       final faceMeshProcessor = await _createFaceMeshProcessor(
         multi: _isMultiFaceActive,
+        model: _meshMode.model,
         iris: _meshMode.enableIris,
-        attention: _meshMode.enableAttention,
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
@@ -345,23 +351,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   Future<FaceMeshProcessor> _createFaceMeshProcessor({
     required bool multi,
+    required FaceMeshModel model,
     required bool iris,
-    bool attention = false,
   }) async {
     // Multi-face tracking is managed by the pipeline with explicit per-face
     // ROIs, so the mesh processor must not keep native per-call state.
     final FaceMeshProcessor processor = multi
         ? await FaceMeshProcessor.createForMultiFace(
+            model: model,
             enableIris: iris,
-            enableAttentionMesh: attention,
           )
-        : await FaceMeshProcessor.create(
-            enableIris: iris,
-            enableAttentionMesh: attention,
-          );
+        : await FaceMeshProcessor.create(model: model, enableIris: iris);
     debugPrint(
-      'FaceMeshProcessor created: multi=$multi iris=$iris '
-      'attention=$attention delegate=${processor.activeDelegate}',
+      'FaceMeshProcessor created: multi=$multi model=$model iris=$iris '
+      'delegate=${processor.activeDelegate}',
     );
     return processor;
   }
@@ -1544,8 +1547,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     try {
       await _replaceFaceMeshProcessor(
         multi: _isMultiFaceActive,
+        model: mode.model,
         iris: mode.enableIris,
-        attention: mode.enableAttention,
       );
       if (mounted) {
         setState(() => _meshMode = mode);
@@ -1566,8 +1569,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     try {
       await _replaceFaceMeshProcessor(
         multi: nextMulti,
+        model: _meshMode.model,
         iris: _meshMode.enableIris,
-        attention: _meshMode.enableAttention,
       );
       if (mounted) {
         setState(() => _isMultiFaceActive = nextMulti);
@@ -1585,13 +1588,13 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// re-subscribes with the new mode on the next camera frame.
   Future<void> _replaceFaceMeshProcessor({
     required bool multi,
+    required FaceMeshModel model,
     required bool iris,
-    bool attention = false,
   }) async {
     final newProcessor = await _createFaceMeshProcessor(
       multi: multi,
+      model: model,
       iris: iris,
-      attention: attention,
     );
     _stopInferenceStream();
     _clearMesh();

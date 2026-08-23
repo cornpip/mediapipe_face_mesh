@@ -1,7 +1,7 @@
 part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-Future<String> _materializeModel() async {
-  return _materializeAsset(_defaultModelAsset);
+Future<String> _materializeMeshModel(FaceMeshModel model) async {
+  return _materializeAsset(model.assetKey);
 }
 
 Future<String> _materializeDetectorModel(FaceDetectionModel model) async {
@@ -10,10 +10,6 @@ Future<String> _materializeDetectorModel(FaceDetectionModel model) async {
 
 Future<String> _materializeIrisModel() async {
   return _materializeAsset(_defaultIrisModelAsset);
-}
-
-Future<String> _materializeAttentionModel() async {
-  return _materializeAsset(_attentionModelAsset);
 }
 
 Future<String> _materializeBlendshapesModel() async {

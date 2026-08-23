@@ -85,6 +85,7 @@ unmodified; the packaging notes below describe how each one is bundled.
 | `face_detection_full_range_sparse.tflite` | BlazeFace full-range sparse face detection | as published |
 | `mediapipe_face_mesh.tflite` | Face landmark model | renamed |
 | `face_landmark_with_attention.tflite` | Attention-mesh face landmark model | as published |
+| `face_mesh_v2.tflite` | FaceMesh-V2 face landmark model (published as `face_landmarks_detector.tflite`) | renamed, extracted from the Face Landmarker task bundle |
 | `iris_landmark.tflite` | Iris landmark model | as published |
 | `face_blendshapes.tflite` | Blendshapes model | extracted from the Face Landmarker task bundle |
 

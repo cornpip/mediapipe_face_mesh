@@ -45,9 +45,9 @@ MaxUnpooling2D, Convolution2DTransposeBias, and Resampler. No other change was
 made to TensorFlow Lite.
 
 MediaPipe, Copyright The MediaPipe Authors. The face detection, face landmark,
-attention mesh, iris, and blendshapes models, the face geometry data in
-src/mediapipe_face_geometry_data.h, and the CPU kernels for the custom
-operators listed above.
+attention mesh, FaceMesh-V2 landmark, iris, and blendshapes models, the face
+geometry data in src/mediapipe_face_geometry_data.h, and the CPU kernels for
+the custom operators listed above.
 
 Both are licensed under the Apache License, Version 2.0:
 
