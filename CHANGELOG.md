@@ -1,4 +1,4 @@
-## 2.8.0-wip
+## 2.8.0
 
 - add the FaceMesh-V2 model, upstream `face_landmarks_detector.tflite`,
   as `FaceMeshModel.v2`, the new recommended choice; package assets grow
