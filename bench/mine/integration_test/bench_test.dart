@@ -20,16 +20,22 @@ const int kDriftCheckInterval = 30;
 /// while a frozen or wandering ROI collapses toward zero.
 const double kDriftIouFloor = 0.2;
 
-/// Delegate/model matrix. cpu is the package default; xnnpack runs a single
-/// config only, to show parity with cpu. gpuV2 is deprecated and excluded.
+/// Delegate/model matrix. cpu runs every model; xnnpack runs v1 (cpu
+/// parity) and v2 (checks full-graph delegation) but skips attention
+/// (custom ops split its graph, so it mirrors cpu). gpuV2 is deprecated
+/// and excluded.
 const List<FaceMeshDelegate> kDelegates = <FaceMeshDelegate>[
   FaceMeshDelegate.cpu,
   FaceMeshDelegate.xnnpack,
 ];
-const List<bool> kAttention = <bool>[false, true];
+const List<FaceMeshModel> kModels = <FaceMeshModel>[
+  FaceMeshModel.v1,
+  FaceMeshModel.attention,
+  FaceMeshModel.v2,
+];
 
-bool skipConfig(FaceMeshDelegate delegate, bool attention) =>
-    delegate == FaceMeshDelegate.xnnpack && attention;
+bool skipConfig(FaceMeshDelegate delegate, FaceMeshModel model) =>
+    delegate == FaceMeshDelegate.xnnpack && model == FaceMeshModel.attention;
 
 Future<FaceMeshImage> loadRgbaAsset(String assetPath) async {
   final ByteData data = await rootBundle.load(assetPath);
@@ -140,7 +146,7 @@ double landmarkDetectionIou(
 /// exploratory scenario test, not a tracked metric.
 Future<void> runStreamingBench({
   required FaceMeshDelegate delegate,
-  required bool attention,
+  required FaceMeshModel model,
   double? pacedFps,
 }) async {
   await thermalCooldown();
@@ -161,10 +167,10 @@ Future<void> runStreamingBench({
   );
   final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
     enableRoiTracking: true,
-    enableAttentionMesh: attention,
+    model: model,
     delegate: delegate,
   );
-  final int expectedLandmarks = attention ? 478 : 468;
+  final int expectedLandmarks = model == FaceMeshModel.v1 ? 468 : 478;
 
   final List<double> samples = <double>[];
   final List<FaceMeshResult> tracked = <FaceMeshResult>[];
@@ -272,7 +278,7 @@ Future<void> runStreamingBench({
       'fps': fps,
       'pacedFps': ?pacedFps,
       'delegate': delegate.name,
-      'attention': attention,
+      'model': model.name,
       'activeDelegate': mesh.activeDelegate.name,
     },
     samplesMs: samples,
@@ -319,11 +325,11 @@ void main() {
 
   group('single image (cold pipeline: detector + mesh per call)', () {
     for (final FaceMeshDelegate delegate in kDelegates) {
-      for (final bool attention in kAttention) {
-        if (skipConfig(delegate, attention)) {
+      for (final FaceMeshModel model in kModels) {
+        if (skipConfig(delegate, model)) {
           continue;
         }
-        testWidgets('delegate=${delegate.name} attention=$attention', (
+        testWidgets('delegate=${delegate.name} model=${model.name}', (
           WidgetTester tester,
         ) async {
           await thermalCooldown();
@@ -333,7 +339,7 @@ void main() {
           final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
             enableRoiTracking: false,
             enableSmoothing: false,
-            enableAttentionMesh: attention,
+            model: model,
             delegate: delegate,
           );
 
@@ -370,7 +376,7 @@ void main() {
                 'width': image.width,
                 'height': image.height,
                 'delegate': delegate.name,
-                'attention': attention,
+                'model': model.name,
                 'activeDelegate': mesh.activeDelegate.name,
               },
               samplesMs: samples,
@@ -386,16 +392,16 @@ void main() {
 
   void streamingMatrix({double? pacedFps}) {
     for (final FaceMeshDelegate delegate in kDelegates) {
-      for (final bool attention in kAttention) {
-        if (skipConfig(delegate, attention)) {
+      for (final FaceMeshModel model in kModels) {
+        if (skipConfig(delegate, model)) {
           continue;
         }
-        testWidgets('delegate=${delegate.name} attention=$attention', (
+        testWidgets('delegate=${delegate.name} model=${model.name}', (
           WidgetTester tester,
         ) async {
           await runStreamingBench(
             delegate: delegate,
-            attention: attention,
+            model: model,
             pacedFps: pacedFps,
           );
         });

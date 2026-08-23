@@ -131,6 +131,26 @@ Notes:
   in a single config.
 - gpuV2 is deprecated and excluded from the matrix.
 
+### FaceMesh-V2 (2.8.0-wip, measured 2026-08-23)
+
+Profile run, log `mine-android-v2-profile.log`. The matrix key changed
+from `attention: bool` to `model` (v1 / attention / v2, logged as
+base/faceMeshV2 in this run before the enum rename); xnnpack now runs v1
+(cpu parity) and v2 (full-graph delegation check).
+
+| config | single image | streaming | jitter raw / OneEuro (px) |
+| --- | --- | --- | --- |
+| cpu, faceMeshV2 | 5.2 | 3.00 | 1.46 / 1.26 |
+| xnnpack, faceMeshV2 | 5.2 | 2.90 | 1.46 / 1.26 |
+
+XNNPACK delegates the whole FaceMesh-V2 graph (471 of 471 nodes, one
+partition, confirmed in the run log), but the 256x256 input (1.8x the
+pixels of attention's 192x192) still leaves it about 40% slower than
+attention on this device, with slightly lower raw jitter (1.46 vs
+1.51 px). Tracking validation passed in every config. The pre-existing
+configs reproduced the v2.7.1 numbers within noise (base 1.46/1.47,
+attention 2.08).
+
 ## App size
 
 Windows PowerShell:

@@ -7,6 +7,12 @@ analyzer:
   exclude:
     # Local build output; may hold throwaway evaluation scripts.
     - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   rules:
