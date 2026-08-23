@@ -74,6 +74,10 @@ abstract class DemoFrameSource extends ChangeNotifier {
   /// Whether [switchSource] can do anything (second lens / second device).
   bool get canSwitch;
 
+  /// Short label of the active source shown next to the switch control
+  /// ('front'/'back' for the mobile camera, the device name for UVC).
+  String get activeSourceLabel => '';
+
   /// Whether the app lifecycle should stop/restart this source (mobile
   /// camera). Desktop windows lose focus constantly, so UVC returns false.
   bool get supportsLifecyclePause;

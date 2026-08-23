@@ -33,6 +33,13 @@ class CameraFrameSource extends DemoFrameSource {
 
   CameraDescription get _currentCamera => cameras[_currentCameraIndex];
 
+  @override
+  String get activeSourceLabel => switch (_currentCamera.lensDirection) {
+    CameraLensDirection.front => 'front',
+    CameraLensDirection.back => 'back',
+    CameraLensDirection.external => 'external',
+  };
+
   int? _preferredCameraIndex(CameraLensDirection direction) {
     for (var i = 0; i < cameras.length; i++) {
       if (cameras[i].lensDirection == direction) {

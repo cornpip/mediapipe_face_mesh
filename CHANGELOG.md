@@ -5,6 +5,8 @@
   about 2.4MB
 - add a `model` option on `FaceMeshProcessor.create` and
   `createForMultiFace` to select the mesh model
+- example: add Camera options (display-side) and Image process options
+  (input-side) panels
 - docs: refresh the benchmark report; measurements now come from a
   harness that validates tracking, and the README quotes latency ranges
 - docs: add `THIRD_PARTY_NOTICES.md` and the Apache-2.0 license text for the

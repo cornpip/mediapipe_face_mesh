@@ -131,6 +131,10 @@ class UvcFrameSource extends DemoFrameSource {
   bool get canSwitch => _devices.length >= 2;
 
   @override
+  String get activeSourceLabel =>
+      _devices.isEmpty ? '' : _devices[_deviceIndex].displayName;
+
+  @override
   bool get supportsLifecyclePause => false;
 
   @override
@@ -204,12 +208,13 @@ class UvcFrameSource extends DemoFrameSource {
       if (startedMode == null) {
         // Selected mode failed to verify — fall back to the library's
         // MJPEG-first reliability probe.
-        final UvcAutoPreviewResult autoResult =
-            await _camera.startPreviewAuto();
+        final UvcAutoPreviewResult autoResult = await _camera
+            .startPreviewAuto();
         startedMode = autoResult.mode;
       }
       if (startedMode == null) {
-        lastError = 'No working preview mode on '
+        lastError =
+            'No working preview mode on '
             '${_devices[_deviceIndex].displayName}.';
         await _teardownPreview();
         notifyListeners();
