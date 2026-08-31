@@ -1,4 +1,4 @@
-## 2.9.0-wip
+## 2.9.0
 
 - improve NV21 plane conversion (`FaceMeshNv21Image.tryFromYuv420Planes`,
   `tryFromYAndInterleavedVuPlanes`), about 2x faster on 720p frames. A
