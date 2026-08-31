@@ -108,40 +108,39 @@ class TfLiteRuntime {
 
     for (const std::string& candidate : candidates) {
 #if defined(_WIN32)
-      HMODULE module = LoadLibraryA(candidate.c_str());
-      if (module) {
-        handle_ = module;
-        break;
-      }
+      handle_ = LoadLibraryA(candidate.c_str());
 #else
-      void* module = dlopen(candidate.c_str(), RTLD_LAZY | RTLD_LOCAL);
-      if (module) {
-        handle_ = module;
-        break;
-      }
+      handle_ = dlopen(candidate.c_str(), RTLD_LAZY | RTLD_LOCAL);
 #endif
-    }
-
-    if (!handle_) {
-#if defined(__APPLE__)
-      // On Apple platforms the TensorFlowLiteC framework may be linked
-      // statically into the final binary. In that case `dlopen` fails, but the
-      // symbols are still available through RTLD_DEFAULT.
-      handle_ = RTLD_DEFAULT;
+      if (!handle_) {
+        continue;
+      }
       if (LoadSymbols()) {
+        error_.clear();
         return true;
       }
-      handle_ = nullptr;
-#endif
-      error_ = "TensorFlow Lite runtime library could not be loaded.";
-      return false;
+      // Opened but missing required symbols (e.g. the stub
+      // TensorFlowLiteC.framework in Swift Package Manager builds).
+      Release();
     }
 
-    if (!LoadSymbols()) {
-      Release();
-      return false;
+#if defined(__APPLE__)
+    // The symbols may be linked into the app or plugin binaries instead of
+    // a loadable framework (static CocoaPods linking, SPM's merged dylibs);
+    // resolve them through RTLD_DEFAULT.
+    handle_ = RTLD_DEFAULT;
+    if (LoadSymbols()) {
+      error_.clear();
+      return true;
     }
-    return true;
+    handle_ = nullptr;
+    Release();
+#endif
+
+    if (error_.empty()) {
+      error_ = "TensorFlow Lite runtime library could not be loaded.";
+    }
+    return false;
   }
 
   void Release() {

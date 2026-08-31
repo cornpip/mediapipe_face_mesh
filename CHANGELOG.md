@@ -1,3 +1,11 @@
+## 2.8.1
+
+- fix `Missing required TensorFlow Lite symbols.` at processor creation on
+  iOS apps built with Swift Package Manager
+  - SPM builds embed a stub `TensorFlowLiteC.framework` that the loader
+    picked up. The loader now skips libraries lacking the required symbols
+    and falls back to `RTLD_DEFAULT`
+
 ## 2.8.0
 
 - add the FaceMesh-V2 model, upstream `face_landmarks_detector.tflite`,

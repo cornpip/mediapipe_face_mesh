@@ -194,7 +194,7 @@ enum _MeshMode {
   base('Mesh (468)'),
   iris('Mesh (468) + Iris (10)'),
   attention('Attention Mesh (478)'),
-  faceMeshV2('FaceMesh-V2 (478)');
+  faceMeshV2('FaceMesh-V2 (478, upstream)');
 
   const _MeshMode(this.label);
 
