@@ -698,7 +698,10 @@ class FaceMeshNv21Image {
 
   /// Converts separate Y and interleaved VU planes into a [FaceMeshNv21Image].
   ///
-  /// Plane strides are normalized to tightly-packed output buffers.
+  /// Plane strides are normalized to tightly-packed buffers. A plane that is
+  /// already tightly packed is wrapped as a view over its input bytes without
+  /// copying, so reusing the source buffer for a later frame also changes
+  /// this image.
   static FaceMeshNv21Image? tryFromYAndInterleavedVuPlanes({
     required int width,
     required int height,
@@ -730,7 +733,9 @@ class FaceMeshNv21Image {
   /// Converts YUV420 Y, U, and V planes into a [FaceMeshNv21Image].
   ///
   /// The output chroma plane is converted to MediaPipe's expected interleaved
-  /// VU order.
+  /// VU order. A tightly packed Y plane is wrapped as a view over its input
+  /// bytes without copying, so reusing the source buffer for a later frame
+  /// also changes this image.
   static FaceMeshNv21Image? tryFromYuv420Planes({
     required int width,
     required int height,
@@ -748,17 +753,28 @@ class FaceMeshNv21Image {
 
     final int uvWidth = width ~/ 2;
     final int uvHeight = height ~/ 2;
+    final int uPixelStride = uPlane.bytesPerPixel ?? 1;
+    final int vPixelStride = vPlane.bytesPerPixel ?? 1;
+    if (uPixelStride <= 0 ||
+        vPixelStride <= 0 ||
+        uPlane.bytesPerRow <= 0 ||
+        vPlane.bytesPerRow <= 0 ||
+        !_planeCovers(uPlane, uPixelStride, uvWidth, uvHeight) ||
+        !_planeCovers(vPlane, vPixelStride, uvWidth, uvHeight)) {
+      return null;
+    }
+    final Uint8List uBytes = uPlane.bytes;
+    final Uint8List vBytes = vPlane.bytes;
     final Uint8List vu = Uint8List(width * uvHeight);
     for (var row = 0; row < uvHeight; row++) {
+      var uIndex = row * uPlane.bytesPerRow;
+      var vIndex = row * vPlane.bytesPerRow;
+      var out = row * width;
       for (var col = 0; col < uvWidth; col++) {
-        final int? u = _readPlaneByte(uPlane, row, col);
-        final int? v = _readPlaneByte(vPlane, row, col);
-        if (u == null || v == null) {
-          return null;
-        }
-        final int out = row * width + col * 2;
-        vu[out] = v;
-        vu[out + 1] = u;
+        vu[out++] = vBytes[vIndex];
+        vu[out++] = uBytes[uIndex];
+        uIndex += uPixelStride;
+        vIndex += vPixelStride;
       }
     }
 
@@ -775,6 +791,12 @@ class FaceMeshNv21Image {
   static bool _isValidNv21Size(int width, int height) =>
       width > 0 && height > 0 && (width & 1) == 0 && (height & 1) == 0;
 
+  /// Returns [plane]'s samples as a tightly packed `width * height` buffer.
+  ///
+  /// A plane that is already tightly packed is returned as a view over the
+  /// input bytes without copying (like [tryFromSinglePlane]); otherwise rows
+  /// are copied with their stride removed. Returns null when the plane does
+  /// not cover the requested size.
   static Uint8List? _copyPlane(
     FaceMeshImagePlane plane, {
     required int width,
@@ -783,29 +805,47 @@ class FaceMeshNv21Image {
     if (width <= 0 || height <= 0) {
       return null;
     }
+    final int pixelStride = plane.bytesPerPixel ?? 1;
+    final int rowStride = plane.bytesPerRow;
+    if (pixelStride <= 0 ||
+        rowStride <= 0 ||
+        !_planeCovers(plane, pixelStride, width, height)) {
+      return null;
+    }
+    final Uint8List bytes = plane.bytes;
+    if (pixelStride == 1) {
+      if (rowStride == width) {
+        return Uint8List.sublistView(bytes, 0, width * height);
+      }
+      final Uint8List out = Uint8List(width * height);
+      for (var row = 0; row < height; row++) {
+        out.setRange(row * width, (row + 1) * width, bytes, row * rowStride);
+      }
+      return out;
+    }
     final Uint8List out = Uint8List(width * height);
+    var outIndex = 0;
     for (var row = 0; row < height; row++) {
+      var index = row * rowStride;
       for (var col = 0; col < width; col++) {
-        final int? value = _readPlaneByte(plane, row, col);
-        if (value == null) {
-          return null;
-        }
-        out[row * width + col] = value;
+        out[outIndex++] = bytes[index];
+        index += pixelStride;
       }
     }
     return out;
   }
 
-  static int? _readPlaneByte(FaceMeshImagePlane plane, int row, int col) {
-    final int pixelStride = plane.bytesPerPixel ?? 1;
-    final int index = row * plane.bytesPerRow + col * pixelStride;
-    if (pixelStride <= 0 ||
-        plane.bytesPerRow <= 0 ||
-        index < 0 ||
-        index >= plane.bytes.length) {
-      return null;
-    }
-    return plane.bytes[index];
+  /// Whether every sample of a `width x height` grid read with [pixelStride]
+  /// falls inside [plane]'s buffer.
+  static bool _planeCovers(
+    FaceMeshImagePlane plane,
+    int pixelStride,
+    int width,
+    int height,
+  ) {
+    final int lastIndex =
+        (height - 1) * plane.bytesPerRow + (width - 1) * pixelStride;
+    return lastIndex < plane.bytes.length;
   }
 
   /// Luma plane (full resolution).
@@ -2099,12 +2139,14 @@ _blendshapesContextFinalizer =
 class FaceBlendshapesProcessor {
   FaceBlendshapesProcessor._(this._context) {
     _blendshapesContextFinalizer.attach(this, _context, detach: this);
+    _landmarkScratchFinalizer.attach(this, _scratch, detach: this);
   }
 
   /// Number of landmarks the blendshapes model requires (468 mesh + 10 iris).
   static const int requiredLandmarkCount = 478;
 
   final ffi.Pointer<MpBlendshapesContext> _context;
+  final _LandmarkScratch _scratch = _LandmarkScratch();
   bool _closed = false;
 
   /// Delegate the blendshapes model is actively using after fallback.
@@ -2181,38 +2223,25 @@ class FaceBlendshapesProcessor {
       );
     }
 
-    final ffi.Pointer<MpLandmark> landmarkPtr = pkg_ffi.calloc<MpLandmark>(
-      landmarks.length,
-    );
-    try {
-      for (var i = 0; i < landmarks.length; i++) {
-        final FaceMeshLandmark landmark = landmarks[i];
-        landmarkPtr[i]
-          ..x = landmark.x
-          ..y = landmark.y
-          ..z = landmark.z;
-      }
-      final ffi.Pointer<MpBlendshapesResult> resultPtr = faceBindings
-          .mp_blendshapes_process(
-            _context,
-            landmarkPtr,
-            landmarks.length,
-            result.imageWidth,
-            result.imageHeight,
-          );
-      if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
-          _readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
-              'Native blendshapes error.',
+    final ffi.Pointer<MpLandmark> landmarkPtr = _scratch.fill(landmarks);
+    final ffi.Pointer<MpBlendshapesResult> resultPtr = faceBindings
+        .mp_blendshapes_process(
+          _context,
+          landmarkPtr,
+          landmarks.length,
+          result.imageWidth,
+          result.imageHeight,
         );
-      }
-      try {
-        return _copyScores(resultPtr.ref);
-      } finally {
-        faceBindings.mp_blendshapes_release_result(resultPtr);
-      }
+    if (resultPtr == ffi.nullptr) {
+      throw MediapipeFaceMeshException(
+        _readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
+            'Native blendshapes error.',
+      );
+    }
+    try {
+      return _copyScores(resultPtr.ref);
     } finally {
-      pkg_ffi.calloc.free(landmarkPtr);
+      faceBindings.mp_blendshapes_release_result(resultPtr);
     }
   }
 
@@ -2236,6 +2265,8 @@ class FaceBlendshapesProcessor {
       return;
     }
     _blendshapesContextFinalizer.detach(this);
+    _landmarkScratchFinalizer.detach(this);
+    _scratch.dispose();
     faceBindings.mp_blendshapes_destroy(_context);
     _closed = true;
   }

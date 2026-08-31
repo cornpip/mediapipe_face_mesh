@@ -1,3 +1,11 @@
+## 2.9.0-wip
+
+- improve NV21 plane conversion (`FaceMeshNv21Image.tryFromYuv420Planes`,
+  `tryFromYAndInterleavedVuPlanes`), about 2x faster on 720p frames. A
+  tightly packed plane is now wrapped as a view without copying
+- improve per-call overhead of `FaceBlendshapesProcessor.process` and
+  `estimateGeometry()`
+
 ## 2.8.1
 
 - fix `Missing required TensorFlow Lite symbols.` at processor creation on

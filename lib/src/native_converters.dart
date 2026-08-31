@@ -129,3 +129,56 @@ String? _readCString(ffi.Pointer<ffi.Char> pointer) {
   }
   return pointer.cast<pkg_ffi.Utf8>().toDartString();
 }
+
+/// Reusable native landmark array for per-call FFI uploads.
+///
+/// Same lifecycle as [_FrameScratch]: the buffer grows on demand, stays
+/// allocated between calls, is only read by native code during the
+/// synchronous call, and is released by the owner's close() or finalizer.
+class _LandmarkScratch {
+  ffi.Pointer<MpLandmark> _ptr = ffi.nullptr;
+  int _capacity = 0;
+  bool _disposed = false;
+
+  /// Copies [landmarks] into reused native memory. The returned pointer stays
+  /// valid until the next call or [dispose].
+  ffi.Pointer<MpLandmark> fill(List<FaceMeshLandmark> landmarks) {
+    assert(!_disposed);
+    if (landmarks.length > _capacity) {
+      if (_ptr != ffi.nullptr) {
+        pkg_ffi.malloc.free(_ptr);
+      }
+      _ptr = pkg_ffi.malloc<MpLandmark>(landmarks.length);
+      _capacity = landmarks.length;
+    }
+    // MpLandmark is three packed floats, so one typed-data view over the
+    // whole array avoids a struct view and three FFI stores per landmark.
+    final Float32List xyz = _ptr.cast<ffi.Float>().asTypedList(
+      landmarks.length * 3,
+    );
+    for (var i = 0; i < landmarks.length; i++) {
+      final FaceMeshLandmark landmark = landmarks[i];
+      final int base = i * 3;
+      xyz[base] = landmark.x;
+      xyz[base + 1] = landmark.y;
+      xyz[base + 2] = landmark.z;
+    }
+    return _ptr;
+  }
+
+  void dispose() {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    if (_ptr != ffi.nullptr) {
+      pkg_ffi.malloc.free(_ptr);
+      _ptr = ffi.nullptr;
+      _capacity = 0;
+    }
+  }
+}
+
+final Finalizer<_LandmarkScratch> _landmarkScratchFinalizer = Finalizer(
+  (_LandmarkScratch scratch) => scratch.dispose(),
+);

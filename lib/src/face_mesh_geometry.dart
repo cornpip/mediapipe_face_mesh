@@ -185,12 +185,17 @@ extension FaceMeshResultGeometry on FaceMeshResult {
     ffi.Pointer<MpFaceGeometryResult> resultPtr = ffi.nullptr;
     try {
       landmarksPtr = pkg_ffi.calloc<MpLandmark>(landmarks.length);
+      // MpLandmark is three packed floats; one typed-data view avoids a
+      // struct view and three FFI stores per landmark.
+      final Float32List input = landmarksPtr.cast<ffi.Float>().asTypedList(
+        landmarks.length * 3,
+      );
       for (int i = 0; i < landmarks.length; ++i) {
         final FaceMeshLandmark landmark = landmarks[i];
-        landmarksPtr[i]
-          ..x = landmark.x
-          ..y = landmark.y
-          ..z = landmark.z;
+        final int base = i * 3;
+        input[base] = landmark.x;
+        input[base + 1] = landmark.y;
+        input[base + 2] = landmark.z;
       }
       optionsPtr = pkg_ffi.calloc<MpFaceGeometryOptions>();
       optionsPtr.ref
@@ -221,14 +226,16 @@ extension FaceMeshResultGeometry on FaceMeshResult {
           'Native face geometry returned empty landmarks.',
         );
       }
+      final Float32List xyz = nativeResult.metric_landmarks
+          .cast<ffi.Float>()
+          .asTypedList(count * 3);
       final List<FaceMeshMetricPoint> metricLandmarks =
           List<FaceMeshMetricPoint>.generate(count, (int index) {
-            final MpLandmark landmark =
-                (nativeResult.metric_landmarks + index).ref;
+            final int base = index * 3;
             return FaceMeshMetricPoint(
-              xCm: landmark.x,
-              yCm: landmark.y,
-              zCm: landmark.z,
+              xCm: xyz[base],
+              yCm: xyz[base + 1],
+              zCm: xyz[base + 2],
             );
           }, growable: false);
       final List<double> matrix = List<double>.generate(
