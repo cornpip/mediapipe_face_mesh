@@ -23,6 +23,7 @@
 #endif
 #include "tensorflow/lite/delegates/gpu/delegate.h"
 #include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
+#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -124,6 +125,24 @@ float NormalizeAngle(float radians) {
   return angle;
 }
 
+// Whether a landmark tensor holds pixel coordinates in input-tensor
+// resolution rather than normalized [0,1] values. Decided over the whole
+// buffer, not per landmark: normalized outputs stay near [0,1] while
+// pixel-space outputs put most landmarks far outside it, so a single
+// coordinate beyond a generous margin means the buffer is pixel-space. A
+// per-landmark test would misread a pixel-space landmark that legitimately
+// lands within one pixel of the crop origin as already normalized.
+bool IsPixelSpaceLandmarkBuffer(const float* buffer, int landmark_count) {
+  for (int i = 0; i < landmark_count; ++i) {
+    const float x = buffer[i * 3];
+    const float y = buffer[i * 3 + 1];
+    if (x > 2.0f || y > 2.0f || x < -1.0f || y < -1.0f) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class FaceMeshContext {
  public:
   FaceMeshContext() = default;
@@ -135,16 +154,18 @@ class FaceMeshContext {
     if (options && options->threads > 0) {
       threads_ = options->threads;
     }
+    // Negative means "use the default"; an explicit 0.0 is honored so the
+    // native threshold always matches what the Dart processor reports.
     min_detection_confidence_ =
-        (options && options->min_detection_confidence > 0.f)
+        (options && options->min_detection_confidence >= 0.f)
             ? options->min_detection_confidence
             : 0.5f;
     min_tracking_confidence_ =
-        (options && options->min_tracking_confidence > 0.f)
+        (options && options->min_tracking_confidence >= 0.f)
             ? options->min_tracking_confidence
             : 0.5f;
     min_face_presence_confidence_ =
-        (options && options->min_face_presence_confidence > 0.f)
+        (options && options->min_face_presence_confidence >= 0.f)
             ? options->min_face_presence_confidence
             : 0.5f;
     smoothing_enabled_ = !options || options->enable_smoothing != 0;
@@ -664,6 +685,10 @@ class FaceMeshContext {
   }
 
   const char* last_error() const { return last_error_.c_str(); }
+
+  // Records an error raised outside the class, e.g. a C++ exception caught
+  // at the FFI boundary.
+  void RecordError(const std::string& message) { SetError(message); }
 
   // Whether the internal ROI currently follows a face (was seeded from
   // landmarks and has not been dropped by a confidence failure, tracking
@@ -1373,16 +1398,18 @@ class FaceMeshContext {
     const float half_h = roi.height * 0.5f;
     const float input_w = std::max(1, input_width_);
     const float input_h = std::max(1, input_height_);
+    // Some models emit normalized [0,1], others emit pixel coordinates in
+    // input resolution; the whole buffer is one or the other.
+    const bool pixel_space =
+        IsPixelSpaceLandmarkBuffer(landmarks_buffer_.data(),
+                                   output_landmark_count_);
 
     for (int i = 0; i < output_landmark_count_; ++i) {
       float raw_x = landmarks_buffer_[i * 3];
       float raw_y = landmarks_buffer_[i * 3 + 1];
       float raw_z = landmarks_buffer_[i * 3 + 2];
 
-      // Some models emit normalized [0,1], others emit pixel coordinates in
-      // input resolution. If values are outside [0,1], normalize using input
-      // tensor size.
-      if (raw_x > 1.0f || raw_y > 1.0f || raw_x < 0.0f || raw_y < 0.0f) {
+      if (pixel_space) {
         raw_x = raw_x / input_w;
         raw_y = raw_y / input_h;
         raw_z = raw_z / input_w;
@@ -1713,12 +1740,13 @@ class FaceMeshContext {
     const float half_h = roi.height * 0.5f;
     const float input_w = std::max(1, iris_input_width_);
     const float input_h = std::max(1, iris_input_height_);
+    const bool pixel_space = IsPixelSpaceLandmarkBuffer(buffer.data(), count);
 
     for (int i = 0; i < count; ++i) {
       float raw_x = buffer[static_cast<size_t>(i) * 3];
       float raw_y = buffer[static_cast<size_t>(i) * 3 + 1];
       float raw_z = buffer[static_cast<size_t>(i) * 3 + 2];
-      if (raw_x > 1.0f || raw_y > 1.0f || raw_x < 0.0f || raw_y < 0.0f) {
+      if (pixel_space) {
         raw_x /= input_w;
         raw_y /= input_h;
         raw_z /= input_w;
@@ -1975,8 +2003,10 @@ namespace {
 
 // Shared body of mp_face_mesh_process_rois / mp_face_mesh_process_rois_nv21:
 // runs [process_one] per ROI and packs the results into one heap array,
-// taking ownership of each result's landmarks. Returns null (with the
-// context error already set by [process_one]) if any ROI fails.
+// taking ownership of each result's landmarks. An ROI whose inference fails
+// yields an empty entry (no landmarks) instead of failing the whole batch,
+// so one bad ROI cannot drop every healthy face; the failing ROI's error
+// stays readable via mp_face_mesh_last_error.
 template <typename ProcessOneFn>
 MpFaceMeshMultiResult* ProcessRoisImpl(const MpNormalizedRect* rois,
                                        int32_t rois_count,
@@ -1988,17 +2018,42 @@ MpFaceMeshMultiResult* ProcessRoisImpl(const MpNormalizedRect* rois,
   for (int32_t i = 0; i < rois_count; ++i) {
     MpFaceMeshResult* result = process_one(rois[i]);
     if (!result) {
-      for (int32_t j = 0; j < i; ++j) {
-        delete[] multi->results[j].landmarks;
-      }
-      delete[] multi->results;
-      delete multi;
-      return nullptr;
+      // Value-initialized entry: no landmarks, score 0. Keep the input ROI
+      // so the caller can still see which region the failure belongs to.
+      multi->results[i].rect = rois[i];
+      continue;
     }
     multi->results[i] = *result;  // Takes ownership of result->landmarks.
     delete result;
   }
   return multi;
+}
+
+// No C++ exception may unwind across the FFI boundary into Dart (the process
+// would abort), so pointer-returning exports run their body through this
+// guard, which converts an escaped exception (std::bad_alloc included) into
+// a null return with the error recorded on the context, when there is one,
+// and globally.
+template <typename Fn>
+auto GuardedNative(MpFaceMeshContext* context, Fn&& body) -> decltype(body()) {
+  try {
+    return body();
+  } catch (const std::exception& e) {
+    const std::string message =
+        std::string("Unhandled native exception: ") + e.what();
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    SetGlobalError(message);
+    return nullptr;
+  } catch (...) {
+    const std::string message = "Unhandled native exception.";
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    SetGlobalError(message);
+    return nullptr;
+  }
 }
 
 }  // namespace
@@ -2008,25 +2063,26 @@ extern "C" {
 FFI_PLUGIN_EXPORT MpFaceMeshContext* mp_face_mesh_create(
     const char* model_path,
     const MpFaceMeshCreateOptions* options) {
-  if (!model_path) {
-    SetGlobalError("Model path is null.");
-    return nullptr;
-  }
-  auto* context = new MpFaceMeshContext();
-  if (!context) {
-    SetGlobalError("Unable to allocate context.");
-    return nullptr;
-  }
-  if (!context->impl.Initialize(model_path, options)) {
-    SetGlobalError(context->impl.last_error());
-    delete context;
-    return nullptr;
-  }
-  return context;
+  return GuardedNative(nullptr, [&]() -> MpFaceMeshContext* {
+    if (!model_path) {
+      SetGlobalError("Model path is null.");
+      return nullptr;
+    }
+    auto* context = new MpFaceMeshContext();
+    if (!context->impl.Initialize(model_path, options)) {
+      SetGlobalError(context->impl.last_error());
+      delete context;
+      return nullptr;
+    }
+    return context;
+  });
 }
 
 FFI_PLUGIN_EXPORT void mp_face_mesh_destroy(MpFaceMeshContext* context) {
-  delete context;
+  try {
+    delete context;
+  } catch (...) {
+  }
 }
 
 FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process(
@@ -2035,16 +2091,18 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process(
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
     uint8_t mirror_horizontal) {
-  if (!context) {
-    SetGlobalError("Context is null.");
-    return nullptr;
-  }
-  if (!image) {
-    SetGlobalError("Image is null.");
-    return nullptr;
-  }
-  return context->impl.Process(*image, override_rect, rotation_degrees,
-                               mirror_horizontal != 0);
+  return GuardedNative(context, [&]() -> MpFaceMeshResult* {
+    if (!context) {
+      SetGlobalError("Context is null.");
+      return nullptr;
+    }
+    if (!image) {
+      SetGlobalError("Image is null.");
+      return nullptr;
+    }
+    return context->impl.Process(*image, override_rect, rotation_degrees,
+                                 mirror_horizontal != 0);
+  });
 }
 
 FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
@@ -2053,16 +2111,18 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     const MpNormalizedRect* override_rect,
     int32_t rotation_degrees,
     uint8_t mirror_horizontal) {
-  if (!context) {
-    SetGlobalError("Context is null.");
-    return nullptr;
-  }
-  if (!image) {
-    SetGlobalError("Image is null.");
-    return nullptr;
-  }
-  return context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
-                                   mirror_horizontal != 0);
+  return GuardedNative(context, [&]() -> MpFaceMeshResult* {
+    if (!context) {
+      SetGlobalError("Context is null.");
+      return nullptr;
+    }
+    if (!image) {
+      SetGlobalError("Image is null.");
+      return nullptr;
+    }
+    return context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
+                                     mirror_horizontal != 0);
+  });
 }
 
 FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois(
@@ -2084,11 +2144,13 @@ FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois(
     SetGlobalError("Invalid ROI list.");
     return nullptr;
   }
-  return ProcessRoisImpl(
-      rois, rois_count, [&](const MpNormalizedRect& roi) {
-        return context->impl.Process(*image, &roi, rotation_degrees,
-                                     mirror_horizontal != 0);
-      });
+  return GuardedNative(context, [&]() -> MpFaceMeshMultiResult* {
+    return ProcessRoisImpl(
+        rois, rois_count, [&](const MpNormalizedRect& roi) {
+          return context->impl.Process(*image, &roi, rotation_degrees,
+                                       mirror_horizontal != 0);
+        });
+  });
 }
 
 FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois_nv21(
@@ -2110,11 +2172,13 @@ FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois_nv21(
     SetGlobalError("Invalid ROI list.");
     return nullptr;
   }
-  return ProcessRoisImpl(
-      rois, rois_count, [&](const MpNormalizedRect& roi) {
-        return context->impl.ProcessNv21(*image, &roi, rotation_degrees,
-                                         mirror_horizontal != 0);
-      });
+  return GuardedNative(context, [&]() -> MpFaceMeshMultiResult* {
+    return ProcessRoisImpl(
+        rois, rois_count, [&](const MpNormalizedRect& roi) {
+          return context->impl.ProcessNv21(*image, &roi, rotation_degrees,
+                                           mirror_horizontal != 0);
+        });
+  });
 }
 
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result) {

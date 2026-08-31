@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <string>
 #include <vector>
@@ -285,6 +286,10 @@ class BlendshapesContext {
 
   const char* last_error() const { return last_error_.c_str(); }
 
+  // Records an error raised outside the class, e.g. a C++ exception caught
+  // at the FFI boundary.
+  void RecordError(const std::string& message) { SetError(message); }
+
   MpDelegateType active_delegate() const { return active_delegate_; }
 
  private:
@@ -378,36 +383,75 @@ struct MpBlendshapesContext {
   BlendshapesContext impl;
 };
 
+namespace {
+
+// No C++ exception may unwind across the FFI boundary into Dart (the process
+// would abort), so pointer-returning exports run their body through this
+// guard, which converts an escaped exception (std::bad_alloc included) into
+// a null return with the error recorded on the context, when there is one,
+// and globally.
+template <typename Fn>
+auto GuardedNative(MpBlendshapesContext* context, Fn&& body)
+    -> decltype(body()) {
+  try {
+    return body();
+  } catch (const std::exception& e) {
+    const std::string message =
+        std::string("Unhandled native exception: ") + e.what();
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    SetGlobalBlendshapesError(message);
+    return nullptr;
+  } catch (...) {
+    const std::string message = "Unhandled native exception.";
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    SetGlobalBlendshapesError(message);
+    return nullptr;
+  }
+}
+
+}  // namespace
+
 extern "C" {
 
 FFI_PLUGIN_EXPORT MpBlendshapesContext* mp_blendshapes_create(
     const char* model_path, const MpBlendshapesCreateOptions* options) {
-  if (!model_path) {
-    SetGlobalBlendshapesError("Model path is null.");
-    return nullptr;
-  }
-  auto* context = new MpBlendshapesContext();
-  if (!context->impl.Initialize(model_path, options)) {
-    SetGlobalBlendshapesError(context->impl.last_error());
-    delete context;
-    return nullptr;
-  }
-  return context;
+  return GuardedNative(nullptr, [&]() -> MpBlendshapesContext* {
+    if (!model_path) {
+      SetGlobalBlendshapesError("Model path is null.");
+      return nullptr;
+    }
+    auto* context = new MpBlendshapesContext();
+    if (!context->impl.Initialize(model_path, options)) {
+      SetGlobalBlendshapesError(context->impl.last_error());
+      delete context;
+      return nullptr;
+    }
+    return context;
+  });
 }
 
 FFI_PLUGIN_EXPORT void mp_blendshapes_destroy(MpBlendshapesContext* context) {
-  delete context;
+  try {
+    delete context;
+  } catch (...) {
+  }
 }
 
 FFI_PLUGIN_EXPORT MpBlendshapesResult* mp_blendshapes_process(
     MpBlendshapesContext* context, const MpLandmark* landmarks,
     int32_t landmarks_count, int32_t image_width, int32_t image_height) {
-  if (!context) {
-    SetGlobalBlendshapesError("Context is null.");
-    return nullptr;
-  }
-  return context->impl.Process(landmarks, landmarks_count, image_width,
-                               image_height);
+  return GuardedNative(context, [&]() -> MpBlendshapesResult* {
+    if (!context) {
+      SetGlobalBlendshapesError("Context is null.");
+      return nullptr;
+    }
+    return context->impl.Process(landmarks, landmarks_count, image_width,
+                                 image_height);
+  });
 }
 
 FFI_PLUGIN_EXPORT void mp_blendshapes_release_result(

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -503,36 +504,44 @@ MpFaceGeometryResult* mp_face_geometry_estimate(
     int32_t image_width,
     int32_t image_height,
     const MpFaceGeometryOptions* options) {
-  GeometryLastError().clear();
+  // No C++ exception may unwind across the FFI boundary into Dart (the
+  // process would abort); an escaped exception becomes a null return with
+  // the error recorded.
+  try {
+    GeometryLastError().clear();
 
-  std::vector<Vec3> metric_landmarks;
-  SimilarityTransform pose_transform;
-  SetIdentity(pose_transform.rotation);
-  if (!EstimateOfficialGeometry(landmarks, landmarks_count, image_width,
-                                image_height, options, metric_landmarks,
-                                pose_transform)) {
+    std::vector<Vec3> metric_landmarks;
+    SimilarityTransform pose_transform;
+    SetIdentity(pose_transform.rotation);
+    if (!EstimateOfficialGeometry(landmarks, landmarks_count, image_width,
+                                  image_height, options, metric_landmarks,
+                                  pose_transform)) {
+      return nullptr;
+    }
+
+    auto* result = new MpFaceGeometryResult();
+    result->metric_landmarks_count =
+        static_cast<int32_t>(metric_landmarks.size());
+    result->metric_landmarks = new MpLandmark[metric_landmarks.size()];
+
+    for (size_t i = 0; i < metric_landmarks.size(); ++i) {
+      result->metric_landmarks[i].x = metric_landmarks[i].x;
+      result->metric_landmarks[i].y = metric_landmarks[i].y;
+      result->metric_landmarks[i].z = metric_landmarks[i].z;
+    }
+    FillMatrix(pose_transform, result->pose_transform_matrix);
+    ExtractEulerDegrees(pose_transform, &result->yaw_degrees,
+                        &result->pitch_degrees, &result->roll_degrees);
+    result->scale = pose_transform.scale;
+    return result;
+  } catch (const std::exception& e) {
+    GeometryLastError() =
+        std::string("Unhandled native exception: ") + e.what();
+    return nullptr;
+  } catch (...) {
+    GeometryLastError() = "Unhandled native exception.";
     return nullptr;
   }
-
-  auto* result = new MpFaceGeometryResult();
-  result->metric_landmarks_count = static_cast<int32_t>(metric_landmarks.size());
-  result->metric_landmarks = new MpLandmark[metric_landmarks.size()];
-  if (!result->metric_landmarks) {
-    delete result;
-    GeometryLastError() = "Unable to allocate geometry landmarks.";
-    return nullptr;
-  }
-
-  for (size_t i = 0; i < metric_landmarks.size(); ++i) {
-    result->metric_landmarks[i].x = metric_landmarks[i].x;
-    result->metric_landmarks[i].y = metric_landmarks[i].y;
-    result->metric_landmarks[i].z = metric_landmarks[i].z;
-  }
-  FillMatrix(pose_transform, result->pose_transform_matrix);
-  ExtractEulerDegrees(pose_transform, &result->yaw_degrees,
-                      &result->pitch_degrees, &result->roll_degrees);
-  result->scale = pose_transform.scale;
-  return result;
 }
 
 void mp_face_geometry_release_result(MpFaceGeometryResult* result) {

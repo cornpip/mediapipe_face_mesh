@@ -123,11 +123,15 @@ ffi.Pointer<MpNormalizedRect> _toNativeRectArray(List<NormalizedRect> rects) {
   return rectsPtr;
 }
 
+/// Reads a native error string; null for both a null pointer and an empty
+/// string, because the native error accessors return `std::string::c_str()`
+/// of a message that may simply never have been set.
 String? _readCString(ffi.Pointer<ffi.Char> pointer) {
   if (pointer == ffi.nullptr) {
     return null;
   }
-  return pointer.cast<pkg_ffi.Utf8>().toDartString();
+  final String value = pointer.cast<pkg_ffi.Utf8>().toDartString();
+  return value.isEmpty ? null : value;
 }
 
 /// Reusable native landmark array for per-call FFI uploads.

@@ -7,6 +7,15 @@
   `estimateGeometry()`
 - add landmark smoothing to the multi-face flow with
   `enableLandmarkTracking: false`, matched across frames by ROI overlap
+- fix one failed ROI dropping every face in `processRois`,
+  `processNv21Rois`, and the pipeline's multi-face flow. The failed ROI now
+  returns an empty result instead
+- fix landmarks near the crop origin being decoded as already normalized
+  and thrown across the frame
+- fix out-of-range creation options being silently coerced. They now throw
+  `ArgumentError`, and an explicit `0.0` confidence is honored
+- fix native C++ exceptions aborting the app. They surface as
+  `MediapipeFaceMeshException`, and error messages are never empty
 
 ## 2.8.1
 

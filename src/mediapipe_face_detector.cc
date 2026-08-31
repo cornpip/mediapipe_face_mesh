@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <array>
+#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -278,12 +279,14 @@ class FaceDetectorContext {
     if (options && options->threads > 0) {
       threads_ = options->threads;
     }
+    // Negative means "use the default"; an explicit 0.0 is honored so the
+    // native threshold always matches what the Dart processor reports.
     min_detection_confidence_ =
-        (options && options->min_detection_confidence > 0.0f)
+        (options && options->min_detection_confidence >= 0.0f)
             ? options->min_detection_confidence
             : 0.5f;
     min_suppression_threshold_ =
-        (options && options->min_suppression_threshold > 0.0f)
+        (options && options->min_suppression_threshold >= 0.0f)
             ? options->min_suppression_threshold
             : 0.3f;
     max_results_ = (options && options->max_results > 0) ? options->max_results
@@ -615,6 +618,10 @@ class FaceDetectorContext {
   }
 
   const char* last_error() const { return last_error_.c_str(); }
+
+  // Records an error raised outside the class, e.g. a C++ exception caught
+  // at the FFI boundary.
+  void RecordError(const std::string& message) { SetError(message); }
 
   MpDelegateType active_delegate() const { return active_delegate_; }
 
@@ -1532,31 +1539,64 @@ struct MpFaceDetectorContext {
   FaceDetectorContext impl;
 };
 
+namespace {
+
+// No C++ exception may unwind across the FFI boundary into Dart (the process
+// would abort), so pointer-returning exports run their body through this
+// guard, which converts an escaped exception (std::bad_alloc included) into
+// a null return with the error recorded on the context, when there is one,
+// and globally.
+template <typename Fn>
+auto GuardedNative(MpFaceDetectorContext* context, Fn&& body)
+    -> decltype(body()) {
+  try {
+    return body();
+  } catch (const std::exception& e) {
+    const std::string message =
+        std::string("Unhandled native exception: ") + e.what();
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    GlobalFaceDetectorError() = message;
+    return nullptr;
+  } catch (...) {
+    const std::string message = "Unhandled native exception.";
+    if (context) {
+      context->impl.RecordError(message);
+    }
+    GlobalFaceDetectorError() = message;
+    return nullptr;
+  }
+}
+
+}  // namespace
+
 extern "C" {
 
 MpFaceDetectorContext* mp_face_detector_create(
     const char* model_path,
     const MpFaceDetectorCreateOptions* options) {
-  if (!model_path || std::strlen(model_path) == 0) {
-    GlobalFaceDetectorError() = "Model path is empty.";
-    return nullptr;
-  }
-  auto* context = new MpFaceDetectorContext();
-  if (!context) {
-    GlobalFaceDetectorError() = "Unable to allocate detector context.";
-    return nullptr;
-  }
-  if (!context->impl.Initialize(model_path, options)) {
-    GlobalFaceDetectorError() = context->impl.last_error();
-    delete context;
-    return nullptr;
-  }
-  GlobalFaceDetectorError().clear();
-  return context;
+  return GuardedNative(nullptr, [&]() -> MpFaceDetectorContext* {
+    if (!model_path || std::strlen(model_path) == 0) {
+      GlobalFaceDetectorError() = "Model path is empty.";
+      return nullptr;
+    }
+    auto* context = new MpFaceDetectorContext();
+    if (!context->impl.Initialize(model_path, options)) {
+      GlobalFaceDetectorError() = context->impl.last_error();
+      delete context;
+      return nullptr;
+    }
+    GlobalFaceDetectorError().clear();
+    return context;
+  });
 }
 
 void mp_face_detector_destroy(MpFaceDetectorContext* context) {
-  delete context;
+  try {
+    delete context;
+  } catch (...) {
+  }
 }
 
 MpFaceDetectorResult* mp_face_detector_process(
@@ -1566,19 +1606,21 @@ MpFaceDetectorResult* mp_face_detector_process(
     int32_t rotation_degrees,
     uint8_t mirror_horizontal,
     const MpRoiTransformOptions* roi_transform) {
-  if (!context || !image) {
-    GlobalFaceDetectorError() = "Detector context or image is null.";
-    return nullptr;
-  }
-  MpFaceDetectorResult* result =
-      context->impl.Process(*image, override_rect, rotation_degrees,
-                            mirror_horizontal != 0, roi_transform);
-  if (!result) {
-    GlobalFaceDetectorError() = context->impl.last_error();
-  } else {
-    GlobalFaceDetectorError().clear();
-  }
-  return result;
+  return GuardedNative(context, [&]() -> MpFaceDetectorResult* {
+    if (!context || !image) {
+      GlobalFaceDetectorError() = "Detector context or image is null.";
+      return nullptr;
+    }
+    MpFaceDetectorResult* result =
+        context->impl.Process(*image, override_rect, rotation_degrees,
+                              mirror_horizontal != 0, roi_transform);
+    if (!result) {
+      GlobalFaceDetectorError() = context->impl.last_error();
+    } else {
+      GlobalFaceDetectorError().clear();
+    }
+    return result;
+  });
 }
 
 MpFaceDetectorResult* mp_face_detector_process_nv21(
@@ -1588,19 +1630,21 @@ MpFaceDetectorResult* mp_face_detector_process_nv21(
     int32_t rotation_degrees,
     uint8_t mirror_horizontal,
     const MpRoiTransformOptions* roi_transform) {
-  if (!context || !image) {
-    GlobalFaceDetectorError() = "Detector context or image is null.";
-    return nullptr;
-  }
-  MpFaceDetectorResult* result =
-      context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
-                                mirror_horizontal != 0, roi_transform);
-  if (!result) {
-    GlobalFaceDetectorError() = context->impl.last_error();
-  } else {
-    GlobalFaceDetectorError().clear();
-  }
-  return result;
+  return GuardedNative(context, [&]() -> MpFaceDetectorResult* {
+    if (!context || !image) {
+      GlobalFaceDetectorError() = "Detector context or image is null.";
+      return nullptr;
+    }
+    MpFaceDetectorResult* result =
+        context->impl.ProcessNv21(*image, override_rect, rotation_degrees,
+                                  mirror_horizontal != 0, roi_transform);
+    if (!result) {
+      GlobalFaceDetectorError() = context->impl.last_error();
+    } else {
+      GlobalFaceDetectorError().clear();
+    }
+    return result;
+  });
 }
 
 void mp_face_detector_release_result(MpFaceDetectorResult* result) {

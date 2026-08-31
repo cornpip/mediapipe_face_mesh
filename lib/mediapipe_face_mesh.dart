@@ -309,6 +309,22 @@ enum FaceMeshDelegate {
   gpuV2,
 }
 
+/// Rejects out-of-range creation options in Dart. The native layer treats
+/// negative option values as "use the default", so an invalid value passed
+/// through silently would make the native threshold disagree with what the
+/// processor reports.
+void _validateUnitRange(double value, String name) {
+  if (value.isNaN || value < 0.0 || value > 1.0) {
+    throw ArgumentError.value(value, name, 'must be within [0.0, 1.0]');
+  }
+}
+
+void _validateThreads(int? threads) {
+  if (threads != null && threads < 1) {
+    throw ArgumentError.value(threads, 'threads', 'must be >= 1');
+  }
+}
+
 /// Default TFLite thread count: half the available cores clamped to 1..4,
 /// matching MediaPipe's own CPU inference default.
 int _defaultInferenceThreads() {
@@ -1262,6 +1278,14 @@ class FaceDetectorProcessor {
     double roiShiftX = 0.0,
     double roiShiftY = 0.0,
   }) async {
+    _validateThreads(threads);
+    if (minDetectionConfidence != null) {
+      _validateUnitRange(minDetectionConfidence, 'minDetectionConfidence');
+    }
+    _validateUnitRange(minSuppressionThreshold, 'minSuppressionThreshold');
+    if (maxResults < 1) {
+      throw ArgumentError.value(maxResults, 'maxResults', 'must be >= 1');
+    }
     final String resolvedModelPath = await _materializeDetectorModel(model);
     final double resolvedMinDetectionConfidence =
         minDetectionConfidence ?? model.defaultMinDetectionConfidence;
@@ -1635,6 +1659,10 @@ class FaceMeshProcessor {
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
+    _validateThreads(threads);
+    _validateUnitRange(minDetectionConfidence, 'minDetectionConfidence');
+    _validateUnitRange(minTrackingConfidence, 'minTrackingConfidence');
+    _validateUnitRange(minFacePresenceConfidence, 'minFacePresenceConfidence');
     if (model != null &&
         enableAttentionMesh &&
         model != FaceMeshModel.attention) {
@@ -1890,6 +1918,9 @@ class FaceMeshProcessor {
   /// memory once regardless of how many ROIs are provided. Returns one
   /// [FaceMeshResult] per ROI, in input order; results whose face presence
   /// score fell below the threshold have no landmarks, matching [process].
+  /// An ROI whose inference failed natively also comes back without
+  /// landmarks instead of failing the whole batch, so the other faces in
+  /// the frame keep their results.
   ///
   /// Like [process] with an explicit ROI, each successful inference seeds
   /// the internal tracked ROI when the processor was created with
@@ -2172,6 +2203,7 @@ class FaceBlendshapesProcessor {
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
+    _validateThreads(threads);
     final String resolvedModelPath = await _materializeBlendshapesModel();
     final optionsPtr = pkg_ffi.calloc<MpBlendshapesCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
