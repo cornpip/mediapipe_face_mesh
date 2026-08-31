@@ -88,10 +88,10 @@ Every processor (`FaceDetectorProcessor`, `FaceMeshProcessor`,
 - `FaceMeshDelegate.xnnpack`
 - `FaceMeshDelegate.gpuV2` (deprecated, removed in 3.0.0)
 
-The bundled runtime supports `cpu` and `xnnpack`, which benchmark within
-noise of each other. `gpuV2` currently falls back to CPU and is being removed: in our
-benchmarks the GPU delegate was slower for these models and only added
-binary size.
+The bundled runtime supports `cpu` and `xnnpack`. On Android they perform
+about the same. On Windows `cpu` runs the mesh models 4~5x slower, so
+`xnnpack` is recommended there. `gpuV2` currently falls
+back to CPU and is being removed.
 
 ### Input Formats
 
