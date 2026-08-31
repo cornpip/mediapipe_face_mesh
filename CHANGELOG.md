@@ -16,6 +16,8 @@
   `ArgumentError`, and an explicit `0.0` confidence is honored
 - fix native C++ exceptions aborting the app. They surface as
   `MediapipeFaceMeshException`, and error messages are never empty
+- example: all processors select the XNNPACK delegate (4~5x faster on
+  Windows), and the multi-face ROI overlay shows each face's movement label
 
 ## 2.8.1
 

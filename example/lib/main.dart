@@ -315,7 +315,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
-      _blendshapesProcessor = await FaceBlendshapesProcessor.create();
+      _blendshapesProcessor = await FaceBlendshapesProcessor.create(
+        delegate: _preferredDelegate,
+      );
       final inferencePipeline = FaceMeshInferencePipeline(
         detector: _faceDetectorProcessor,
         mesh: faceMeshProcessor,
@@ -358,11 +360,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
+  /// XNNPACK with the default CPU fallback: same speed as cpu on Android,
+  /// 4~5x faster on Windows.
+  static const FaceMeshDelegate _preferredDelegate = FaceMeshDelegate.xnnpack;
+
   Future<FaceDetectorProcessor> _createFaceDetectorProcessor() {
     final model = _faceDetectionModelForSelection(_selectedModel);
     final isFullRange = model != FaceDetectionModel.shortRange;
     return FaceDetectorProcessor.create(
       model: model,
+      delegate: _preferredDelegate,
       // Let the detector return several candidates; the single-face flow
       // still picks the best one, and the multi-face flow needs them all.
       maxResults: _maxMeshFaces,
@@ -386,8 +393,13 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         ? await FaceMeshProcessor.createForMultiFace(
             model: model,
             enableIris: iris,
+            delegate: _preferredDelegate,
           )
-        : await FaceMeshProcessor.create(model: model, enableIris: iris);
+        : await FaceMeshProcessor.create(
+            model: model,
+            enableIris: iris,
+            delegate: _preferredDelegate,
+          );
     debugPrint(
       'FaceMeshProcessor created: multi=$multi model=$model iris=$iris '
       'delegate=${processor.activeDelegate}',
@@ -612,8 +624,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         : const <TrackedFaceMesh>[];
     final List<_TrackedRoiOverlay> overlays = <_TrackedRoiOverlay>[
       // face.mesh.rect is the ROI this face's mesh inference actually used.
+      // The movement label runs the blendshapes post-processor per face,
+      // same as the single-face movement chip.
       for (final TrackedFaceMesh face in faces)
-        _TrackedRoiOverlay(roi: face.mesh.rect, label: '#${face.trackId}'),
+        _TrackedRoiOverlay(
+          roi: face.mesh.rect,
+          label: switch (_resolveMovementLabel(face.mesh)) {
+            null => '#${face.trackId}',
+            final String movement => '#${face.trackId} $movement',
+          },
+        ),
     ];
 
     void apply() {
