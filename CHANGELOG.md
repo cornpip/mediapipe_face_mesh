@@ -5,6 +5,8 @@
   tightly packed plane is now wrapped as a view without copying
 - improve per-call overhead of `FaceBlendshapesProcessor.process` and
   `estimateGeometry()`
+- add landmark smoothing to the multi-face flow with
+  `enableLandmarkTracking: false`, matched across frames by ROI overlap
 
 ## 2.8.1
 

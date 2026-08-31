@@ -188,8 +188,9 @@ class FaceMeshInferencePipeline {
   /// tracking keeps running on the raw mesh output. In the multi-face flow
   /// each tracked face is smoothed independently while its
   /// [TrackedFaceMesh.trackId] lives; with [enableLandmarkTracking] false
-  /// the multi-face flow has no stable face identity, so smoothing applies
-  /// only to the single-face flow there. Frame timestamps default to an
+  /// the multi-face flow has no stable face identity, so each frame's meshes
+  /// are re-associated with the previous frame's by ROI overlap and smoothed
+  /// through the matching filter state. Frame timestamps default to an
   /// internal clock; pass `timestamp` to the process methods when replaying
   /// recorded video.
   FaceMeshInferencePipeline({
@@ -227,6 +228,10 @@ class FaceMeshInferencePipeline {
 
   bool _isTracking = false;
   final List<_FaceTrack> _multiTracks = <_FaceTrack>[];
+
+  /// Smoother state for the tracking-disabled multi-face flow, matched to
+  /// each frame's meshes by ROI overlap since that flow has no track ids.
+  final List<_LegacySmoothTrack> _legacySmoothTracks = <_LegacySmoothTrack>[];
   int _nextTrackId = 0;
   _FaceMeshInputKind? _lastInputKind;
   int? _lastInputWidth;
@@ -258,8 +263,13 @@ class FaceMeshInferencePipeline {
 
   void _resetTrackingState() {
     _isTracking = false;
-    _multiTracks.clear();
+    _clearMultiFaceState();
     _singleSmoother?.reset();
+  }
+
+  void _clearMultiFaceState() {
+    _multiTracks.clear();
+    _legacySmoothTracks.clear();
   }
 
   Duration _frameTimestamp(Duration? timestamp) =>
@@ -304,6 +314,62 @@ class FaceMeshInferencePipeline {
     final FaceLandmarkSmoother smoother = track.smoother ??=
         FaceLandmarkSmoother(options: options);
     return smoother.smooth(mesh, timestamp: timestamp);
+  }
+
+  /// Wraps the tracking-disabled flow's score-ordered meshes, smoothing each
+  /// through the previous frame's filter state for the same physical face.
+  ///
+  /// The flow has no track identity, so each mesh is matched to last frame's
+  /// entries by ROI IoU (the association threshold the tracked flow uses);
+  /// an unmatched mesh starts a fresh smoothing sequence, and unmatched
+  /// previous entries are dropped. Track ids stay the per-frame index.
+  List<TrackedFaceMesh> _legacyFaces(
+    List<FaceMeshResult> meshes,
+    Duration timestamp,
+  ) {
+    final LandmarkSmoothingOptions? options = _smoothingOptions;
+    if (options == null) {
+      return <TrackedFaceMesh>[
+        for (int i = 0; i < meshes.length; i++)
+          TrackedFaceMesh(trackId: i, mesh: meshes[i]),
+      ];
+    }
+    final List<_LegacySmoothTrack> previous = List<_LegacySmoothTrack>.of(
+      _legacySmoothTracks,
+    );
+    _legacySmoothTracks.clear();
+    final List<TrackedFaceMesh> faces = <TrackedFaceMesh>[];
+    for (int i = 0; i < meshes.length; i++) {
+      final FaceMeshResult mesh = meshes[i];
+      if (mesh.landmarks.isEmpty) {
+        faces.add(TrackedFaceMesh(trackId: i, mesh: mesh));
+        continue;
+      }
+      // Associate on the raw mesh's ROI so smoothing never feeds back into
+      // the association, mirroring the tracked flow.
+      final NormalizedRect roi = mesh.trackingRoi();
+      _LegacySmoothTrack? match;
+      for (final _LegacySmoothTrack candidate in previous) {
+        if (_rectIou(roi, candidate.roi) > _trackAssociationIou) {
+          match = candidate;
+          break;
+        }
+      }
+      if (match != null) {
+        previous.remove(match);
+      }
+      final _LegacySmoothTrack track =
+          match ?? _LegacySmoothTrack(FaceLandmarkSmoother(options: options));
+      track.roi = roi;
+      _legacySmoothTracks.add(track);
+      faces.add(
+        TrackedFaceMesh(
+          trackId: i,
+          mesh: track.smoother.smooth(mesh, timestamp: timestamp),
+        ),
+      );
+    }
+    return faces;
   }
 
   void _syncInput({
@@ -402,7 +468,7 @@ class FaceMeshInferencePipeline {
     _singleSmoother?.reset();
 
     if (!runMesh) {
-      _multiTracks.clear();
+      _clearMultiFaceState();
       return FaceMeshMultiInferenceResult(
         detectionResult: runDetector(),
         faces: const <TrackedFaceMesh>[],
@@ -414,10 +480,7 @@ class FaceMeshInferencePipeline {
       final List<FaceMeshResult> meshes = runLegacyMultiMesh(detectionResult);
       return FaceMeshMultiInferenceResult(
         detectionResult: detectionResult,
-        faces: <TrackedFaceMesh>[
-          for (int i = 0; i < meshes.length; i++)
-            TrackedFaceMesh(trackId: i, mesh: meshes[i]),
-        ],
+        faces: _legacyFaces(meshes, timestamp),
       );
     }
 
@@ -504,7 +567,7 @@ class FaceMeshInferencePipeline {
     } catch (_) {
       // Fall back to detector re-acquisition on the next frame instead of
       // retrying failing tracked calls forever.
-      _multiTracks.clear();
+      _clearMultiFaceState();
       rethrow;
     }
   }
@@ -582,7 +645,7 @@ class FaceMeshInferencePipeline {
     // Mirror of the multi-face reset: drop multi-face tracks so a later
     // multi-face call re-acquires via the detector instead of advancing
     // stale ROIs.
-    _multiTracks.clear();
+    _clearMultiFaceState();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
       () => _mesh.process(
@@ -663,7 +726,7 @@ class FaceMeshInferencePipeline {
     // Mirror of the multi-face reset: drop multi-face tracks so a later
     // multi-face call re-acquires via the detector instead of advancing
     // stale ROIs.
-    _multiTracks.clear();
+    _clearMultiFaceState();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
       () => _mesh.processNv21(
@@ -842,6 +905,17 @@ class FaceMeshInferencePipeline {
 }
 
 enum _FaceMeshInputKind { image, nv21 }
+
+/// Smoother state carried across frames of the tracking-disabled multi-face
+/// flow, keyed by ROI overlap instead of a track id.
+class _LegacySmoothTrack {
+  _LegacySmoothTrack(this.smoother);
+
+  final FaceLandmarkSmoother smoother;
+
+  /// Raw-mesh ROI of the face this smoother followed last frame.
+  late NormalizedRect roi;
+}
 
 /// State for one face followed by the multi-face tracking flow.
 class _FaceTrack {
