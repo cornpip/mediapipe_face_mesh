@@ -75,6 +75,13 @@ Results print as `BENCH_JSON {...}` lines; the aggregate script turns all
 logs into one markdown table. Windows desktop: `-d windows` (mine and fdt
 only; the ML Kit mesh package is Android-only).
 
+Extra suites in `mine/integration_test`, run per file with
+`flutter test integration_test/<file> -d <device-id>`.
+`functional_test.dart` covers paths the matrix does not (iris pass,
+multi-ROI batch, geometry and blendshapes, option validation, NV21
+conversion timing). `multiface_profile_test.dart` prints per-stage
+multi-face cost by model, delegate, and resolution.
+
 Optional camera-cadence scenario (mine only, see Protocol):
 
 ```
@@ -150,6 +157,19 @@ attention on this device, with slightly lower raw jitter (1.46 vs
 1.51 px). Tracking validation passed in every config. The pre-existing
 configs reproduced the v2.7.1 numbers within noise (base 1.46/1.47,
 attention 2.08).
+
+### 2.9.0 verification and Windows delegates (measured 2026-09-01)
+
+Full matrix re-run before 2.9.0 (debug, log
+`mine-android-2.9.0-wip.log`). Every config matched the 2.8.0 numbers
+within noise, and jitter and drift IoU were identical to four decimals,
+so the per-frame coordinate-space decision did not change outputs on
+real footage.
+
+On Windows desktop the bundled dll's cpu path runs the mesh models 4~5x
+slower than xnnpack (v1 6.5 vs 1.7ms, attention 8.1 vs 2.3ms, v2 19.0
+vs 3.6ms per pass, `multiface_profile_test`, debug build). The example
+and README recommend xnnpack there.
 
 ## App size
 
