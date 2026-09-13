@@ -96,9 +96,8 @@ class FaceDetectionPainter extends CustomPainter {
         );
       }
 
-      final NormalizedRect? roi =
-          detection.expandedFaceRect ?? detection.faceRect;
-      if (showRoiBox && roi != null) {
+      if (showRoiBox) {
+        final NormalizedRect roi = detection.expandedFaceRect;
         final Path path = _buildRotatedRectPath(roi, size);
         canvas.drawPath(path, roiPaint);
         _paintLabel(

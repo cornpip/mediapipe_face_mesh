@@ -479,8 +479,8 @@ class FaceDetection {
     required this.right,
     required this.bottom,
     required this.score,
-    this.faceRect,
-    this.expandedFaceRect,
+    required this.faceRect,
+    required this.expandedFaceRect,
   });
 
   /// Left edge in normalized coordinates.
@@ -499,10 +499,11 @@ class FaceDetection {
   final double score;
 
   /// Rotation-aware rect derived from the detection keypoints.
-  final NormalizedRect? faceRect;
+  final NormalizedRect faceRect;
 
-  /// Expanded face ROI that matches MediaPipe's rect transformation step.
-  final NormalizedRect? expandedFaceRect;
+  /// Expanded face ROI that matches MediaPipe's rect transformation step,
+  /// the ROI the mesh runs on.
+  final NormalizedRect expandedFaceRect;
 
   /// Converts this normalized detection into a pixel-space [FaceMeshBox].
   FaceMeshBox toBox({required int imageWidth, required int imageHeight}) =>
@@ -1817,16 +1818,15 @@ class FaceMeshProcessor {
     }
   }
 
-  /// Processes one mesh inference for each detector result with a usable ROI.
+  /// Processes one mesh inference for each detector result.
   ///
   /// This mirrors MediaPipe Face Mesh graph behavior at the Dart API level:
-  /// each [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect] when
-  /// the expanded ROI is unavailable, is run through one mesh inference and
-  /// collected into a single list. The frame is uploaded to native memory
+  /// each [FaceDetection.expandedFaceRect] is run through one mesh inference
+  /// and collected into a single list. The frame is uploaded to native memory
   /// once for all faces (see [processRois]).
   ///
   /// [maxMeshFaces] limits how many mesh inferences are run from the provided
-  /// [detections]. Detections without an ROI are skipped.
+  /// [detections].
   List<FaceMeshResult> processMultiFace(
     FaceMeshFrame frame, {
     required Iterable<FaceDetection> detections,
@@ -1852,11 +1852,7 @@ class FaceMeshProcessor {
       if (maxMeshFaces != null && rois.length >= maxMeshFaces) {
         break;
       }
-      final NormalizedRect? roi = _roiForDetection(detection);
-      if (roi == null) {
-        continue;
-      }
-      rois.add(roi);
+      rois.add(detection.expandedFaceRect);
     }
     return rois;
   }
@@ -1929,9 +1925,6 @@ class FaceMeshProcessor {
       throw ArgumentError('rotationDegrees must be one of {0, 90, 180, 270}.');
     }
   }
-
-  NormalizedRect? _roiForDetection(FaceDetection detection) =>
-      detection.expandedFaceRect ?? detection.faceRect;
 
   void _validateMaxMeshFaces(int? maxMeshFaces) {
     if (maxMeshFaces != null && maxMeshFaces < 0) {

@@ -525,9 +525,8 @@ class FaceMeshInferencePipeline {
               _multiTracks.length + candidateRois.length >= maxMeshFaces) {
             break;
           }
-          final NormalizedRect? roi = _roiForDetection(detection);
-          if (roi == null ||
-              _overlapsTrackedFace(roi) ||
+          final NormalizedRect roi = detection.expandedFaceRect;
+          if (_overlapsTrackedFace(roi) ||
               candidateRois.any(
                 (NormalizedRect other) =>
                     _rectIou(roi, other) > _trackAssociationIou,
@@ -612,8 +611,7 @@ class FaceMeshInferencePipeline {
   /// the mesh runs on its internally tracked ROI; when tracking is lost the
   /// detector re-acquires the face within the same call. [detectorRoi]
   /// restricts the detector input. On detector-driven frames the selected
-  /// detection's [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect]
-  /// when the expanded ROI is unavailable, is used as the mesh ROI.
+  /// detection's [FaceDetection.expandedFaceRect] is used as the mesh ROI.
   /// Set [runMesh] to false to return detector output without running mesh
   /// inference.
   FaceMeshInferenceResult process(
@@ -663,7 +661,7 @@ class FaceMeshInferencePipeline {
     final FaceDetection? selectedDetection = _detectionSelector(
       detectionResult,
     );
-    final NormalizedRect? selectedRoi = _roiForDetection(selectedDetection);
+    final NormalizedRect? selectedRoi = selectedDetection?.expandedFaceRect;
     final FaceMeshResult? meshResult = !runMesh || selectedRoi == null
         ? null
         : _mesh.process(
@@ -748,9 +746,6 @@ class FaceMeshInferencePipeline {
           ),
     );
   }
-
-  NormalizedRect? _roiForDetection(FaceDetection? detection) =>
-      detection?.expandedFaceRect ?? detection?.faceRect;
 
   void _validateMaxMeshFaces(int? maxMeshFaces) {
     if (maxMeshFaces != null && maxMeshFaces < 0) {

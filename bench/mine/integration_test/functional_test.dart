@@ -23,7 +23,7 @@ void main() {
     detector.close();
     final FaceDetection? face = detections.primaryDetection;
     expect(face, isNotNull, reason: 'portrait.jpg must contain a face');
-    faceRoi = (face!.expandedFaceRect ?? face.faceRect)!;
+    faceRoi = face!.expandedFaceRect;
   });
 
   test('v1 with the separate iris pass returns 478 sane landmarks', () async {
@@ -150,12 +150,12 @@ void main() {
           .primaryDetection!;
       final FaceDetection nv21Face = detector.process(nv21).primaryDetection!;
       expect(
-        nv21Face.faceRect!.xCenter,
-        closeTo(rgbaFace.faceRect!.xCenter, 0.02),
+        nv21Face.faceRect.xCenter,
+        closeTo(rgbaFace.faceRect.xCenter, 0.02),
       );
       expect(
-        nv21Face.faceRect!.yCenter,
-        closeTo(rgbaFace.faceRect!.yCenter, 0.02),
+        nv21Face.faceRect.yCenter,
+        closeTo(rgbaFace.faceRect.yCenter, 0.02),
       );
 
       final FaceMeshResult rgbaMesh = mesh.process(portrait, roi: faceRoi);

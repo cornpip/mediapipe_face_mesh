@@ -16,6 +16,7 @@
 - rename `FaceMeshProcessor.create(enableSmoothing:)` to
   `enableRoiSmoothing`
 - `FaceMeshPixelFormat` is an enum instead of int constants
+- `FaceDetection.faceRect` and `expandedFaceRect` are non-nullable
 - rename `MpFaceMeshTriangle` to `FaceMeshTriangle`
 - remove `FaceMeshProcessor.attentionMeshEnabled`
 - remove `FaceMeshStreamProcessor` and `FaceDetectorStreamProcessor`
