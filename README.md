@@ -294,8 +294,21 @@ directly.
 ### Using an External Face Detector
 
 The bundled detector is optional. If you already use another face detector
-(e.g. ML Kit), pass its face box to `FaceMeshProcessor.process(...)` as a
-`FaceMeshBox` or `NormalizedRect` and skip `FaceDetectorProcessor` entirely.
+(e.g. ML Kit), pass its face box to `FaceMeshProcessor.process(...)` and skip
+`FaceDetectorProcessor` entirely.
+
+```dart
+final box = FaceMeshBox.fromLTWH(
+  left: face.left, top: face.top, width: face.width, height: face.height,
+);
+final meshResult = faceMeshProcessor.process(
+  image,
+  box: box,
+  // The image is the raw camera buffer, so pass the rotation the detector
+  // applied to it. The box is already in that rotated frame.
+  rotationDegrees: rotationDegrees,
+);
+```
 
 ### Close Resource
 
