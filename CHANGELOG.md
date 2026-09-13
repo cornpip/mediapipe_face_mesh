@@ -1,13 +1,23 @@
 ## 3.0.0-wip
 
-- **BREAKING**: `FaceMeshInferencePipeline` smooths output landmarks by
-  default, matching the official FaceLandmarker stream mode
+### Breaking
+
+- `FaceMeshInferencePipeline` smooths output landmarks by default
   - `landmarkSmoothing: null` turns it off
-- **BREAKING**: `FaceMeshProcessor.create` and `createForMultiFace` default
-  to `FaceMeshModel.v2` (478 landmarks) instead of `FaceMeshModel.v1` (468)
-- **BREAKING**: remove `enableAttentionMesh`. `model` is the only way to pick
-  the mesh model
-- **BREAKING**: remove `FaceMeshDelegate.gpuV2`, deprecated since 2.6.0
+- `FaceMeshProcessor.create` and `createForMultiFace` default to
+  `FaceMeshModel.v2` (478 landmarks) instead of `FaceMeshModel.v1` (468)
+- remove `enableAttentionMesh`. `model` is the only way to pick the mesh
+  model
+- remove `FaceMeshDelegate.gpuV2`
+- rename `FaceMeshProcessor.create(enableSmoothing:)` to
+  `enableRoiSmoothing`
+- `FaceMeshPixelFormat` is an enum instead of int constants
+- rename `MpFaceMeshTriangle` to `FaceMeshTriangle`
+- remove `FaceMeshProcessor.attentionMeshEnabled`
+- remove `FaceMeshStreamProcessor` and `FaceDetectorStreamProcessor`
+  (`face_mesh_stream_processor.dart`). Use
+  `FaceMeshInferenceStreamProcessor`, or wrap `FaceMeshProcessor.process` in
+  your own stream when driving an external detector
 
 ## 2.9.0
 

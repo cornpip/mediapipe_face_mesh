@@ -274,15 +274,13 @@ final Finalizer<ffi.Pointer<MpFaceDetectorContext>> _detectorContextFinalizer =
       (pointer) => faceBindings.mp_face_detector_destroy(pointer),
     );
 
-/// Integer constants describing the pixel formats understood by the native side.
-class FaceMeshPixelFormat {
-  const FaceMeshPixelFormat._();
-
+/// Pixel layout of a [FaceMeshImage] buffer.
+enum FaceMeshPixelFormat {
   /// RGBA (red, green, blue, alpha) ordering expected by MediaPipe.
-  static const int rgba = 0;
+  rgba,
 
   /// BGRA ordering for buffers that come directly from some platforms.
-  static const int bgra = 1;
+  bgra,
 }
 
 /// Delegate types supported by the native runtime.
@@ -358,8 +356,7 @@ class NormalizedRect {
   /// Clockwise rotation in radians.
   final double rotation;
 
-  /// Creates a rectangle using the native MediaPipe layout.
-  factory NormalizedRect.fromNative(MpNormalizedRect rect) => NormalizedRect(
+  factory NormalizedRect._fromNative(MpNormalizedRect rect) => NormalizedRect(
     xCenter: rect.x_center,
     yCenter: rect.y_center,
     width: rect.width,
@@ -613,10 +610,6 @@ class FaceMeshImage {
         'Pixel buffer is smaller than required size ($requiredBytes bytes).',
       );
     }
-    if (pixelFormat != FaceMeshPixelFormat.rgba &&
-        pixelFormat != FaceMeshPixelFormat.bgra) {
-      throw ArgumentError('Unsupported pixel format: $pixelFormat');
-    }
   }
 
   /// Raw pixel buffer backing this image.
@@ -631,8 +624,8 @@ class FaceMeshImage {
   /// Bytes consumed per row (stride).
   final int bytesPerRow;
 
-  /// Pixel format understood by the native layer.
-  final int pixelFormat;
+  /// Pixel layout of [pixels].
+  final FaceMeshPixelFormat pixelFormat;
 
   @override
   String toString() =>
@@ -1058,9 +1051,9 @@ class FaceMeshLandmark {
 }
 
 /// Triangle made up of 3 face mesh landmarks.
-class MpFaceMeshTriangle {
+class FaceMeshTriangle {
   /// Builds a triangle from landmark indices and the referenced points.
-  MpFaceMeshTriangle({required this.indices, required this.points});
+  FaceMeshTriangle({required this.indices, required this.points});
 
   /// Indices into the full landmark list (length 3).
   final List<int> indices;
@@ -1069,7 +1062,7 @@ class MpFaceMeshTriangle {
   final List<FaceMeshLandmark> points;
 
   @override
-  String toString() => 'MpFaceMeshTriangle(indices: $indices)';
+  String toString() => 'FaceMeshTriangle(indices: $indices)';
 }
 
 /// Aggregates the results of a single face mesh inference.
@@ -1081,19 +1074,19 @@ class FaceMeshResult {
     required this.score,
     required this.imageWidth,
     required this.imageHeight,
-    List<MpFaceMeshTriangle>? triangles,
+    List<FaceMeshTriangle>? triangles,
   }) : _triangles = triangles;
 
   /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
 
-  List<MpFaceMeshTriangle>? _triangles;
+  List<FaceMeshTriangle>? _triangles;
 
   /// Triangles describing the mesh topology.
   ///
   /// Built lazily on first access so results that are never drawn skip the
   /// 852-triangle construction entirely.
-  List<MpFaceMeshTriangle> get triangles =>
+  List<FaceMeshTriangle> get triangles =>
       _triangles ??= _buildTrianglesFromLandmarks(landmarks);
 
   /// Normalized rectangle covering the detected face.
@@ -1451,8 +1444,8 @@ class FaceDetectorProcessor {
               right: detection.right,
               bottom: detection.bottom,
               score: detection.score,
-              faceRect: NormalizedRect.fromNative(detection.face_rect),
-              expandedFaceRect: NormalizedRect.fromNative(
+              faceRect: NormalizedRect._fromNative(detection.face_rect),
+              expandedFaceRect: NormalizedRect._fromNative(
                 detection.expanded_face_rect,
               ),
             );
@@ -1532,9 +1525,6 @@ class FaceMeshProcessor {
   /// Mesh model this processor was created with.
   FaceMeshModel get model => _model;
 
-  /// Whether this processor was created with the attention mesh model.
-  bool get attentionMeshEnabled => _model == FaceMeshModel.attention;
-
   /// Whether this processor was created with internal ROI tracking enabled.
   bool get roiTrackingEnabled => _roiTrackingEnabled;
 
@@ -1598,10 +1588,10 @@ class FaceMeshProcessor {
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
   ///   is unavailable, cannot be created, or fails while the interpreter is
   ///   built. Set it to false to fail creation instead.
-  /// - [enableSmoothing] smooths the internally tracked ROI across frames
+  /// - [enableRoiSmoothing] smooths the internally tracked ROI across frames
   ///   (used when [roi]/[box] are omitted), which stabilizes the crop fed to
-  ///   the model and indirectly reduces landmark jitter. It does not filter
-  ///   the landmark coordinates themselves.
+  ///   the model. Landmark coordinates are not filtered here. That is
+  ///   [FaceMeshInferencePipeline]'s `landmarkSmoothing`.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
   ///   are omitted in later [process] or [processNv21] calls.
   /// - [minTrackingConfidence] is the mesh presence score below which
@@ -1632,7 +1622,7 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     double minFacePresenceConfidence = 0.5,
-    bool enableSmoothing = true,
+    bool enableRoiSmoothing = true,
     bool enableRoiTracking = true,
     FaceMeshModel model = FaceMeshModel.v2,
     bool enableIris = false,
@@ -1665,7 +1655,7 @@ class FaceMeshProcessor {
         ..min_face_presence_confidence = minFacePresenceConfidence
         ..delegate = delegate.index
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
-        ..enable_smoothing = enableSmoothing ? 1 : 0
+        ..enable_smoothing = enableRoiSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = runsIrisPass ? 1 : 0
         ..enable_attention_mesh = model == FaceMeshModel.attention ? 1 : 0
@@ -1718,7 +1708,7 @@ class FaceMeshProcessor {
       minDetectionConfidence: minDetectionConfidence,
       minTrackingConfidence: minTrackingConfidence,
       minFacePresenceConfidence: minFacePresenceConfidence,
-      enableSmoothing: false,
+      enableRoiSmoothing: false,
       enableRoiTracking: false,
       model: model,
       enableIris: enableIris,
@@ -2060,7 +2050,7 @@ class FaceMeshProcessor {
 
     return FaceMeshResult(
       landmarks: landmarks,
-      rect: NormalizedRect.fromNative(nativeResult.rect),
+      rect: NormalizedRect._fromNative(nativeResult.rect),
       score: nativeResult.score,
       imageWidth: nativeResult.image_width,
       imageHeight: nativeResult.image_height,

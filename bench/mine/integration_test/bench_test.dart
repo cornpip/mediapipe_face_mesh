@@ -337,7 +337,7 @@ void main() {
               await FaceDetectorProcessor.create(delegate: delegate);
           final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
             enableRoiTracking: false,
-            enableSmoothing: false,
+            enableRoiSmoothing: false,
             model: model,
             delegate: delegate,
           );

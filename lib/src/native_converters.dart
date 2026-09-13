@@ -50,7 +50,7 @@ class _FrameScratch {
       ..width = image.width
       ..height = image.height
       ..bytes_per_row = image.bytesPerRow
-      ..format = image.pixelFormat;
+      ..format = image.pixelFormat.index;
     return _imagePtr;
   }
 
@@ -59,9 +59,7 @@ class _FrameScratch {
     assert(!_disposed);
     final ffi.Pointer<ffi.Uint8> yPtr = _ensurePrimary(image.yPlane.length);
     yPtr.asTypedList(image.yPlane.length).setAll(0, image.yPlane);
-    final ffi.Pointer<ffi.Uint8> vuPtr = _ensureSecondary(
-      image.vuPlane.length,
-    );
+    final ffi.Pointer<ffi.Uint8> vuPtr = _ensureSecondary(image.vuPlane.length);
     vuPtr.asTypedList(image.vuPlane.length).setAll(0, image.vuPlane);
     _nv21Ptr.ref
       ..y = yPtr
