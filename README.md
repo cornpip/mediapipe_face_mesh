@@ -237,12 +237,11 @@ Requires a mesh that returns 478 landmarks.
 ```dart
 final blendshapesProcessor = await FaceBlendshapesProcessor.create();
 
-// Map<FaceBlendshape, double> with values in [0, 1];
-// null when the frame had no face.
+// FaceBlendshapes with values in [0, 1]. Null when the frame had no face.
 final blendshapes = blendshapesProcessor.process(meshResult);
 if (blendshapes != null) {
-  final smile = (blendshapes[FaceBlendshape.mouthSmileLeft]! +
-          blendshapes[FaceBlendshape.mouthSmileRight]!) /
+  final smile = (blendshapes[FaceBlendshape.mouthSmileLeft] +
+          blendshapes[FaceBlendshape.mouthSmileRight]) /
       2;
   if (smile > 0.5) {
     // smiling

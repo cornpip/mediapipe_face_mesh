@@ -53,8 +53,8 @@ class FaceMeshInferenceResult {
     );
   }
 
-  /// Mesh result for the tracked or detected face, or null when no usable
-  /// face was found.
+  /// Mesh result for the tracked or detected face. Null when the mesh did
+  /// not run or found no face. Never carries empty landmarks.
   final FaceMeshResult? meshResult;
 
   /// Whether the detector ran for this frame.
@@ -324,7 +324,8 @@ class FaceMeshInferencePipeline {
     if (options == null) {
       return <TrackedFaceMesh>[
         for (int i = 0; i < meshes.length; i++)
-          TrackedFaceMesh(trackId: i, mesh: meshes[i]),
+          if (meshes[i].landmarks.isNotEmpty)
+            TrackedFaceMesh(trackId: i, mesh: meshes[i]),
       ];
     }
     final List<_LegacySmoothTrack> previous = List<_LegacySmoothTrack>.of(
@@ -335,7 +336,6 @@ class FaceMeshInferencePipeline {
     for (int i = 0; i < meshes.length; i++) {
       final FaceMeshResult mesh = meshes[i];
       if (mesh.landmarks.isEmpty) {
-        faces.add(TrackedFaceMesh(trackId: i, mesh: mesh));
         continue;
       }
       // Associate on the raw mesh's ROI so smoothing never feeds back into
@@ -434,7 +434,7 @@ class FaceMeshInferencePipeline {
   /// via the detector while slots are free.
   FaceMeshMultiInferenceResult _processMulti({
     required bool runMesh,
-    required int? maxMeshFaces,
+    required int maxMeshFaces,
     required FaceMeshFrame frame,
     required int rotationDegrees,
     required bool mirrorHorizontal,
@@ -473,7 +473,7 @@ class FaceMeshInferencePipeline {
       );
     }
 
-    if (maxMeshFaces != null && _multiTracks.length > maxMeshFaces) {
+    if (_multiTracks.length > maxMeshFaces) {
       _multiTracks.removeRange(maxMeshFaces, _multiTracks.length);
     }
 
@@ -510,12 +510,11 @@ class FaceMeshInferencePipeline {
       // graph's detector gate. Candidate ROIs that do not overlap a tracked
       // face or an earlier candidate are meshed in one batched call.
       FaceDetectionResult? detectionResult;
-      if (maxMeshFaces == null || _multiTracks.length < maxMeshFaces) {
+      if (_multiTracks.length < maxMeshFaces) {
         detectionResult = runDetector();
         final List<NormalizedRect> candidateRois = <NormalizedRect>[];
         for (final FaceDetection detection in detectionResult.detections) {
-          if (maxMeshFaces != null &&
-              _multiTracks.length + candidateRois.length >= maxMeshFaces) {
+          if (_multiTracks.length + candidateRois.length >= maxMeshFaces) {
             break;
           }
           final NormalizedRect roi = detection.expandedFaceRect;
@@ -656,7 +655,7 @@ class FaceMeshInferencePipeline {
       detectionResult,
     );
     final NormalizedRect? selectedRoi = selectedDetection?.expandedFaceRect;
-    final FaceMeshResult? meshResult = !runMesh || selectedRoi == null
+    FaceMeshResult? meshResult = !runMesh || selectedRoi == null
         ? null
         : _mesh.process(
             frame,
@@ -664,6 +663,9 @@ class FaceMeshInferencePipeline {
             rotationDegrees: rotationDegrees,
             mirrorHorizontal: mirrorHorizontal,
           );
+    if (meshResult != null && meshResult.landmarks.isEmpty) {
+      meshResult = null;
+    }
     _updateTracking(meshResult);
 
     return _smoothSingleResult(
@@ -696,9 +698,9 @@ class FaceMeshInferencePipeline {
   /// [FaceDetectorProcessor.create]'s `maxResults`.
   FaceMeshMultiInferenceResult processMultiFace(
     FaceMeshFrame frame, {
+    required int maxMeshFaces,
     NormalizedRect? detectorRoi,
     bool runMesh = true,
-    int? maxMeshFaces,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
     double? detectorRoiScaleX,
@@ -741,9 +743,9 @@ class FaceMeshInferencePipeline {
     );
   }
 
-  void _validateMaxMeshFaces(int? maxMeshFaces) {
-    if (maxMeshFaces != null && maxMeshFaces < 0) {
-      throw ArgumentError('maxMeshFaces must be null or >= 0.');
+  void _validateMaxMeshFaces(int maxMeshFaces) {
+    if (maxMeshFaces < 1) {
+      throw ArgumentError('maxMeshFaces must be >= 1.');
     }
   }
 }
@@ -829,11 +831,11 @@ class FaceMeshInferenceStreamProcessor {
   Stream<FaceMeshMultiInferenceResult>
   processMultiFace<T extends FaceMeshFrame>(
     Stream<T> frames, {
+    required int maxMeshFaces,
     NormalizedRect? detectorRoi,
     FaceMeshInferenceDetectorRoiResolver<T>? detectorRoiResolver,
     bool runMesh = true,
     FaceMeshRunResolver<T>? runMeshResolver,
-    int? maxMeshFaces,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
     double? detectorRoiScaleX,

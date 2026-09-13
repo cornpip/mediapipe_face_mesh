@@ -648,7 +648,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (result == null || processor == null || !_meshMode.has478) {
       return null;
     }
-    final Map<FaceBlendshape, double>? blendshapes = processor.process(result);
+    final FaceBlendshapes? blendshapes = processor.process(result);
     if (blendshapes == null) {
       return null; // no face in this frame
     }
@@ -938,8 +938,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// Maps the 52 blendshape coefficients to a coarse facial movement label.
   ///
   /// Thresholds are illustrative starting points; tune per camera and lighting.
-  String _detectMovement(Map<FaceBlendshape, double> blendshapes) {
-    double v(FaceBlendshape shape) => blendshapes[shape] ?? 0;
+  String _detectMovement(FaceBlendshapes blendshapes) {
+    double v(FaceBlendshape shape) => blendshapes[shape];
     final double smile =
         (v(FaceBlendshape.mouthSmileLeft) + v(FaceBlendshape.mouthSmileRight)) /
         2;

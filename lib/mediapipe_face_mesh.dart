@@ -514,31 +514,6 @@ class FaceDetection {
         bottom: bottom * imageHeight,
       );
 
-  /// Convenience normalized ROI for directly feeding Face Mesh.
-  NormalizedRect toNormalizedRect({
-    double scale = 1.0,
-    bool makeSquare = false,
-  }) {
-    if (!(scale > 0)) {
-      throw ArgumentError('scale must be > 0.');
-    }
-    double width = (right - left).abs();
-    double height = (bottom - top).abs();
-    if (makeSquare) {
-      final double size = width > height ? width : height;
-      width = size;
-      height = size;
-    }
-    width *= scale;
-    height *= scale;
-    return NormalizedRect(
-      xCenter: (left + right) * 0.5,
-      yCenter: (top + bottom) * 0.5,
-      width: width,
-      height: height,
-    );
-  }
-
   @override
   String toString() =>
       'FaceDetection(left: $left, top: $top, right: $right, bottom: $bottom, '
@@ -1046,6 +1021,22 @@ enum FaceBlendshape {
   noseSneerRight,
 }
 
+/// The 52 blendshape coefficients of one face, each in `[0, 1]`.
+class FaceBlendshapes {
+  FaceBlendshapes._(this._scores);
+
+  final Float32List _scores;
+
+  /// Coefficient for [shape].
+  double operator [](FaceBlendshape shape) => _scores[shape.index];
+
+  /// All coefficients keyed by category.
+  Map<FaceBlendshape, double> toMap() => <FaceBlendshape, double>{
+    for (final FaceBlendshape shape in FaceBlendshape.values)
+      shape: _scores[shape.index],
+  };
+}
+
 /// A single 3D landmark returned by MediaPipe.
 class FaceMeshLandmark {
   /// Builds a landmark from normalized coordinates returned by MediaPipe.
@@ -1193,15 +1184,15 @@ class FaceMeshResult {
 }
 
 /// Base exception thrown by this plugin when native calls fail.
-class MediapipeFaceMeshException implements Exception {
+class FaceMeshException implements Exception {
   /// Creates an exception with a human-readable [message].
-  MediapipeFaceMeshException(this.message);
+  FaceMeshException(this.message);
 
   /// Cause string returned by the native layer.
   final String message;
 
   @override
-  String toString() => 'MediapipeFaceMeshException($message)';
+  String toString() => 'FaceMeshException($message)';
 }
 
 /// High-level wrapper around the native MediaPipe Face Detection model.
@@ -1298,7 +1289,7 @@ class FaceDetectorProcessor {
       final ffi.Pointer<MpFaceDetectorContext> context = faceBindings
           .mp_face_detector_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_face_detector_last_global_error()) ??
               'Failed to create face detector context.',
         );
@@ -1360,7 +1351,7 @@ class FaceDetectorProcessor {
         ),
       };
       if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
               'Native face detector error.',
         );
@@ -1575,7 +1566,6 @@ class FaceMeshProcessor {
   ///   [FaceMeshModel.v1] and is ignored with the other models.
   static Future<FaceMeshProcessor> create({
     int? threads,
-    double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     double minFacePresenceConfidence = 0.5,
     bool enableRoiTracking = true,
@@ -1585,7 +1575,6 @@ class FaceMeshProcessor {
     bool allowDelegateFallback = true,
   }) async {
     _validateThreads(threads);
-    _validateUnitRange(minDetectionConfidence, 'minDetectionConfidence');
     _validateUnitRange(minTrackingConfidence, 'minTrackingConfidence');
     _validateUnitRange(minFacePresenceConfidence, 'minFacePresenceConfidence');
     // The attention and FaceMesh-V2 models already include refined irises in
@@ -1605,7 +1594,8 @@ class FaceMeshProcessor {
     try {
       optionsPtr.ref
         ..threads = threads ?? _defaultInferenceThreads()
-        ..min_detection_confidence = minDetectionConfidence
+        // Native ROI tracking seeds at the presence threshold.
+        ..min_detection_confidence = minFacePresenceConfidence
         ..min_tracking_confidence = minTrackingConfidence
         ..min_face_presence_confidence = minFacePresenceConfidence
         ..delegate = delegate.index
@@ -1619,7 +1609,7 @@ class FaceMeshProcessor {
       final ffi.Pointer<MpFaceMeshContext> context = faceBindings
           .mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
               'Failed to create face mesh context.',
         );
@@ -1704,7 +1694,7 @@ class FaceMeshProcessor {
         ),
       };
       if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
               'Native face mesh error.',
         );
@@ -1768,7 +1758,7 @@ class FaceMeshProcessor {
         ),
       };
       if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
               'Native face mesh error.',
         );
@@ -1960,7 +1950,7 @@ class FaceBlendshapesProcessor {
       final ffi.Pointer<MpBlendshapesContext> context = faceBindings
           .mp_blendshapes_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           _readCString(faceBindings.mp_blendshapes_last_global_error()) ??
               'Failed to create blendshapes context.',
         );
@@ -1972,8 +1962,7 @@ class FaceBlendshapesProcessor {
     }
   }
 
-  /// Runs the blendshapes model on [result]'s landmarks and returns the 52
-  /// coefficients keyed by category.
+  /// Runs the blendshapes model on [result]'s landmarks.
   ///
   /// Returns null when [result] has no landmarks (no face was present in the
   /// frame).
@@ -1982,7 +1971,7 @@ class FaceBlendshapesProcessor {
   /// [requiredLandmarkCount]: the source mesh was created without iris
   /// landmarks (`enableIris: true`, [FaceMeshModel.attention], or
   /// [FaceMeshModel.v2]), which the blendshapes model requires.
-  Map<FaceBlendshape, double>? process(FaceMeshResult result) {
+  FaceBlendshapes? process(FaceMeshResult result) {
     _ensureNotClosed();
     final List<FaceMeshLandmark> landmarks = result.landmarks;
     if (landmarks.isEmpty) {
@@ -2007,7 +1996,7 @@ class FaceBlendshapesProcessor {
           result.imageHeight,
         );
     if (resultPtr == ffi.nullptr) {
-      throw MediapipeFaceMeshException(
+      throw FaceMeshException(
         _readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
             'Native blendshapes error.',
       );
@@ -2019,18 +2008,15 @@ class FaceBlendshapesProcessor {
     }
   }
 
-  Map<FaceBlendshape, double> _copyScores(MpBlendshapesResult nativeResult) {
+  FaceBlendshapes _copyScores(MpBlendshapesResult nativeResult) {
     final ffi.Pointer<ffi.Float> ptr = nativeResult.scores;
     final int count = nativeResult.scores_count;
     if (ptr == ffi.nullptr || count < FaceBlendshape.values.length) {
-      throw MediapipeFaceMeshException(
-        'Unexpected blendshapes output size: $count.',
-      );
+      throw FaceMeshException('Unexpected blendshapes output size: $count.');
     }
-    return <FaceBlendshape, double>{
-      for (final FaceBlendshape shape in FaceBlendshape.values)
-        shape: (ptr + shape.index).value,
-    };
+    return FaceBlendshapes._(
+      Float32List.fromList(ptr.asTypedList(FaceBlendshape.values.length)),
+    );
   }
 
   /// Releases the native blendshapes context and associated resources.

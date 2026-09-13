@@ -20,6 +20,16 @@
 - remove ROI smoothing (`enableRoiSmoothing`). Landmark smoothing covers it
 - remove `FaceMeshProcessor.createForMultiFace`. `create()` serves both
   flows
+- `FaceMeshInferenceResult.meshResult` and the multi-face `faces` list never
+  carry a mesh with empty landmarks
+- `maxMeshFaces` is required on the pipeline and stream `processMultiFace`
+- remove `minDetectionConfidence` from `FaceMeshProcessor.create`.
+  `minFacePresenceConfidence` covers it
+- remove `FaceDetection.toNormalizedRect`. Use `expandedFaceRect`
+- `FaceBlendshapesProcessor.process` returns `FaceBlendshapes?` (index with
+  `[FaceBlendshape]`, `toMap()` for the full map) instead of
+  `Map<FaceBlendshape, double>?`
+- rename `MediapipeFaceMeshException` to `FaceMeshException`
 - remove `FaceMeshStreamProcessor` and `FaceDetectorStreamProcessor`
   (`face_mesh_stream_processor.dart`). Use
   `FaceMeshInferenceStreamProcessor`, or wrap `FaceMeshProcessor.process` in

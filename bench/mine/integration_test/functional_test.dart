@@ -101,13 +101,13 @@ void main() {
       expect(measurements.faceWidth.valueCm, inInclusiveRange(8.0, 22.0));
       expect(geometry.headPose.yawDegrees.isFinite, isTrue);
 
-      final Map<FaceBlendshape, double> first = blendshapes.process(result)!;
-      final Map<FaceBlendshape, double> second = blendshapes.process(result)!;
-      expect(first, hasLength(FaceBlendshape.values.length));
+      final FaceBlendshapes first = blendshapes.process(result)!;
+      final FaceBlendshapes second = blendshapes.process(result)!;
+      expect(first.toMap(), hasLength(FaceBlendshape.values.length));
       for (final FaceBlendshape shape in FaceBlendshape.values) {
         expect(first[shape], inInclusiveRange(0.0, 1.0));
         // The reused scratch buffer must not leak state between calls.
-        expect(second[shape], closeTo(first[shape]!, 1e-6));
+        expect(second[shape], closeTo(first[shape], 1e-6));
       }
     } finally {
       blendshapes.close();
