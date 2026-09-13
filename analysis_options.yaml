@@ -13,6 +13,8 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # Separate Flutter projects with their own analysis options.
+    - bench/**
 
 linter:
   rules:
