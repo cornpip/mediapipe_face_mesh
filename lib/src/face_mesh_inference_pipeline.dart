@@ -24,8 +24,8 @@ class FaceMeshInferenceResult {
   /// Raw detector output for the input frame.
   ///
   /// Null when the frame was served by landmark tracking, in which case the
-  /// detector did not run and [meshResult] came from the mesh processor's
-  /// internal ROI tracking.
+  /// detector did not run and the mesh ran on the ROI derived from the
+  /// previous frame's landmarks.
   final FaceDetectionResult? detectionResult;
 
   /// Detection selected for mesh inference.
@@ -53,8 +53,8 @@ class FaceMeshInferenceResult {
     );
   }
 
-  /// Mesh result for the tracked or detected face, or null when no usable
-  /// face was found.
+  /// Mesh result for the tracked or detected face. Null when the mesh did
+  /// not run or found no face. Never carries empty landmarks.
   final FaceMeshResult? meshResult;
 
   /// Whether the detector ran for this frame.
@@ -146,23 +146,20 @@ class FaceMeshMultiInferenceResult {
 ///
 /// By default the single-face flow mirrors the official MediaPipe Face Mesh
 /// graph: the detector runs only to (re)acquire a face, and while a face is
-/// being followed the mesh ROI comes from the previous frame's landmarks via
-/// the mesh processor's internal ROI tracking. This keeps the mesh accurate
-/// when the detection box is imprecise (for example with a wide-open mouth)
-/// and skips the detector entirely on tracked frames.
+/// being followed the mesh ROI comes from the previous frame's landmarks.
+/// This keeps the mesh accurate when the detection box is imprecise (for
+/// example with a wide-open mouth) and skips the detector entirely on
+/// tracked frames.
 ///
 /// The multi-face methods track the same way with one ROI per face: each
 /// tracked face keeps a stable [TrackedFaceMesh.trackId], and the detector
-/// runs only while fewer than `maxMeshFaces` faces are tracked. Multi-face
-/// tracking is managed in Dart, so it works with a
-/// [FaceMeshProcessor.createForMultiFace] processor. The two flows share the
-/// native mesh state, so calling one resets the other's tracking and the
-/// next call of the other flow re-acquires via the detector.
+/// runs only while fewer than `maxMeshFaces` faces are tracked. Tracking is
+/// managed by the pipeline, so both flows work with any [FaceMeshProcessor].
+/// Calling one flow resets the other's tracking, and the next call of the
+/// other flow re-acquires via the detector.
 ///
-/// Single-face landmark tracking requires a [mesh] processor created with
-/// `enableRoiTracking: true` (the default). Passing
-/// `enableLandmarkTracking: false` to [FaceMeshInferencePipeline.new] makes
-/// every frame run detector-driven as before, in both flows.
+/// Passing `enableLandmarkTracking: false` to [FaceMeshInferencePipeline.new]
+/// makes every frame run detector-driven, in both flows.
 ///
 /// On tracked frames the detector does not run, so `detectorRoi` and the
 /// detector ROI scale/shift overrides apply only to (re)acquisition frames —
@@ -181,30 +178,29 @@ class FaceMeshInferencePipeline {
   /// Set [enableLandmarkTracking] to false to run the detector on every
   /// frame and always derive the mesh ROI from the detection result.
   ///
-  /// Pass [landmarkSmoothing] to smooth output landmarks across frames with
-  /// a OneEuro filter, matching the official FaceLandmarker stream-mode
-  /// behavior; `const LandmarkSmoothingOptions()` selects the official
-  /// configuration. Smoothing affects only the returned landmarks — ROI
+  /// [landmarkSmoothing] smooths output landmarks across frames with a
+  /// OneEuro filter, matching the official FaceLandmarker stream-mode
+  /// behavior. The default is the official configuration. Pass `null` to
+  /// turn smoothing off. Smoothing affects only the returned landmarks. ROI
   /// tracking keeps running on the raw mesh output. In the multi-face flow
   /// each tracked face is smoothed independently while its
-  /// [TrackedFaceMesh.trackId] lives; with [enableLandmarkTracking] false
+  /// [TrackedFaceMesh.trackId] lives. With [enableLandmarkTracking] false
   /// the multi-face flow has no stable face identity, so each frame's meshes
   /// are re-associated with the previous frame's by ROI overlap and smoothed
   /// through the matching filter state. Frame timestamps default to an
-  /// internal clock; pass `timestamp` to the process methods when replaying
+  /// internal clock. Pass `timestamp` to the process methods when replaying
   /// recorded video.
   FaceMeshInferencePipeline({
     required FaceDetectorProcessor detector,
     required FaceMeshProcessor mesh,
     FaceDetectionSelector? detectionSelector,
     bool enableLandmarkTracking = true,
-    LandmarkSmoothingOptions? landmarkSmoothing,
+    LandmarkSmoothingOptions? landmarkSmoothing =
+        const LandmarkSmoothingOptions(),
   }) : _detector = detector,
        _mesh = mesh,
        _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
-       _landmarkTrackingEnabled =
-           enableLandmarkTracking && mesh.roiTrackingEnabled,
-       _multiTrackingEnabled = enableLandmarkTracking,
+       _landmarkTrackingEnabled = enableLandmarkTracking,
        _smoothingOptions = landmarkSmoothing;
 
   /// Minimum IoU between a detection ROI and a tracked face ROI for the two
@@ -217,23 +213,20 @@ class FaceMeshInferencePipeline {
   final FaceDetectionSelector _detectionSelector;
   final bool _landmarkTrackingEnabled;
 
-  /// Multi-face tracking runs in Dart with explicit per-face ROIs, so unlike
-  /// the single-face flow it does not need the mesh processor's native ROI
-  /// tracking.
-  final bool _multiTrackingEnabled;
-
   final LandmarkSmoothingOptions? _smoothingOptions;
   FaceLandmarkSmoother? _singleSmoother;
   final Stopwatch _smoothingClock = Stopwatch()..start();
 
-  bool _isTracking = false;
+  /// ROI for the next single-face frame, derived from the raw landmarks of
+  /// the last one. Null when no face is being followed.
+  NormalizedRect? _singleRoi;
   final List<_FaceTrack> _multiTracks = <_FaceTrack>[];
 
   /// Smoother state for the tracking-disabled multi-face flow, matched to
   /// each frame's meshes by ROI overlap since that flow has no track ids.
   final List<_LegacySmoothTrack> _legacySmoothTracks = <_LegacySmoothTrack>[];
   int _nextTrackId = 0;
-  _FaceMeshInputKind? _lastInputKind;
+  bool? _lastInputNv21;
   int? _lastInputWidth;
   int? _lastInputHeight;
   int _lastRotationDegrees = 0;
@@ -241,7 +234,7 @@ class FaceMeshInferencePipeline {
 
   /// Whether the single-face flow is currently following a face via landmark
   /// tracking instead of running the detector.
-  bool get isTracking => _isTracking;
+  bool get isTracking => _singleRoi != null;
 
   /// Whether output landmarks are smoothed across frames.
   bool get landmarkSmoothingEnabled => _smoothingOptions != null;
@@ -262,7 +255,7 @@ class FaceMeshInferencePipeline {
   }
 
   void _resetTrackingState() {
-    _isTracking = false;
+    _singleRoi = null;
     _clearMultiFaceState();
     _singleSmoother?.reset();
   }
@@ -331,7 +324,8 @@ class FaceMeshInferencePipeline {
     if (options == null) {
       return <TrackedFaceMesh>[
         for (int i = 0; i < meshes.length; i++)
-          TrackedFaceMesh(trackId: i, mesh: meshes[i]),
+          if (meshes[i].landmarks.isNotEmpty)
+            TrackedFaceMesh(trackId: i, mesh: meshes[i]),
       ];
     }
     final List<_LegacySmoothTrack> previous = List<_LegacySmoothTrack>.of(
@@ -342,7 +336,6 @@ class FaceMeshInferencePipeline {
     for (int i = 0; i < meshes.length; i++) {
       final FaceMeshResult mesh = meshes[i];
       if (mesh.landmarks.isEmpty) {
-        faces.add(TrackedFaceMesh(trackId: i, mesh: mesh));
         continue;
       }
       // Associate on the raw mesh's ROI so smoothing never feeds back into
@@ -373,21 +366,20 @@ class FaceMeshInferencePipeline {
   }
 
   void _syncInput({
-    required _FaceMeshInputKind inputKind,
-    required int width,
-    required int height,
+    required FaceMeshFrame frame,
     required int rotationDegrees,
     required bool mirrorHorizontal,
   }) {
-    if (inputKind != _lastInputKind ||
-        width != _lastInputWidth ||
-        height != _lastInputHeight ||
+    final bool isNv21 = frame is FaceMeshNv21Image;
+    if (isNv21 != _lastInputNv21 ||
+        frame.width != _lastInputWidth ||
+        frame.height != _lastInputHeight ||
         rotationDegrees != _lastRotationDegrees ||
         mirrorHorizontal != _lastMirrorHorizontal) {
       _resetTrackingState();
-      _lastInputKind = inputKind;
-      _lastInputWidth = width;
-      _lastInputHeight = height;
+      _lastInputNv21 = isNv21;
+      _lastInputWidth = frame.width;
+      _lastInputHeight = frame.height;
       _lastRotationDegrees = rotationDegrees;
       _lastMirrorHorizontal = mirrorHorizontal;
     }
@@ -397,54 +389,53 @@ class FaceMeshInferencePipeline {
   /// served by the detector instead.
   FaceMeshInferenceResult? _tryTrackedFrame(
     bool runMesh,
-    FaceMeshResult Function() runTrackedMesh,
+    FaceMeshResult Function(NormalizedRect roi) runTrackedMesh,
   ) {
-    if (!runMesh || !_isTracking) {
+    final NormalizedRect? roi = _singleRoi;
+    if (!runMesh || roi == null) {
       return null;
     }
     final FaceMeshResult tracked;
     try {
-      tracked = runTrackedMesh();
+      tracked = runTrackedMesh(roi);
     } catch (_) {
       // Fall back to detector re-acquisition on the next frame instead of
       // retrying the failing tracked call forever.
-      _isTracking = false;
+      _singleRoi = null;
       rethrow;
     }
     if (tracked.landmarks.isEmpty) {
-      _isTracking = false;
+      _singleRoi = null;
       return null;
     }
-    // The native side drops its tracked ROI when the presence score falls
-    // below the tracking confidence (official graph semantics). Re-acquire
-    // via the detector on the next frame instead of letting the mesh run on
-    // a full-frame default ROI; this frame's landmarks are still valid.
-    if (!_mesh.isTracking) {
-      _isTracking = false;
-    }
+    // Official graph semantics: a followed face whose presence score falls
+    // below the tracking confidence is released so the next frame
+    // re-acquires via the detector; this frame's landmarks are still valid.
+    _updateTracking(tracked, tracked.score >= _mesh.minTrackingConfidence);
     return FaceMeshInferenceResult(
       detectionResult: null,
       selectedDetection: null,
-      selectedRoi: tracked.rect,
+      selectedRoi: roi,
       meshResult: tracked,
     );
   }
 
-  void _updateTracking(FaceMeshResult? meshResult) {
-    _isTracking =
+  void _updateTracking(FaceMeshResult? meshResult, [bool keep = true]) {
+    _singleRoi =
         _landmarkTrackingEnabled &&
-        meshResult != null &&
-        meshResult.landmarks.isNotEmpty;
+            keep &&
+            meshResult != null &&
+            meshResult.landmarks.isNotEmpty
+        ? meshResult.trackingRoi()
+        : null;
   }
 
   /// Shared multi-face flow: advance tracked faces, then acquire new faces
   /// via the detector while slots are free.
   FaceMeshMultiInferenceResult _processMulti({
     required bool runMesh,
-    required int? maxMeshFaces,
-    required _FaceMeshInputKind inputKind,
-    required int width,
-    required int height,
+    required int maxMeshFaces,
+    required FaceMeshFrame frame,
     required int rotationDegrees,
     required bool mirrorHorizontal,
     required Duration timestamp,
@@ -456,15 +447,13 @@ class FaceMeshInferencePipeline {
   }) {
     _validateMaxMeshFaces(maxMeshFaces);
     _syncInput(
-      inputKind: inputKind,
-      width: width,
-      height: height,
+      frame: frame,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
     );
-    // The per-face mesh calls overwrite the native tracked ROI, so force the
-    // next single-face frame to re-acquire via the detector.
-    _isTracking = false;
+    // Mirror of the single-face reset: drop the single-face ROI so a later
+    // single-face call re-acquires via the detector.
+    _singleRoi = null;
     _singleSmoother?.reset();
 
     if (!runMesh) {
@@ -475,7 +464,7 @@ class FaceMeshInferencePipeline {
       );
     }
 
-    if (!_multiTrackingEnabled) {
+    if (!_landmarkTrackingEnabled) {
       final FaceDetectionResult detectionResult = runDetector();
       final List<FaceMeshResult> meshes = runLegacyMultiMesh(detectionResult);
       return FaceMeshMultiInferenceResult(
@@ -484,7 +473,7 @@ class FaceMeshInferencePipeline {
       );
     }
 
-    if (maxMeshFaces != null && _multiTracks.length > maxMeshFaces) {
+    if (_multiTracks.length > maxMeshFaces) {
       _multiTracks.removeRange(maxMeshFaces, _multiTracks.length);
     }
 
@@ -497,11 +486,9 @@ class FaceMeshInferencePipeline {
     final List<_FaceTrack> survivors = <_FaceTrack>[];
     try {
       if (_multiTracks.isNotEmpty) {
-        final List<FaceMeshResult> advanced = runMeshWithRois(
-          <NormalizedRect>[
-            for (final _FaceTrack track in _multiTracks) track.roi,
-          ],
-        );
+        final List<FaceMeshResult> advanced = runMeshWithRois(<NormalizedRect>[
+          for (final _FaceTrack track in _multiTracks) track.roi,
+        ]);
         for (int i = 0; i < _multiTracks.length; i++) {
           final FaceMeshResult mesh = advanced[i];
           if (mesh.landmarks.isEmpty || mesh.score < minTrackingConfidence) {
@@ -523,17 +510,15 @@ class FaceMeshInferencePipeline {
       // graph's detector gate. Candidate ROIs that do not overlap a tracked
       // face or an earlier candidate are meshed in one batched call.
       FaceDetectionResult? detectionResult;
-      if (maxMeshFaces == null || _multiTracks.length < maxMeshFaces) {
+      if (_multiTracks.length < maxMeshFaces) {
         detectionResult = runDetector();
         final List<NormalizedRect> candidateRois = <NormalizedRect>[];
         for (final FaceDetection detection in detectionResult.detections) {
-          if (maxMeshFaces != null &&
-              _multiTracks.length + candidateRois.length >= maxMeshFaces) {
+          if (_multiTracks.length + candidateRois.length >= maxMeshFaces) {
             break;
           }
-          final NormalizedRect? roi = _roiForDetection(detection);
-          if (roi == null ||
-              _overlapsTrackedFace(roi) ||
+          final NormalizedRect roi = detection.expandedFaceRect;
+          if (_overlapsTrackedFace(roi) ||
               candidateRois.any(
                 (NormalizedRect other) =>
                     _rectIou(roi, other) > _trackAssociationIou,
@@ -612,18 +597,17 @@ class FaceMeshInferencePipeline {
   static FaceDetection? _defaultDetectionSelector(FaceDetectionResult result) =>
       result.primaryDetection;
 
-  /// Processes an RGBA/BGRA frame through detector and mesh inference.
+  /// Processes a frame through detector and mesh inference.
   ///
   /// While a face is tracked (see [isTracking]) the detector is skipped and
   /// the mesh runs on its internally tracked ROI; when tracking is lost the
   /// detector re-acquires the face within the same call. [detectorRoi]
   /// restricts the detector input. On detector-driven frames the selected
-  /// detection's [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect]
-  /// when the expanded ROI is unavailable, is used as the mesh ROI.
+  /// detection's [FaceDetection.expandedFaceRect] is used as the mesh ROI.
   /// Set [runMesh] to false to return detector output without running mesh
   /// inference.
   FaceMeshInferenceResult process(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
     NormalizedRect? detectorRoi,
     bool runMesh = true,
     int rotationDegrees = 0,
@@ -636,9 +620,7 @@ class FaceMeshInferencePipeline {
   }) {
     final Duration frameTimestamp = _frameTimestamp(timestamp);
     _syncInput(
-      inputKind: _FaceMeshInputKind.image,
-      width: image.width,
-      height: image.height,
+      frame: frame,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
     );
@@ -648,8 +630,9 @@ class FaceMeshInferencePipeline {
     _clearMultiFaceState();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
-      () => _mesh.process(
-        image,
+      (NormalizedRect roi) => _mesh.process(
+        frame,
+        roi: roi,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
       ),
@@ -659,7 +642,7 @@ class FaceMeshInferencePipeline {
     }
 
     final FaceDetectionResult detectionResult = _detector.process(
-      image,
+      frame,
       roi: detectorRoi,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
@@ -671,96 +654,18 @@ class FaceMeshInferencePipeline {
     final FaceDetection? selectedDetection = _detectionSelector(
       detectionResult,
     );
-    final NormalizedRect? selectedRoi = _roiForDetection(selectedDetection);
-    final FaceMeshResult? meshResult = !runMesh || selectedRoi == null
+    final NormalizedRect? selectedRoi = selectedDetection?.expandedFaceRect;
+    FaceMeshResult? meshResult = !runMesh || selectedRoi == null
         ? null
         : _mesh.process(
-            image,
+            frame,
             roi: selectedRoi,
             rotationDegrees: rotationDegrees,
             mirrorHorizontal: mirrorHorizontal,
           );
-    _updateTracking(meshResult);
-
-    return _smoothSingleResult(
-      FaceMeshInferenceResult(
-        detectionResult: detectionResult,
-        selectedDetection: selectedDetection,
-        selectedRoi: selectedRoi,
-        meshResult: meshResult,
-      ),
-      frameTimestamp,
-    );
-  }
-
-  /// Processes an NV21 frame through detector and mesh inference.
-  ///
-  /// While a face is tracked (see [isTracking]) the detector is skipped and
-  /// the mesh runs on its internally tracked ROI; when tracking is lost the
-  /// detector re-acquires the face within the same call. [detectorRoi]
-  /// restricts the detector input. On detector-driven frames the selected
-  /// detection's [FaceDetection.expandedFaceRect], or [FaceDetection.faceRect]
-  /// when the expanded ROI is unavailable, is used as the mesh ROI.
-  /// Set [runMesh] to false to return detector output without running mesh
-  /// inference.
-  FaceMeshInferenceResult processNv21(
-    FaceMeshNv21Image image, {
-    NormalizedRect? detectorRoi,
-    bool runMesh = true,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-    double? detectorRoiScaleX,
-    double? detectorRoiScaleY,
-    double? detectorRoiShiftX,
-    double? detectorRoiShiftY,
-    Duration? timestamp,
-  }) {
-    final Duration frameTimestamp = _frameTimestamp(timestamp);
-    _syncInput(
-      inputKind: _FaceMeshInputKind.nv21,
-      width: image.width,
-      height: image.height,
-      rotationDegrees: rotationDegrees,
-      mirrorHorizontal: mirrorHorizontal,
-    );
-    // Mirror of the multi-face reset: drop multi-face tracks so a later
-    // multi-face call re-acquires via the detector instead of advancing
-    // stale ROIs.
-    _clearMultiFaceState();
-    final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
-      runMesh,
-      () => _mesh.processNv21(
-        image,
-        rotationDegrees: rotationDegrees,
-        mirrorHorizontal: mirrorHorizontal,
-      ),
-    );
-    if (trackedResult != null) {
-      return _smoothSingleResult(trackedResult, frameTimestamp);
+    if (meshResult != null && meshResult.landmarks.isEmpty) {
+      meshResult = null;
     }
-
-    final FaceDetectionResult detectionResult = _detector.processNv21(
-      image,
-      roi: detectorRoi,
-      rotationDegrees: rotationDegrees,
-      mirrorHorizontal: mirrorHorizontal,
-      roiScaleX: detectorRoiScaleX,
-      roiScaleY: detectorRoiScaleY,
-      roiShiftX: detectorRoiShiftX,
-      roiShiftY: detectorRoiShiftY,
-    );
-    final FaceDetection? selectedDetection = _detectionSelector(
-      detectionResult,
-    );
-    final NormalizedRect? selectedRoi = _roiForDetection(selectedDetection);
-    final FaceMeshResult? meshResult = !runMesh || selectedRoi == null
-        ? null
-        : _mesh.processNv21(
-            image,
-            roi: selectedRoi,
-            rotationDegrees: rotationDegrees,
-            mirrorHorizontal: mirrorHorizontal,
-          );
     _updateTracking(meshResult);
 
     return _smoothSingleResult(
@@ -774,18 +679,17 @@ class FaceMeshInferencePipeline {
     );
   }
 
-  /// Processes an RGBA/BGRA frame through multi-face detection and mesh
-  /// inference.
+  /// Processes a frame through multi-face detection and mesh inference.
   ///
   /// With landmark tracking (the default), each tracked face runs mesh
   /// inference on an ROI derived from its previous frame's landmarks, and the
-  /// detector runs only while fewer than [maxMeshFaces] faces are tracked —
-  /// newly detected faces that do not overlap a tracked face are added with a
+  /// detector runs only while fewer than [maxMeshFaces] faces are tracked.
+  /// Newly detected faces that do not overlap a tracked face are added with a
   /// new [TrackedFaceMesh.trackId]. With tracking disabled, every frame runs
   /// the detector and one mesh inference per detection, in score order.
   ///
-  /// A tracked face is dropped — freeing its slot for detector
-  /// re-acquisition — when its mesh presence score falls below the mesh
+  /// A tracked face is dropped, freeing its slot for detector
+  /// re-acquisition, when its mesh presence score falls below the mesh
   /// processor's [FaceMeshProcessor.minTrackingConfidence].
   ///
   /// Set [runMesh] to false to run detector-only (this also drops all tracked
@@ -793,10 +697,10 @@ class FaceMeshInferencePipeline {
   /// faces; configure the detector result count separately with
   /// [FaceDetectorProcessor.create]'s `maxResults`.
   FaceMeshMultiInferenceResult processMultiFace(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
+    required int maxMeshFaces,
     NormalizedRect? detectorRoi,
     bool runMesh = true,
-    int? maxMeshFaces,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
     double? detectorRoiScaleX,
@@ -808,14 +712,12 @@ class FaceMeshInferencePipeline {
     return _processMulti(
       runMesh: runMesh,
       maxMeshFaces: maxMeshFaces,
-      inputKind: _FaceMeshInputKind.image,
-      width: image.width,
-      height: image.height,
+      frame: frame,
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
       timestamp: _frameTimestamp(timestamp),
       runDetector: () => _detector.process(
-        image,
+        frame,
         roi: detectorRoi,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
@@ -825,14 +727,14 @@ class FaceMeshInferencePipeline {
         roiShiftY: detectorRoiShiftY,
       ),
       runMeshWithRois: (List<NormalizedRect> rois) => _mesh.processRois(
-        image,
+        frame,
         rois: rois,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
       ),
       runLegacyMultiMesh: (FaceDetectionResult detectionResult) =>
           _mesh.processMultiFace(
-            image,
+            frame,
             detections: detectionResult.detections,
             maxMeshFaces: maxMeshFaces,
             rotationDegrees: rotationDegrees,
@@ -841,70 +743,12 @@ class FaceMeshInferencePipeline {
     );
   }
 
-  /// Processes an NV21 frame through multi-face detection and mesh inference.
-  ///
-  /// This is the NV21 counterpart of [processMultiFace]; see that method for
-  /// the landmark-tracking behavior.
-  FaceMeshMultiInferenceResult processNv21MultiFace(
-    FaceMeshNv21Image image, {
-    NormalizedRect? detectorRoi,
-    bool runMesh = true,
-    int? maxMeshFaces,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-    double? detectorRoiScaleX,
-    double? detectorRoiScaleY,
-    double? detectorRoiShiftX,
-    double? detectorRoiShiftY,
-    Duration? timestamp,
-  }) {
-    return _processMulti(
-      runMesh: runMesh,
-      maxMeshFaces: maxMeshFaces,
-      inputKind: _FaceMeshInputKind.nv21,
-      width: image.width,
-      height: image.height,
-      rotationDegrees: rotationDegrees,
-      mirrorHorizontal: mirrorHorizontal,
-      timestamp: _frameTimestamp(timestamp),
-      runDetector: () => _detector.processNv21(
-        image,
-        roi: detectorRoi,
-        rotationDegrees: rotationDegrees,
-        mirrorHorizontal: mirrorHorizontal,
-        roiScaleX: detectorRoiScaleX,
-        roiScaleY: detectorRoiScaleY,
-        roiShiftX: detectorRoiShiftX,
-        roiShiftY: detectorRoiShiftY,
-      ),
-      runMeshWithRois: (List<NormalizedRect> rois) => _mesh.processNv21Rois(
-        image,
-        rois: rois,
-        rotationDegrees: rotationDegrees,
-        mirrorHorizontal: mirrorHorizontal,
-      ),
-      runLegacyMultiMesh: (FaceDetectionResult detectionResult) =>
-          _mesh.processNv21MultiFace(
-            image,
-            detections: detectionResult.detections,
-            maxMeshFaces: maxMeshFaces,
-            rotationDegrees: rotationDegrees,
-            mirrorHorizontal: mirrorHorizontal,
-          ),
-    );
-  }
-
-  NormalizedRect? _roiForDetection(FaceDetection? detection) =>
-      detection?.expandedFaceRect ?? detection?.faceRect;
-
-  void _validateMaxMeshFaces(int? maxMeshFaces) {
-    if (maxMeshFaces != null && maxMeshFaces < 0) {
-      throw ArgumentError('maxMeshFaces must be null or >= 0.');
+  void _validateMaxMeshFaces(int maxMeshFaces) {
+    if (maxMeshFaces < 1) {
+      throw ArgumentError('maxMeshFaces must be >= 1.');
     }
   }
 }
-
-enum _FaceMeshInputKind { image, nv21 }
 
 /// Smoother state carried across frames of the tracking-disabled multi-face
 /// flow, keyed by ROI overlap instead of a track id.
@@ -940,18 +784,18 @@ class FaceMeshInferenceStreamProcessor {
 
   final FaceMeshInferencePipeline _pipeline;
 
-  /// Processes a stream of RGBA/BGRA frames sequentially.
+  /// Processes a stream of frames sequentially.
   ///
   /// [detectorRoi] restricts every detector invocation. Use
   /// [detectorRoiResolver] when the detector ROI changes per frame.
   /// Set [runMesh] to false to run detector-only for the whole stream, or
   /// return false from [runMeshResolver] to run detector-only for a frame.
-  Stream<FaceMeshInferenceResult> process(
-    Stream<FaceMeshImage> frames, {
+  Stream<FaceMeshInferenceResult> process<T extends FaceMeshFrame>(
+    Stream<T> frames, {
     NormalizedRect? detectorRoi,
-    FaceMeshInferenceDetectorRoiResolver<FaceMeshImage>? detectorRoiResolver,
+    FaceMeshInferenceDetectorRoiResolver<T>? detectorRoiResolver,
     bool runMesh = true,
-    FaceMeshRunResolver<FaceMeshImage>? runMeshResolver,
+    FaceMeshRunResolver<T>? runMeshResolver,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
     double? detectorRoiScaleX,
@@ -959,9 +803,9 @@ class FaceMeshInferenceStreamProcessor {
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
   }) async* {
-    _validateResolvers<FaceMeshImage>(detectorRoi, detectorRoiResolver);
-    _validateRunMeshOptions<FaceMeshImage>(runMesh, runMeshResolver);
-    await for (final FaceMeshImage frame in frames) {
+    _validateResolvers<T>(detectorRoi, detectorRoiResolver);
+    _validateRunMeshOptions<T>(runMesh, runMeshResolver);
+    await for (final T frame in frames) {
       final NormalizedRect? dynamicDetectorRoi = detectorRoiResolver?.call(
         frame,
       );
@@ -980,19 +824,18 @@ class FaceMeshInferenceStreamProcessor {
     }
   }
 
-  /// Processes a stream of NV21 frames sequentially.
+  /// Processes a stream of frames into multi-face mesh results.
   ///
-  /// [detectorRoi] restricts every detector invocation. Use
-  /// [detectorRoiResolver] when the detector ROI changes per frame.
-  /// Set [runMesh] to false to run detector-only for the whole stream, or
-  /// return false from [runMeshResolver] to run detector-only for a frame.
-  Stream<FaceMeshInferenceResult> processNv21(
-    Stream<FaceMeshNv21Image> frames, {
+  /// See [FaceMeshInferencePipeline.processMultiFace] for the tracking
+  /// behavior. [maxMeshFaces] limits mesh invocations per frame.
+  Stream<FaceMeshMultiInferenceResult>
+  processMultiFace<T extends FaceMeshFrame>(
+    Stream<T> frames, {
+    required int maxMeshFaces,
     NormalizedRect? detectorRoi,
-    FaceMeshInferenceDetectorRoiResolver<FaceMeshNv21Image>?
-    detectorRoiResolver,
+    FaceMeshInferenceDetectorRoiResolver<T>? detectorRoiResolver,
     bool runMesh = true,
-    FaceMeshRunResolver<FaceMeshNv21Image>? runMeshResolver,
+    FaceMeshRunResolver<T>? runMeshResolver,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
     double? detectorRoiScaleX,
@@ -1000,98 +843,14 @@ class FaceMeshInferenceStreamProcessor {
     double? detectorRoiShiftX,
     double? detectorRoiShiftY,
   }) async* {
-    _validateResolvers<FaceMeshNv21Image>(detectorRoi, detectorRoiResolver);
-    _validateRunMeshOptions<FaceMeshNv21Image>(runMesh, runMeshResolver);
-    await for (final FaceMeshNv21Image frame in frames) {
-      final NormalizedRect? dynamicDetectorRoi = detectorRoiResolver?.call(
-        frame,
-      );
-      final bool shouldRunMesh = runMeshResolver?.call(frame) ?? runMesh;
-      yield _pipeline.processNv21(
-        frame,
-        detectorRoi: dynamicDetectorRoi ?? detectorRoi,
-        runMesh: shouldRunMesh,
-        rotationDegrees: rotationDegrees,
-        mirrorHorizontal: mirrorHorizontal,
-        detectorRoiScaleX: detectorRoiScaleX,
-        detectorRoiScaleY: detectorRoiScaleY,
-        detectorRoiShiftX: detectorRoiShiftX,
-        detectorRoiShiftY: detectorRoiShiftY,
-      );
-    }
-  }
-
-  /// Processes a stream of RGBA/BGRA frames into multi-face mesh results.
-  ///
-  /// Each frame runs detector inference once, then mesh inference for each
-  /// detector result with a usable ROI. [maxMeshFaces] limits mesh invocations
-  /// per frame; detector result count is controlled by the detector processor's
-  /// `maxResults` option.
-  Stream<FaceMeshMultiInferenceResult> processMultiFace(
-    Stream<FaceMeshImage> frames, {
-    NormalizedRect? detectorRoi,
-    FaceMeshInferenceDetectorRoiResolver<FaceMeshImage>? detectorRoiResolver,
-    bool runMesh = true,
-    FaceMeshRunResolver<FaceMeshImage>? runMeshResolver,
-    int? maxMeshFaces,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-    double? detectorRoiScaleX,
-    double? detectorRoiScaleY,
-    double? detectorRoiShiftX,
-    double? detectorRoiShiftY,
-  }) async* {
-    _validateResolvers<FaceMeshImage>(detectorRoi, detectorRoiResolver);
-    _validateRunMeshOptions<FaceMeshImage>(runMesh, runMeshResolver);
-    await for (final FaceMeshImage frame in frames) {
+    _validateResolvers<T>(detectorRoi, detectorRoiResolver);
+    _validateRunMeshOptions<T>(runMesh, runMeshResolver);
+    await for (final T frame in frames) {
       final NormalizedRect? dynamicDetectorRoi = detectorRoiResolver?.call(
         frame,
       );
       final bool shouldRunMesh = runMeshResolver?.call(frame) ?? runMesh;
       yield _pipeline.processMultiFace(
-        frame,
-        detectorRoi: dynamicDetectorRoi ?? detectorRoi,
-        runMesh: shouldRunMesh,
-        maxMeshFaces: maxMeshFaces,
-        rotationDegrees: rotationDegrees,
-        mirrorHorizontal: mirrorHorizontal,
-        detectorRoiScaleX: detectorRoiScaleX,
-        detectorRoiScaleY: detectorRoiScaleY,
-        detectorRoiShiftX: detectorRoiShiftX,
-        detectorRoiShiftY: detectorRoiShiftY,
-      );
-    }
-  }
-
-  /// Processes a stream of NV21 frames into multi-face mesh results.
-  ///
-  /// Each frame runs detector inference once, then mesh inference for each
-  /// detector result with a usable ROI. [maxMeshFaces] limits mesh invocations
-  /// per frame; detector result count is controlled by the detector processor's
-  /// `maxResults` option.
-  Stream<FaceMeshMultiInferenceResult> processNv21MultiFace(
-    Stream<FaceMeshNv21Image> frames, {
-    NormalizedRect? detectorRoi,
-    FaceMeshInferenceDetectorRoiResolver<FaceMeshNv21Image>?
-    detectorRoiResolver,
-    bool runMesh = true,
-    FaceMeshRunResolver<FaceMeshNv21Image>? runMeshResolver,
-    int? maxMeshFaces,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-    double? detectorRoiScaleX,
-    double? detectorRoiScaleY,
-    double? detectorRoiShiftX,
-    double? detectorRoiShiftY,
-  }) async* {
-    _validateResolvers<FaceMeshNv21Image>(detectorRoi, detectorRoiResolver);
-    _validateRunMeshOptions<FaceMeshNv21Image>(runMesh, runMeshResolver);
-    await for (final FaceMeshNv21Image frame in frames) {
-      final NormalizedRect? dynamicDetectorRoi = detectorRoiResolver?.call(
-        frame,
-      );
-      final bool shouldRunMesh = runMeshResolver?.call(frame) ?? runMesh;
-      yield _pipeline.processNv21MultiFace(
         frame,
         detectorRoi: dynamicDetectorRoi ?? detectorRoi,
         runMesh: shouldRunMesh,

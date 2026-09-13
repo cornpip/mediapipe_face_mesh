@@ -2560,13 +2560,13 @@ const List<int> _faceMeshTriangleIndices = <int>[
   255,
 ];
 
-List<MpFaceMeshTriangle> _buildTrianglesFromLandmarks(
+List<FaceMeshTriangle> _buildTrianglesFromLandmarks(
   List<FaceMeshLandmark> landmarks,
 ) {
   if (landmarks.isEmpty) {
-    return const <MpFaceMeshTriangle>[];
+    return const <FaceMeshTriangle>[];
   }
-  final List<MpFaceMeshTriangle> triangles = <MpFaceMeshTriangle>[];
+  final List<FaceMeshTriangle> triangles = <FaceMeshTriangle>[];
   for (int i = 0; i + 2 < _faceMeshTriangleIndices.length; i += 3) {
     final int a = _faceMeshTriangleIndices[i];
     final int b = _faceMeshTriangleIndices[i + 1];
@@ -2577,7 +2577,7 @@ List<MpFaceMeshTriangle> _buildTrianglesFromLandmarks(
       continue;
     }
     triangles.add(
-      MpFaceMeshTriangle(
+      FaceMeshTriangle(
         indices: <int>[a, b, c],
         points: <FaceMeshLandmark>[landmarks[a], landmarks[b], landmarks[c]],
       ),

@@ -4,9 +4,9 @@ part of 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 /// official MediaPipe OneEuro configuration.
 ///
 /// This is the [FaceMeshResult]-level wrapper around
-/// [OneEuroLandmarksSmoother]. [FaceMeshInferencePipeline] applies it
-/// automatically when created with `landmarkSmoothing`; use it directly when
-/// driving [FaceMeshProcessor] yourself:
+/// [OneEuroLandmarksSmoother]. [FaceMeshInferencePipeline] applies it by
+/// default (`landmarkSmoothing`); use it directly when driving
+/// [FaceMeshProcessor] yourself:
 ///
 /// ```dart
 /// final FaceLandmarkSmoother smoother = FaceLandmarkSmoother();

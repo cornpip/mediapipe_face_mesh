@@ -53,8 +53,8 @@ changing the harness or interpreting surprising numbers.
    may not measure what its input type suggests. Use distinct images if
    decode cost matters to the comparison.
 6. **The GPU delegate is intentionally out of the matrix.** The bundled
-   runtimes do not export the GPU delegate symbols (`gpuV2` always falls
-   back to CPU; deprecated, removed in 3.0.0). A one-off experiment with a
+   runtimes do not export the GPU delegate symbols (`gpuV2` always fell
+   back to CPU and was removed in 3.0.0). A one-off experiment with a
    GPU-enabled runtime measured the 192x192 mesh several times slower on
    GPU than CPU/XNNPACK on a 2025 flagship: dispatch/transfer overhead
    dominates at this model size.

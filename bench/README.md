@@ -136,7 +136,7 @@ Notes:
 - cpu and xnnpack are within noise of each other (the bundled runtime
   applies XNNPACK in cpu mode too), which is why the matrix runs xnnpack
   in a single config.
-- gpuV2 is deprecated and excluded from the matrix.
+- the GPU delegate is out of the matrix (`gpuV2` was removed in 3.0.0).
 
 ### FaceMesh-V2 (2.8.0-wip, measured 2026-08-23)
 

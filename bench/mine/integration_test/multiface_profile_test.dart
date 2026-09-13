@@ -35,8 +35,10 @@ void main() {
   test('mesh cost by model and delegate', () async {
     final FaceMeshImage image = await loadPortraitScaled(1.0);
     final FaceDetectorProcessor detector = await FaceDetectorProcessor.create();
-    final NormalizedRect roi =
-        (detector.process(image).primaryDetection!.expandedFaceRect)!;
+    final NormalizedRect roi = detector
+        .process(image)
+        .primaryDetection!
+        .expandedFaceRect;
     detector.close();
 
     for (final FaceMeshModel model in FaceMeshModel.values) {
@@ -71,11 +73,10 @@ void main() {
       maxResults: 4,
       delegate: delegate,
     );
-    final FaceMeshProcessor multiMesh =
-        await FaceMeshProcessor.createForMultiFace(
-          model: FaceMeshModel.v2,
-          delegate: delegate,
-        );
+    final FaceMeshProcessor multiMesh = await FaceMeshProcessor.create(
+      model: FaceMeshModel.v2,
+      delegate: delegate,
+    );
     final FaceMeshProcessor singleMesh = await FaceMeshProcessor.create(
       model: FaceMeshModel.v2,
       delegate: delegate,
@@ -105,8 +106,10 @@ void main() {
     // 1.0 = source 820x1024; 2.0 ~ 1080p-class pixels; 3.6 ~ 4K-class.
     for (final double scale in <double>[1.0, 2.0, 3.6]) {
       final FaceMeshImage image = await loadPortraitScaled(scale);
-      final NormalizedRect roi =
-          (detector.process(image).primaryDetection!.expandedFaceRect)!;
+      final NormalizedRect roi = detector
+          .process(image)
+          .primaryDetection!
+          .expandedFaceRect;
       FaceMeshResult mesh = multiMesh.process(image, roi: roi);
 
       final double detectorMs = time(20, () => detector.process(image));

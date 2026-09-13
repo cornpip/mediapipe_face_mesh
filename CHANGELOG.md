@@ -1,3 +1,40 @@
+## 3.0.0-wip
+
+### Breaking
+
+- every `process` method takes a `FaceMeshFrame` (`FaceMeshImage` or
+  `FaceMeshNv21Image`). `processNv21`, `processNv21Rois`, and
+  `processNv21MultiFace` are removed. Call `process`, `processRois`, and
+  `processMultiFace` with the same arguments
+- `FaceMeshInferencePipeline` smooths output landmarks by default
+  - `landmarkSmoothing: null` turns it off
+- `FaceMeshProcessor.create` defaults to `FaceMeshModel.v2` (478
+  landmarks) instead of `FaceMeshModel.v1` (468)
+- remove `enableAttentionMesh`. `model` is the only way to pick the mesh
+  model
+- remove `FaceMeshDelegate.gpuV2`
+- `FaceMeshPixelFormat` is an enum instead of int constants
+- `FaceDetection.faceRect` and `expandedFaceRect` are non-nullable
+- rename `MpFaceMeshTriangle` to `FaceMeshTriangle`
+- remove `FaceMeshProcessor.attentionMeshEnabled`
+- remove ROI smoothing (`enableSmoothing`). Landmark smoothing covers it
+- remove `FaceMeshProcessor.createForMultiFace`. `create()` serves both
+  flows
+- `FaceMeshInferenceResult.meshResult` and the multi-face `faces` list never
+  carry a mesh with empty landmarks
+- `maxMeshFaces` is required on the pipeline and stream `processMultiFace`
+- remove `minDetectionConfidence` from `FaceMeshProcessor.create`.
+  `minFacePresenceConfidence` covers it
+- remove `FaceDetection.toNormalizedRect`. Use `expandedFaceRect`
+- `FaceBlendshapesProcessor.process` returns `FaceBlendshapes?` (index with
+  `[FaceBlendshape]`, `toMap()` for the full map) instead of
+  `Map<FaceBlendshape, double>?`
+- rename `MediapipeFaceMeshException` to `FaceMeshException`
+- remove `FaceMeshStreamProcessor` and `FaceDetectorStreamProcessor`
+  (`face_mesh_stream_processor.dart`). Use
+  `FaceMeshInferenceStreamProcessor`, or wrap `FaceMeshProcessor.process` in
+  your own stream when driving an external detector
+
 ## 2.9.0
 
 - improve NV21 plane conversion (`FaceMeshNv21Image.tryFromYuv420Planes`,

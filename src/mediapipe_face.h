@@ -111,7 +111,6 @@ typedef struct {
   float min_tracking_confidence;
   float min_face_presence_confidence;
   MpDelegateType delegate;
-  uint8_t enable_smoothing;
   uint8_t enable_roi_tracking;
   uint8_t enable_iris;
   // When non-zero, [model_path] points to the unified

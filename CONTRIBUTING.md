@@ -16,15 +16,19 @@ Split mixed commits so each part keeps its prefix.
 The topmost CHANGELOG section is `## <version>-wip`; it accumulates
 bullets for the next release.
 
-- Every non-`chore` commit adds its bullet to that section in the same
-  commit. If the section does not exist yet, open it and set pubspec
-  `version:` to the same `-wip` value in that commit.
+- Every `feat`, `fix`, `perf`, or `change` commit adds its bullet to that
+  section in the same commit. `docs` and `example` commits add one only
+  when the change matters to an existing user. If the section does not
+  exist yet, open it and set pubspec `version:` to the same `-wip` value in
+  that commit.
 - Pick the smallest bump the accumulated changes justify (docs or fix:
   patch); rename the section heading and pubspec when a later change
   needs a bigger bump.
 - `chore` commits add no bullet by default; include one when it is worth
   recording.
-- Bullet style: `.agents/docs/changelog-style.md`.
+- Flat `- ` bullets. Details of one change go in sub-bullets under it.
+- Keep bullets to the change. Add a reason only when it changes what the
+  reader should do. Name public symbols in backticks.
 
 ## Engineering rules
 

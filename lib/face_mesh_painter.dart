@@ -120,7 +120,7 @@ class FaceMeshPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth * faceScale;
 
-      for (final MpFaceMeshTriangle triangle in result.triangles) {
+      for (final FaceMeshTriangle triangle in result.triangles) {
         final Offset p0 = _map(result, triangle.points[0], size);
         final Offset p1 = _map(result, triangle.points[1], size);
         final Offset p2 = _map(result, triangle.points[2], size);
@@ -171,7 +171,7 @@ class FaceMeshPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth * faceScale
       ..strokeCap = StrokeCap.round;
-    for (final MpFaceMeshTriangle triangle in result.triangles) {
+    for (final FaceMeshTriangle triangle in result.triangles) {
       _drawRefinedEyeEdge(canvas, size, result, paint, triangle, 0, 1);
       _drawRefinedEyeEdge(canvas, size, result, paint, triangle, 1, 2);
       _drawRefinedEyeEdge(canvas, size, result, paint, triangle, 2, 0);
@@ -183,7 +183,7 @@ class FaceMeshPainter extends CustomPainter {
     Size size,
     FaceMeshResult result,
     Paint paint,
-    MpFaceMeshTriangle triangle,
+    FaceMeshTriangle triangle,
     int from,
     int to,
   ) {

@@ -213,7 +213,7 @@ extension FaceMeshResultGeometry on FaceMeshResult {
       );
       if (resultPtr == ffi.nullptr) {
         final String? error = _nativeGeometryLastError();
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           error == null || error.isEmpty
               ? 'Native face geometry estimation is unavailable.'
               : error,
@@ -222,7 +222,7 @@ extension FaceMeshResultGeometry on FaceMeshResult {
       final MpFaceGeometryResult nativeResult = resultPtr.ref;
       final int count = nativeResult.metric_landmarks_count;
       if (count <= 0 || nativeResult.metric_landmarks == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
+        throw FaceMeshException(
           'Native face geometry returned empty landmarks.',
         );
       }
@@ -253,9 +253,9 @@ extension FaceMeshResultGeometry on FaceMeshResult {
         ),
       );
     } catch (e) {
-      if (e is MediapipeFaceMeshException) rethrow;
+      if (e is FaceMeshException) rethrow;
       final String? nativeError = _nativeGeometryLastError();
-      throw MediapipeFaceMeshException(
+      throw FaceMeshException(
         nativeError == null || nativeError.isEmpty
             ? 'Native face geometry estimation failed.'
             : nativeError,

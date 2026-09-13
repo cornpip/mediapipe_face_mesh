@@ -22,8 +22,7 @@ const double kDriftIouFloor = 0.2;
 
 /// Delegate/model matrix. cpu runs every model; xnnpack runs v1 (cpu
 /// parity) and v2 (checks full-graph delegation) but skips attention
-/// (custom ops split its graph, so it mirrors cpu). gpuV2 is deprecated
-/// and excluded.
+/// (custom ops split its graph, so it mirrors cpu).
 const List<FaceMeshDelegate> kDelegates = <FaceMeshDelegate>[
   FaceMeshDelegate.cpu,
   FaceMeshDelegate.xnnpack,
@@ -62,9 +61,7 @@ Future<List<String>> listFramePaths() async {
   );
   return manifest
       .listAssets()
-      .where(
-        (String p) => p.startsWith('assets/frames/') && p.endsWith('.jpg'),
-      )
+      .where((String p) => p.startsWith('assets/frames/') && p.endsWith('.jpg'))
       .toList()
     ..sort();
 }
@@ -82,8 +79,7 @@ Future<double> loadFrameFps() async {
     isNotNull,
     reason: 'assets/frames/meta.json missing; re-run tool/prepare_assets.py',
   );
-  final Map<String, Object?> meta =
-      jsonDecode(raw!) as Map<String, Object?>;
+  final Map<String, Object?> meta = jsonDecode(raw!) as Map<String, Object?>;
   return (meta['fps']! as num).toDouble();
 }
 
@@ -154,9 +150,7 @@ Future<void> runStreamingBench({
   final List<String> framePaths = await listFramePaths();
   expect(framePaths, isNotEmpty, reason: 'run tool/prepare_assets.py first');
   final double fps = await loadFrameFps();
-  final Duration frameInterval = Duration(
-    microseconds: (1e6 / fps).round(),
-  );
+  final Duration frameInterval = Duration(microseconds: (1e6 / fps).round());
   final bool paced = pacedFps != null;
   final Duration? paceInterval = pacedFps == null
       ? null
@@ -249,8 +243,7 @@ Future<void> runStreamingBench({
   // OneEuro landmark smoothing: applied after the fact on the same
   // results so raw and smoothed jitter come from one inference pass.
   final FaceLandmarkSmoother smoother = FaceLandmarkSmoother();
-  final List<List<FaceMeshLandmark>> rawLandmarks =
-      <List<FaceMeshLandmark>>[];
+  final List<List<FaceMeshLandmark>> rawLandmarks = <List<FaceMeshLandmark>>[];
   final List<List<FaceMeshLandmark>> smoothedLandmarks =
       <List<FaceMeshLandmark>>[];
   double oneEuroTotalMs = 0;
@@ -291,8 +284,7 @@ Future<void> runStreamingBench({
       if (scoreMin.isFinite) 'scoreMin': scoreMin,
       if (driftIous.isNotEmpty)
         'roiDriftIouMean':
-            driftIous.reduce((double a, double b) => a + b) /
-            driftIous.length,
+            driftIous.reduce((double a, double b) => a + b) / driftIous.length,
       if (driftIous.isNotEmpty) 'roiDriftIouMin': driftIous.reduce(math.min),
     },
   );
@@ -338,15 +330,12 @@ void main() {
               await FaceDetectorProcessor.create(delegate: delegate);
           final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
             enableRoiTracking: false,
-            enableSmoothing: false,
             model: model,
             delegate: delegate,
           );
 
           for (final MapEntry<String, FaceMeshImage> entry
-              in <String, FaceMeshImage>{
-                'portrait': portrait,
-              }.entries) {
+              in <String, FaceMeshImage>{'portrait': portrait}.entries) {
             final FaceMeshImage image = entry.value;
             void runOnce() {
               final FaceDetectionResult det = detector.process(image);

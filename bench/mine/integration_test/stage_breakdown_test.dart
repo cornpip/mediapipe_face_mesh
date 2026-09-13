@@ -66,13 +66,12 @@ void main() {
       );
       final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
         enableRoiTracking: false,
-        enableSmoothing: false,
         delegate: FaceMeshDelegate.xnnpack,
         threads: threads,
       );
 
       final FaceDetectionResult det = detector.process(portrait);
-      final NormalizedRect roi = det.primaryDetection!.expandedFaceRect!;
+      final NormalizedRect roi = det.primaryDetection!.expandedFaceRect;
 
       final Map<String, List<double>> suites = <String, List<double>>{
         'detector_only': measure(() => detector.process(portrait)),

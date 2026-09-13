@@ -53,7 +53,7 @@ void main() {
       score: 1,
       imageWidth: imageWidth,
       imageHeight: imageHeight,
-      triangles: const <MpFaceMeshTriangle>[],
+      triangles: const <FaceMeshTriangle>[],
     );
   }
 
@@ -127,7 +127,7 @@ void main() {
       score: 0,
       imageWidth: 720,
       imageHeight: 1280,
-      triangles: const <MpFaceMeshTriangle>[],
+      triangles: const <FaceMeshTriangle>[],
     );
 
     final NormalizedRect roi = empty.trackingRoi();

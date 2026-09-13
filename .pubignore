@@ -46,11 +46,9 @@ example/build/
 # NOTE: .pubignore replaces .gitignore for publishing, so anything ignored in
 # .gitignore must be repeated here or it ships to pub.dev.
 temp_doc/
-mediapipe_docs/
 
 # Not needed in the published package (pub.dev loads README images from GitHub)
 readme_img/
-ROADMAP.md
 AGENTS.md
 CLAUDE.md
 CONTRIBUTING.md

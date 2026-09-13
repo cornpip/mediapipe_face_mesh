@@ -167,14 +167,11 @@ class _TrackedRoiPainter extends CustomPainter {
 }
 
 class _StageInputControllers {
-  StreamController<FaceMeshNv21Image>? nv21Controller;
-  StreamController<FaceMeshImage>? bgraController;
+  StreamController<FaceMeshFrame>? controller;
 
   void close() {
-    nv21Controller?.close();
-    bgraController?.close();
-    nv21Controller = null;
-    bgraController = null;
+    controller?.close();
+    controller = null;
   }
 }
 
@@ -309,7 +306,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _faceDetectorProcessor = await _createFaceDetectorProcessor();
 
       final faceMeshProcessor = await _createFaceMeshProcessor(
-        multi: _isMultiFaceActive,
         model: _meshMode.model,
         iris: _meshMode.enableIris,
       );
@@ -383,25 +379,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Future<FaceMeshProcessor> _createFaceMeshProcessor({
-    required bool multi,
     required FaceMeshModel model,
     required bool iris,
   }) async {
-    // Multi-face tracking is managed by the pipeline with explicit per-face
-    // ROIs, so the mesh processor must not keep native per-call state.
-    final FaceMeshProcessor processor = multi
-        ? await FaceMeshProcessor.createForMultiFace(
-            model: model,
-            enableIris: iris,
-            delegate: _preferredDelegate,
-          )
-        : await FaceMeshProcessor.create(
-            model: model,
-            enableIris: iris,
-            delegate: _preferredDelegate,
-          );
+    final FaceMeshProcessor processor = await FaceMeshProcessor.create(
+      model: model,
+      enableIris: iris,
+      delegate: _preferredDelegate,
+    );
     debugPrint(
-      'FaceMeshProcessor created: multi=$multi model=$model iris=$iris '
+      'FaceMeshProcessor created: model=$model iris=$iris '
       'delegate=${processor.activeDelegate}',
     );
     return processor;
@@ -519,7 +506,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _ensureInferenceStageReady({
     required int rotationDegrees,
     required bool mirrorHorizontal,
-    required bool nv21,
   }) {
     if (_inferenceStreamSubscription != null &&
         _inferenceStreamRotation == rotationDegrees &&
@@ -533,58 +519,30 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _inferenceStreamRotation = rotationDegrees;
     _inferenceStreamMirror = mirrorHorizontal;
 
-    if (nv21) {
-      _inferenceStageInput.nv21Controller =
-          StreamController<FaceMeshNv21Image>();
-      final Stream<FaceMeshNv21Image> frames =
-          _inferenceStageInput.nv21Controller!.stream;
-      _inferenceStreamSubscription = _isMultiFaceActive
-          ? _faceMeshInferenceStreamProcessor
-                .processNv21MultiFace(
-                  frames,
-                  maxMeshFaces: _maxMeshFaces,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(
-                  _handleMultiInferenceResult,
-                  onError: _handleInferenceError,
-                )
-          : _faceMeshInferenceStreamProcessor
-                .processNv21(
-                  frames,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(_handleInferenceResult, onError: _handleInferenceError);
-    } else {
-      _inferenceStageInput.bgraController = StreamController<FaceMeshImage>();
-      final Stream<FaceMeshImage> frames =
-          _inferenceStageInput.bgraController!.stream;
-      _inferenceStreamSubscription = _isMultiFaceActive
-          ? _faceMeshInferenceStreamProcessor
-                .processMultiFace(
-                  frames,
-                  maxMeshFaces: _maxMeshFaces,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(
-                  _handleMultiInferenceResult,
-                  onError: _handleInferenceError,
-                )
-          : _faceMeshInferenceStreamProcessor
-                .process(
-                  frames,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(_handleInferenceResult, onError: _handleInferenceError);
-    }
+    _inferenceStageInput.controller = StreamController<FaceMeshFrame>();
+    final Stream<FaceMeshFrame> frames =
+        _inferenceStageInput.controller!.stream;
+    _inferenceStreamSubscription = _isMultiFaceActive
+        ? _faceMeshInferenceStreamProcessor
+              .processMultiFace(
+                frames,
+                maxMeshFaces: _maxMeshFaces,
+                runMeshResolver: (_) => _isMeshActive,
+                rotationDegrees: rotationDegrees,
+                mirrorHorizontal: mirrorHorizontal,
+              )
+              .listen(
+                _handleMultiInferenceResult,
+                onError: _handleInferenceError,
+              )
+        : _faceMeshInferenceStreamProcessor
+              .process(
+                frames,
+                runMeshResolver: (_) => _isMeshActive,
+                rotationDegrees: rotationDegrees,
+                mirrorHorizontal: mirrorHorizontal,
+              )
+              .listen(_handleInferenceResult, onError: _handleInferenceError);
   }
 
   void _handleInferenceResult(FaceMeshInferenceResult result) {
@@ -690,7 +648,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (result == null || processor == null || !_meshMode.has478) {
       return null;
     }
-    final Map<FaceBlendshape, double>? blendshapes = processor.process(result);
+    final FaceBlendshapes? blendshapes = processor.process(result);
     if (blendshapes == null) {
       return null; // no face in this frame
     }
@@ -980,8 +938,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// Maps the 52 blendshape coefficients to a coarse facial movement label.
   ///
   /// Thresholds are illustrative starting points; tune per camera and lighting.
-  String _detectMovement(Map<FaceBlendshape, double> blendshapes) {
-    double v(FaceBlendshape shape) => blendshapes[shape] ?? 0;
+  String _detectMovement(FaceBlendshapes blendshapes) {
+    double v(FaceBlendshape shape) => blendshapes[shape];
     final double smile =
         (v(FaceBlendshape.mouthSmileLeft) + v(FaceBlendshape.mouthSmileRight)) /
         2;
@@ -1092,6 +1050,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: DropdownButtonFormField<int>(
+            // initialValue needs Flutter 3.35; the package supports 3.32.
+            // ignore: deprecated_member_use
             value: selector.selectedIndex >= 0 ? selector.selectedIndex : null,
             isDense: true,
             isExpanded: true,
@@ -1126,6 +1086,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: DropdownButtonFormField<String>(
+        // ignore: deprecated_member_use
         value: _selectedModel,
         isDense: true,
         borderRadius: BorderRadius.circular(12),
@@ -1160,6 +1121,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: DropdownButtonFormField<_MeshMode>(
+        // ignore: deprecated_member_use
         value: _meshMode,
         isDense: true,
         borderRadius: BorderRadius.circular(12),
@@ -1673,36 +1635,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     // tracking, same as a camera switch.
     final int effectiveRotation =
         (rotationCompensation + _inputRotationDegrees) % 360;
-    final FaceMeshNv21Image? nv21Image = frame.nv21;
-    if (nv21Image != null) {
-      _ensureInferenceStageReady(
-        rotationDegrees: effectiveRotation,
-        mirrorHorizontal: _inputMirror,
-        nv21: true,
-      );
-      final controller = _inferenceStageInput.nv21Controller;
-      if (controller == null || controller.isClosed) {
-        return;
-      }
-      _isProcessingFrame = true;
-      controller.add(nv21Image);
+    final FaceMeshFrame? input = frame.nv21 ?? frame.image;
+    if (input == null) {
       return;
     }
-
-    final FaceMeshImage? image = frame.image;
-    if (image != null) {
-      _ensureInferenceStageReady(
-        rotationDegrees: effectiveRotation,
-        mirrorHorizontal: _inputMirror,
-        nv21: false,
-      );
-      final controller = _inferenceStageInput.bgraController;
-      if (controller == null || controller.isClosed) {
-        return;
-      }
-      _isProcessingFrame = true;
-      controller.add(image);
+    _ensureInferenceStageReady(
+      rotationDegrees: effectiveRotation,
+      mirrorHorizontal: _inputMirror,
+    );
+    final controller = _inferenceStageInput.controller;
+    if (controller == null || controller.isClosed) {
+      return;
     }
+    _isProcessingFrame = true;
+    controller.add(input);
   }
 
   void _applyDetectionStage(
@@ -1803,11 +1749,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (_isCameraBusy || mode == _meshMode) return;
     final previous = _meshMode;
     try {
-      await _replaceFaceMeshProcessor(
-        multi: _isMultiFaceActive,
-        model: mode.model,
-        iris: mode.enableIris,
-      );
+      await _replaceFaceMeshProcessor(model: mode.model, iris: mode.enableIris);
       if (mounted) {
         setState(() => _meshMode = mode);
       } else {
@@ -1821,36 +1763,23 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  Future<void> _toggleMultiFace() async {
+  /// The same pipeline serves both flows; the inference stream re-subscribes
+  /// with the new mode on the next camera frame.
+  void _toggleMultiFace() {
     if (_isCameraBusy) return;
-    final nextMulti = !_isMultiFaceActive;
-    try {
-      await _replaceFaceMeshProcessor(
-        multi: nextMulti,
-        model: _meshMode.model,
-        iris: _meshMode.enableIris,
-      );
-      if (mounted) {
-        setState(() => _isMultiFaceActive = nextMulti);
-      } else {
-        _isMultiFaceActive = nextMulti;
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _errorMessage = 'Multi-face toggle error: $error');
-      }
-    }
+    _stopInferenceStream();
+    _clearMesh();
+    _clearDetections();
+    setState(() => _isMultiFaceActive = !_isMultiFaceActive);
   }
 
   /// Swaps the mesh processor and rebuilds the pipeline; the inference stream
-  /// re-subscribes with the new mode on the next camera frame.
+  /// re-subscribes on the next camera frame.
   Future<void> _replaceFaceMeshProcessor({
-    required bool multi,
     required FaceMeshModel model,
     required bool iris,
   }) async {
     final newProcessor = await _createFaceMeshProcessor(
-      multi: multi,
       model: model,
       iris: iris,
     );
