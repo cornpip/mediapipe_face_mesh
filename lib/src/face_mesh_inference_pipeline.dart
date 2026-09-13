@@ -24,8 +24,8 @@ class FaceMeshInferenceResult {
   /// Raw detector output for the input frame.
   ///
   /// Null when the frame was served by landmark tracking, in which case the
-  /// detector did not run and [meshResult] came from the mesh processor's
-  /// internal ROI tracking.
+  /// detector did not run and the mesh ran on the ROI derived from the
+  /// previous frame's landmarks.
   final FaceDetectionResult? detectionResult;
 
   /// Detection selected for mesh inference.
@@ -146,23 +146,20 @@ class FaceMeshMultiInferenceResult {
 ///
 /// By default the single-face flow mirrors the official MediaPipe Face Mesh
 /// graph: the detector runs only to (re)acquire a face, and while a face is
-/// being followed the mesh ROI comes from the previous frame's landmarks via
-/// the mesh processor's internal ROI tracking. This keeps the mesh accurate
-/// when the detection box is imprecise (for example with a wide-open mouth)
-/// and skips the detector entirely on tracked frames.
+/// being followed the mesh ROI comes from the previous frame's landmarks.
+/// This keeps the mesh accurate when the detection box is imprecise (for
+/// example with a wide-open mouth) and skips the detector entirely on
+/// tracked frames.
 ///
 /// The multi-face methods track the same way with one ROI per face: each
 /// tracked face keeps a stable [TrackedFaceMesh.trackId], and the detector
-/// runs only while fewer than `maxMeshFaces` faces are tracked. Multi-face
-/// tracking is managed in Dart, so it works with a
-/// [FaceMeshProcessor.createForMultiFace] processor. The two flows share the
-/// native mesh state, so calling one resets the other's tracking and the
-/// next call of the other flow re-acquires via the detector.
+/// runs only while fewer than `maxMeshFaces` faces are tracked. Tracking is
+/// managed by the pipeline, so both flows work with any [FaceMeshProcessor].
+/// Calling one flow resets the other's tracking, and the next call of the
+/// other flow re-acquires via the detector.
 ///
-/// Single-face landmark tracking requires a [mesh] processor created with
-/// `enableRoiTracking: true` (the default). Passing
-/// `enableLandmarkTracking: false` to [FaceMeshInferencePipeline.new] makes
-/// every frame run detector-driven as before, in both flows.
+/// Passing `enableLandmarkTracking: false` to [FaceMeshInferencePipeline.new]
+/// makes every frame run detector-driven, in both flows.
 ///
 /// On tracked frames the detector does not run, so `detectorRoi` and the
 /// detector ROI scale/shift overrides apply only to (re)acquisition frames —
@@ -203,9 +200,7 @@ class FaceMeshInferencePipeline {
   }) : _detector = detector,
        _mesh = mesh,
        _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
-       _landmarkTrackingEnabled =
-           enableLandmarkTracking && mesh.roiTrackingEnabled,
-       _multiTrackingEnabled = enableLandmarkTracking,
+       _landmarkTrackingEnabled = enableLandmarkTracking,
        _smoothingOptions = landmarkSmoothing;
 
   /// Minimum IoU between a detection ROI and a tracked face ROI for the two
@@ -218,16 +213,13 @@ class FaceMeshInferencePipeline {
   final FaceDetectionSelector _detectionSelector;
   final bool _landmarkTrackingEnabled;
 
-  /// Multi-face tracking runs in Dart with explicit per-face ROIs, so unlike
-  /// the single-face flow it does not need the mesh processor's native ROI
-  /// tracking.
-  final bool _multiTrackingEnabled;
-
   final LandmarkSmoothingOptions? _smoothingOptions;
   FaceLandmarkSmoother? _singleSmoother;
   final Stopwatch _smoothingClock = Stopwatch()..start();
 
-  bool _isTracking = false;
+  /// ROI for the next single-face frame, derived from the raw landmarks of
+  /// the last one. Null when no face is being followed.
+  NormalizedRect? _singleRoi;
   final List<_FaceTrack> _multiTracks = <_FaceTrack>[];
 
   /// Smoother state for the tracking-disabled multi-face flow, matched to
@@ -242,7 +234,7 @@ class FaceMeshInferencePipeline {
 
   /// Whether the single-face flow is currently following a face via landmark
   /// tracking instead of running the detector.
-  bool get isTracking => _isTracking;
+  bool get isTracking => _singleRoi != null;
 
   /// Whether output landmarks are smoothed across frames.
   bool get landmarkSmoothingEnabled => _smoothingOptions != null;
@@ -263,7 +255,7 @@ class FaceMeshInferencePipeline {
   }
 
   void _resetTrackingState() {
-    _isTracking = false;
+    _singleRoi = null;
     _clearMultiFaceState();
     _singleSmoother?.reset();
   }
@@ -397,44 +389,45 @@ class FaceMeshInferencePipeline {
   /// served by the detector instead.
   FaceMeshInferenceResult? _tryTrackedFrame(
     bool runMesh,
-    FaceMeshResult Function() runTrackedMesh,
+    FaceMeshResult Function(NormalizedRect roi) runTrackedMesh,
   ) {
-    if (!runMesh || !_isTracking) {
+    final NormalizedRect? roi = _singleRoi;
+    if (!runMesh || roi == null) {
       return null;
     }
     final FaceMeshResult tracked;
     try {
-      tracked = runTrackedMesh();
+      tracked = runTrackedMesh(roi);
     } catch (_) {
       // Fall back to detector re-acquisition on the next frame instead of
       // retrying the failing tracked call forever.
-      _isTracking = false;
+      _singleRoi = null;
       rethrow;
     }
     if (tracked.landmarks.isEmpty) {
-      _isTracking = false;
+      _singleRoi = null;
       return null;
     }
-    // The native side drops its tracked ROI when the presence score falls
-    // below the tracking confidence (official graph semantics). Re-acquire
-    // via the detector on the next frame instead of letting the mesh run on
-    // a full-frame default ROI; this frame's landmarks are still valid.
-    if (!_mesh.isTracking) {
-      _isTracking = false;
-    }
+    // Official graph semantics: a followed face whose presence score falls
+    // below the tracking confidence is released so the next frame
+    // re-acquires via the detector; this frame's landmarks are still valid.
+    _updateTracking(tracked, tracked.score >= _mesh.minTrackingConfidence);
     return FaceMeshInferenceResult(
       detectionResult: null,
       selectedDetection: null,
-      selectedRoi: tracked.rect,
+      selectedRoi: roi,
       meshResult: tracked,
     );
   }
 
-  void _updateTracking(FaceMeshResult? meshResult) {
-    _isTracking =
+  void _updateTracking(FaceMeshResult? meshResult, [bool keep = true]) {
+    _singleRoi =
         _landmarkTrackingEnabled &&
-        meshResult != null &&
-        meshResult.landmarks.isNotEmpty;
+            keep &&
+            meshResult != null &&
+            meshResult.landmarks.isNotEmpty
+        ? meshResult.trackingRoi()
+        : null;
   }
 
   /// Shared multi-face flow: advance tracked faces, then acquire new faces
@@ -458,9 +451,9 @@ class FaceMeshInferencePipeline {
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,
     );
-    // The per-face mesh calls overwrite the native tracked ROI, so force the
-    // next single-face frame to re-acquire via the detector.
-    _isTracking = false;
+    // Mirror of the single-face reset: drop the single-face ROI so a later
+    // single-face call re-acquires via the detector.
+    _singleRoi = null;
     _singleSmoother?.reset();
 
     if (!runMesh) {
@@ -471,7 +464,7 @@ class FaceMeshInferencePipeline {
       );
     }
 
-    if (!_multiTrackingEnabled) {
+    if (!_landmarkTrackingEnabled) {
       final FaceDetectionResult detectionResult = runDetector();
       final List<FaceMeshResult> meshes = runLegacyMultiMesh(detectionResult);
       return FaceMeshMultiInferenceResult(
@@ -638,8 +631,9 @@ class FaceMeshInferencePipeline {
     _clearMultiFaceState();
     final FaceMeshInferenceResult? trackedResult = _tryTrackedFrame(
       runMesh,
-      () => _mesh.process(
+      (NormalizedRect roi) => _mesh.process(
         frame,
+        roi: roi,
         rotationDegrees: rotationDegrees,
         mirrorHorizontal: mirrorHorizontal,
       ),

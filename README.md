@@ -254,10 +254,9 @@ if (blendshapes != null) {
 
 Multi-face inference tracks each face across frames with a stable `trackId`.
 The detector runs only while fewer than `maxMeshFaces` faces are tracked.
-The mesh processor must be created with `createForMultiFace(...)`.
 
 ```dart
-final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace();
+final faceMeshProcessor = await FaceMeshProcessor.create();
 final faceDetectorProcessor = await FaceDetectorProcessor.create(
   maxResults: 4,
 );

@@ -66,7 +66,6 @@ void main() {
       );
       final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
         enableRoiTracking: false,
-        enableRoiSmoothing: false,
         delegate: FaceMeshDelegate.xnnpack,
         threads: threads,
       );

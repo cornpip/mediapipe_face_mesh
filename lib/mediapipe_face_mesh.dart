@@ -1547,19 +1547,16 @@ class FaceMeshProcessor {
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
   ///   is unavailable, cannot be created, or fails while the interpreter is
   ///   built. Set it to false to fail creation instead.
-  /// - [enableRoiSmoothing] smooths the internally tracked ROI across frames
-  ///   (used when [roi]/[box] are omitted), which stabilizes the crop fed to
-  ///   the model. Landmark coordinates are not filtered here. That is
-  ///   [FaceMeshInferencePipeline]'s `landmarkSmoothing`.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
-  ///   are omitted in later [process] calls.
+  ///   are omitted in later [process] calls. [FaceMeshInferencePipeline]
+  ///   tracks on its own and always passes an ROI, so this only matters for
+  ///   direct [process] calls.
   /// - [minTrackingConfidence] is the mesh presence score below which
-  ///   tracking stops trusting a followed face. The multi-face pipeline flow
-  ///   drops the track and re-acquires it via the detector. The single-face
-  ///   native tracking drops its internal ROI the same way (observable
-  ///   through [isTracking]); [FaceMeshInferencePipeline] re-acquires via
-  ///   the detector, while raw [process] calls without an ROI fall back to
-  ///   full-frame inference on the next frame.
+  ///   tracking stops trusting a followed face. [FaceMeshInferencePipeline]
+  ///   drops the face and re-acquires it via the detector. Internal ROI
+  ///   tracking drops its ROI the same way (observable through
+  ///   [isTracking]), and the next [process] call without an ROI runs on the
+  ///   full frame.
   /// - [minFacePresenceConfidence] is the mesh presence score below which a
   ///   frame is treated as having no usable face: the result carries no
   ///   landmarks, and calls without an explicit ROI also reset internal ROI
@@ -1581,7 +1578,6 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     double minFacePresenceConfidence = 0.5,
-    bool enableRoiSmoothing = true,
     bool enableRoiTracking = true,
     FaceMeshModel model = FaceMeshModel.v2,
     bool enableIris = false,
@@ -1614,7 +1610,6 @@ class FaceMeshProcessor {
         ..min_face_presence_confidence = minFacePresenceConfidence
         ..delegate = delegate.index
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
-        ..enable_smoothing = enableRoiSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = runsIrisPass ? 1 : 0
         ..enable_attention_mesh = model == FaceMeshModel.attention ? 1 : 0
@@ -1644,36 +1639,6 @@ class FaceMeshProcessor {
         pkg_ffi.malloc.free(irisModelPathPtr);
       }
     }
-  }
-
-  /// Creates a face mesh processor configured for multi-face ROI fan-out.
-  ///
-  /// Multi-face helpers run several face ROIs through the same processor in
-  /// sequence. Smoothing and ROI tracking keep state across calls, so this
-  /// factory disables both options to prevent state from one face affecting the
-  /// next face.
-  static Future<FaceMeshProcessor> createForMultiFace({
-    int? threads,
-    double minDetectionConfidence = 0.5,
-    double minTrackingConfidence = 0.5,
-    double minFacePresenceConfidence = 0.5,
-    FaceMeshModel model = FaceMeshModel.v2,
-    bool enableIris = false,
-    FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
-    bool allowDelegateFallback = true,
-  }) {
-    return FaceMeshProcessor.create(
-      threads: threads,
-      minDetectionConfidence: minDetectionConfidence,
-      minTrackingConfidence: minTrackingConfidence,
-      minFacePresenceConfidence: minFacePresenceConfidence,
-      enableRoiSmoothing: false,
-      enableRoiTracking: false,
-      model: model,
-      enableIris: enableIris,
-      delegate: delegate,
-      allowDelegateFallback: allowDelegateFallback,
-    );
   }
 
   /// Processes a frame and returns face landmarks.

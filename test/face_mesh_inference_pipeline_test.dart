@@ -251,13 +251,6 @@ class _FakeMesh implements FaceMeshProcessor {
   bool nextEmpty = false;
   List<double>? scoresForNextBatch;
   FaceMeshResult? lastResult;
-  NormalizedRect? _trackedRoi;
-
-  @override
-  bool get roiTrackingEnabled => true;
-
-  @override
-  bool get isTracking => _trackedRoi != null;
 
   @override
   double get minTrackingConfidence => 0.5;
@@ -273,30 +266,24 @@ class _FakeMesh implements FaceMeshProcessor {
     bool mirrorHorizontal = false,
   }) {
     calls++;
-    final NormalizedRect? target = roi ?? _trackedRoi;
-    if (nextEmpty || target == null) {
+    // The pipeline always passes an ROI; a call without one would mean it
+    // fell back to native tracking, which this fake does not emulate.
+    expect(roi, isNotNull);
+    if (nextEmpty) {
       nextEmpty = false;
-      _trackedRoi = null;
       return lastResult = FaceMeshResult(
         landmarks: const <FaceMeshLandmark>[],
-        rect: const NormalizedRect(
-          xCenter: 0.5,
-          yCenter: 0.5,
-          width: 1,
-          height: 1,
-        ),
+        rect: roi!,
         score: 0,
         imageWidth: frame.width,
         imageHeight: frame.height,
       );
     }
-    final FaceMeshResult result = _meshInside(
-      target,
+    return lastResult = _meshInside(
+      roi!,
       imageWidth: frame.width,
       imageHeight: frame.height,
     );
-    _trackedRoi = result.trackingRoi();
-    return lastResult = result;
   }
 
   @override

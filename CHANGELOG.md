@@ -8,17 +8,18 @@
   `processMultiFace` with the same arguments
 - `FaceMeshInferencePipeline` smooths output landmarks by default
   - `landmarkSmoothing: null` turns it off
-- `FaceMeshProcessor.create` and `createForMultiFace` default to
-  `FaceMeshModel.v2` (478 landmarks) instead of `FaceMeshModel.v1` (468)
+- `FaceMeshProcessor.create` defaults to `FaceMeshModel.v2` (478
+  landmarks) instead of `FaceMeshModel.v1` (468)
 - remove `enableAttentionMesh`. `model` is the only way to pick the mesh
   model
 - remove `FaceMeshDelegate.gpuV2`
-- rename `FaceMeshProcessor.create(enableSmoothing:)` to
-  `enableRoiSmoothing`
 - `FaceMeshPixelFormat` is an enum instead of int constants
 - `FaceDetection.faceRect` and `expandedFaceRect` are non-nullable
 - rename `MpFaceMeshTriangle` to `FaceMeshTriangle`
 - remove `FaceMeshProcessor.attentionMeshEnabled`
+- remove ROI smoothing (`enableRoiSmoothing`). Landmark smoothing covers it
+- remove `FaceMeshProcessor.createForMultiFace`. `create()` serves both
+  flows
 - remove `FaceMeshStreamProcessor` and `FaceDetectorStreamProcessor`
   (`face_mesh_stream_processor.dart`). Use
   `FaceMeshInferenceStreamProcessor`, or wrap `FaceMeshProcessor.process` in

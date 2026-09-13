@@ -168,7 +168,6 @@ class FaceMeshContext {
         (options && options->min_face_presence_confidence >= 0.f)
             ? options->min_face_presence_confidence
             : 0.5f;
-    smoothing_enabled_ = !options || options->enable_smoothing != 0;
     roi_tracking_enabled_ = !options || options->enable_roi_tracking != 0;
     attention_enabled_ = options && options->enable_attention_mesh != 0;
     // The attention model already refines and outputs irises; the separate iris
@@ -1823,14 +1822,10 @@ class FaceMeshContext {
       tracking_active_ = false;
       return;
     }
-    const MpNormalizedRect target =
-        RectFromLandmarks(result.landmarks, result.landmarks_count,
-                          result.image_width, result.image_height);
-    MpNormalizedRect updated = target;
-    if (tracking_active_ && smoothing_enabled_) {
-      updated = SmoothRect(roi_, target);
-    }
-    roi_ = SanitizeRect(updated);
+    roi_ = SanitizeRect(RectFromLandmarks(result.landmarks,
+                                          result.landmarks_count,
+                                          result.image_width,
+                                          result.image_height));
     has_valid_rect_ = true;
     tracking_active_ = true;
   }
@@ -1873,22 +1868,6 @@ class FaceMeshContext {
     rect.height = long_side_px / image_height;
     rect.rotation =
         EstimateRotation(landmarks, count, image_width, image_height);
-    return rect;
-  }
-
-  MpNormalizedRect SmoothRect(const MpNormalizedRect& current,
-                              const MpNormalizedRect& target) const {
-    // Keep the ROI responsive to fast face changes (e.g. a mouth opening
-    // wide) while still damping detector-scale jitter.
-    constexpr float kAlpha = 0.5f;
-    MpNormalizedRect rect;
-    rect.x_center = current.x_center * kAlpha + target.x_center * (1.0f - kAlpha);
-    rect.y_center = current.y_center * kAlpha + target.y_center * (1.0f - kAlpha);
-    rect.width = current.width * kAlpha + target.width * (1.0f - kAlpha);
-    rect.height = current.height * kAlpha + target.height * (1.0f - kAlpha);
-    const float delta =
-        NormalizeAngle(target.rotation - current.rotation) * (1.0f - kAlpha);
-    rect.rotation = NormalizeAngle(current.rotation + delta);
     return rect;
   }
 
@@ -1959,7 +1938,6 @@ class FaceMeshContext {
   float min_detection_confidence_ = 0.5f;
   float min_tracking_confidence_ = 0.5f;
   float min_face_presence_confidence_ = 0.5f;
-  bool smoothing_enabled_ = true;
   bool roi_tracking_enabled_ = true;
   bool iris_enabled_ = false;
   bool attention_enabled_ = false;

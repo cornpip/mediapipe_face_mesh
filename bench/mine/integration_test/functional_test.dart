@@ -55,7 +55,7 @@ void main() {
   });
 
   test('multi-ROI batch keeps per-ROI results independent', () async {
-    final FaceMeshProcessor mesh = await FaceMeshProcessor.createForMultiFace(
+    final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
       model: FaceMeshModel.v2,
     );
     try {
@@ -137,9 +137,7 @@ void main() {
   test('NV21 frames run through the same entry points as RGBA', () async {
     final FaceMeshNv21Image nv21 = rgbaToNv21(portrait);
     final FaceDetectorProcessor detector = await FaceDetectorProcessor.create();
-    final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
-      enableRoiSmoothing: false,
-    );
+    final FaceMeshProcessor mesh = await FaceMeshProcessor.create();
     try {
       // Default model is v2 in 3.0.0.
       expect(mesh.model, FaceMeshModel.v2);

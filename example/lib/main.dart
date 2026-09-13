@@ -306,7 +306,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _faceDetectorProcessor = await _createFaceDetectorProcessor();
 
       final faceMeshProcessor = await _createFaceMeshProcessor(
-        multi: _isMultiFaceActive,
         model: _meshMode.model,
         iris: _meshMode.enableIris,
       );
@@ -380,25 +379,16 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Future<FaceMeshProcessor> _createFaceMeshProcessor({
-    required bool multi,
     required FaceMeshModel model,
     required bool iris,
   }) async {
-    // Multi-face tracking is managed by the pipeline with explicit per-face
-    // ROIs, so the mesh processor must not keep native per-call state.
-    final FaceMeshProcessor processor = multi
-        ? await FaceMeshProcessor.createForMultiFace(
-            model: model,
-            enableIris: iris,
-            delegate: _preferredDelegate,
-          )
-        : await FaceMeshProcessor.create(
-            model: model,
-            enableIris: iris,
-            delegate: _preferredDelegate,
-          );
+    final FaceMeshProcessor processor = await FaceMeshProcessor.create(
+      model: model,
+      enableIris: iris,
+      delegate: _preferredDelegate,
+    );
     debugPrint(
-      'FaceMeshProcessor created: multi=$multi model=$model iris=$iris '
+      'FaceMeshProcessor created: model=$model iris=$iris '
       'delegate=${processor.activeDelegate}',
     );
     return processor;
@@ -1759,11 +1749,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (_isCameraBusy || mode == _meshMode) return;
     final previous = _meshMode;
     try {
-      await _replaceFaceMeshProcessor(
-        multi: _isMultiFaceActive,
-        model: mode.model,
-        iris: mode.enableIris,
-      );
+      await _replaceFaceMeshProcessor(model: mode.model, iris: mode.enableIris);
       if (mounted) {
         setState(() => _meshMode = mode);
       } else {
@@ -1777,36 +1763,23 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  Future<void> _toggleMultiFace() async {
+  /// The same pipeline serves both flows; the inference stream re-subscribes
+  /// with the new mode on the next camera frame.
+  void _toggleMultiFace() {
     if (_isCameraBusy) return;
-    final nextMulti = !_isMultiFaceActive;
-    try {
-      await _replaceFaceMeshProcessor(
-        multi: nextMulti,
-        model: _meshMode.model,
-        iris: _meshMode.enableIris,
-      );
-      if (mounted) {
-        setState(() => _isMultiFaceActive = nextMulti);
-      } else {
-        _isMultiFaceActive = nextMulti;
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _errorMessage = 'Multi-face toggle error: $error');
-      }
-    }
+    _stopInferenceStream();
+    _clearMesh();
+    _clearDetections();
+    setState(() => _isMultiFaceActive = !_isMultiFaceActive);
   }
 
   /// Swaps the mesh processor and rebuilds the pipeline; the inference stream
-  /// re-subscribes with the new mode on the next camera frame.
+  /// re-subscribes on the next camera frame.
   Future<void> _replaceFaceMeshProcessor({
-    required bool multi,
     required FaceMeshModel model,
     required bool iris,
   }) async {
     final newProcessor = await _createFaceMeshProcessor(
-      multi: multi,
       model: model,
       iris: iris,
     );

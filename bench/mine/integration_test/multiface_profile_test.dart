@@ -73,11 +73,10 @@ void main() {
       maxResults: 4,
       delegate: delegate,
     );
-    final FaceMeshProcessor multiMesh =
-        await FaceMeshProcessor.createForMultiFace(
-          model: FaceMeshModel.v2,
-          delegate: delegate,
-        );
+    final FaceMeshProcessor multiMesh = await FaceMeshProcessor.create(
+      model: FaceMeshModel.v2,
+      delegate: delegate,
+    );
     final FaceMeshProcessor singleMesh = await FaceMeshProcessor.create(
       model: FaceMeshModel.v2,
       delegate: delegate,

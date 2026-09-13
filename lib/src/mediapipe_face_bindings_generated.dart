@@ -139,10 +139,11 @@ class MediapipeFaceBindings {
         )
       >();
 
-  /// Runs one mesh inference per ROI on a single frame upload, avoiding the
-  /// per-face frame copy of calling mp_face_mesh_process once per face. Returns
-  /// null and sets the context error if any ROI fails. Release the result with
-  /// mp_face_mesh_release_multi_result.
+  /// Runs one mesh inference per ROI on the given frame, equivalent to calling
+  /// mp_face_mesh_process once per ROI. The batch form exists so a language
+  /// binding can copy the frame across its boundary once per frame instead of
+  /// once per face. Returns null and sets the context error if any ROI fails.
+  /// Release the result with mp_face_mesh_release_multi_result.
   ffi.Pointer<MpFaceMeshMultiResult> mp_face_mesh_process_rois(
     ffi.Pointer<MpFaceMeshContext> context,
     ffi.Pointer<MpImage> image,
@@ -904,9 +905,6 @@ final class MpFaceMeshCreateOptions extends ffi.Struct {
 
   @ffi.UnsignedInt()
   external int delegate;
-
-  @ffi.Uint8()
-  external int enable_smoothing;
 
   @ffi.Uint8()
   external int enable_roi_tracking;
