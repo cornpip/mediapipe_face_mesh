@@ -9,7 +9,6 @@ Read this first. Read other docs only when the task touches that area.
 ## Read-On-Demand
 
 - Version bump / release: read `.agents/docs/release-checklist.md`.
-- `CHANGELOG.md` entry: read `.agents/docs/changelog-style.md`.
 - iOS bundled framework binary replaced: read
   `.agents/docs/ios-binary-update.md`.
 - `LICENSE`, `NOTICES`, or a bundled binary or model changed: read
@@ -23,5 +22,5 @@ Read this first. Read other docs only when the task touches that area.
 - A `chore` commit's optional CHANGELOG bullet is the user's call: suggest
   one when it seems worth recording, never add it unprompted.
 - Prose style: avoid em dashes in anything written for this repo (docs,
-  CHANGELOG, code comments, commit messages); use a comma, colon,
-  semicolon, or a separate sentence.
+  CHANGELOG, code comments, commit messages). Use a comma or a separate
+  sentence.

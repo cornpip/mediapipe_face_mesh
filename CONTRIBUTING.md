@@ -24,7 +24,11 @@ bullets for the next release.
   needs a bigger bump.
 - `chore` commits add no bullet by default; include one when it is worth
   recording.
-- Bullet style: `.agents/docs/changelog-style.md`.
+- Flat `- ` bullets, no Added/Changed/Fixed subheadings. Details of one
+  change go in sub-bullets under it. Breaking changes go under a
+  `### Breaking` block at the top of the section.
+- Keep bullets to the change. Add a reason only when it changes what the
+  reader should do. Name public symbols in backticks.
 
 ## Engineering rules
 
