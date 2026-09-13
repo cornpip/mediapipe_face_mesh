@@ -1060,6 +1060,8 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: DropdownButtonFormField<int>(
+            // initialValue needs Flutter 3.35; the package supports 3.32.
+            // ignore: deprecated_member_use
             value: selector.selectedIndex >= 0 ? selector.selectedIndex : null,
             isDense: true,
             isExpanded: true,
@@ -1094,6 +1096,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: DropdownButtonFormField<String>(
+        // ignore: deprecated_member_use
         value: _selectedModel,
         isDense: true,
         borderRadius: BorderRadius.circular(12),
@@ -1128,6 +1131,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
       child: DropdownButtonFormField<_MeshMode>(
+        // ignore: deprecated_member_use
         value: _meshMode,
         isDense: true,
         borderRadius: BorderRadius.circular(12),
