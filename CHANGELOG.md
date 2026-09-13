@@ -17,7 +17,7 @@
 - `FaceDetection.faceRect` and `expandedFaceRect` are non-nullable
 - rename `MpFaceMeshTriangle` to `FaceMeshTriangle`
 - remove `FaceMeshProcessor.attentionMeshEnabled`
-- remove ROI smoothing (`enableRoiSmoothing`). Landmark smoothing covers it
+- remove ROI smoothing (`enableSmoothing`). Landmark smoothing covers it
 - remove `FaceMeshProcessor.createForMultiFace`. `create()` serves both
   flows
 - `FaceMeshInferenceResult.meshResult` and the multi-face `faces` list never

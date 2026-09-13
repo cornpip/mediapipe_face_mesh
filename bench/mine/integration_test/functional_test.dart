@@ -28,6 +28,7 @@ void main() {
 
   test('v1 with the separate iris pass returns 478 sane landmarks', () async {
     final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
+      model: FaceMeshModel.v1,
       enableIris: true,
     );
     try {
