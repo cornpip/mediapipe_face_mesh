@@ -97,7 +97,7 @@ enum FaceMeshModel {
 
   /// FaceMesh-V2, the model the current upstream FaceLandmarker task uses
   /// (published there as `face_landmarks_detector.tflite`): 478 landmarks
-  /// with irises built in, same layout as [attention]. Recommended: the
+  /// with irises built in, same layout as [attention]. The default, and the
   /// most accurate per the upstream model cards, at some latency cost over
   /// [attention] (`doc/BENCHMARKS.md`).
   v2,
@@ -292,21 +292,6 @@ enum FaceMeshDelegate {
 
   /// Use the XNNPACK delegate when available.
   xnnpack,
-
-  /// Use the GPU delegate (V2) when the loaded TensorFlow Lite runtime
-  /// exports it.
-  ///
-  /// The bundled runtimes do not include the GPU delegate, so requesting
-  /// this value falls back to CPU (or fails creation with
-  /// `allowDelegateFallback: false`). Benchmarks showed the GPU delegate
-  /// running these small models several times slower than CPU/XNNPACK while
-  /// adding megabytes per ABI, so GPU support will not be added and this
-  /// value is scheduled for removal in 3.0.0.
-  @Deprecated(
-    'Falls back to CPU (the bundled runtimes have no GPU delegate) and will '
-    'be removed in 3.0.0. Use cpu or xnnpack.',
-  )
-  gpuV2,
 }
 
 /// Rejects out-of-range creation options in Dart. The native layer treats
@@ -342,7 +327,8 @@ FaceMeshDelegate _faceMeshDelegateFromNative(MpDelegateType delegate) {
     case MpDelegateType.MP_DELEGATE_XNNPACK:
       return FaceMeshDelegate.xnnpack;
     case MpDelegateType.MP_DELEGATE_GPU_V2:
-      return FaceMeshDelegate.gpuV2;
+      // Unreachable. Dart never requests it and the runtimes do not export it.
+      throw StateError('Unexpected active delegate: GPU V2.');
   }
 }
 
@@ -1247,9 +1233,8 @@ class FaceDetectorProcessor {
   ///
   /// Commonly adjusted options:
   /// - [model] selects short-range, full-range dense, or full-range sparse.
-  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
-  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
-  ///   check `activeDelegate` for the delegate actually in use.
+  /// - [delegate] selects CPU or XNNPACK execution; check `activeDelegate`
+  ///   for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
@@ -1606,9 +1591,8 @@ class FaceMeshProcessor {
   /// Creates the native interpreter and loads a model.
   ///
   /// Commonly adjusted options:
-  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
-  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
-  ///   check `activeDelegate` for the delegate actually in use.
+  /// - [delegate] selects CPU or XNNPACK execution; check `activeDelegate`
+  ///   for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate
@@ -1632,7 +1616,7 @@ class FaceMeshProcessor {
   ///   landmarks, and calls without an explicit ROI also reset internal ROI
   ///   tracking. Scores are compared after sigmoid, like the official
   ///   graph's face-presence threshold.
-  /// - [model] selects the bundled mesh model ([FaceMeshModel.v1] when
+  /// - [model] selects the bundled mesh model ([FaceMeshModel.v2] when
   ///   omitted). [FaceMeshModel.attention] and [FaceMeshModel.v2]
   ///   refine lips, eyes, and irises inside a single inference and return the
   ///   478-landmark layout; iris is always included with them, the separate
@@ -1643,9 +1627,6 @@ class FaceMeshProcessor {
   ///   refines the eye landmarks and appends iris landmarks, returning 478
   ///   landmarks instead of the base 468 landmarks. It only applies to
   ///   [FaceMeshModel.v1] and is ignored with the other models.
-  /// - [enableAttentionMesh] is the legacy way to select the attention model,
-  ///   equivalent to `model: FaceMeshModel.attention`. Combining it with a
-  ///   conflicting [model] value throws [ArgumentError].
   static Future<FaceMeshProcessor> create({
     int? threads,
     double minDetectionConfidence = 0.5,
@@ -1653,9 +1634,8 @@ class FaceMeshProcessor {
     double minFacePresenceConfidence = 0.5,
     bool enableSmoothing = true,
     bool enableRoiTracking = true,
-    FaceMeshModel? model,
+    FaceMeshModel model = FaceMeshModel.v2,
     bool enableIris = false,
-    bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
@@ -1663,26 +1643,11 @@ class FaceMeshProcessor {
     _validateUnitRange(minDetectionConfidence, 'minDetectionConfidence');
     _validateUnitRange(minTrackingConfidence, 'minTrackingConfidence');
     _validateUnitRange(minFacePresenceConfidence, 'minFacePresenceConfidence');
-    if (model != null &&
-        enableAttentionMesh &&
-        model != FaceMeshModel.attention) {
-      throw ArgumentError(
-        'Conflicting mesh model selection: enableAttentionMesh: true requests '
-        'FaceMeshModel.attention but model is $model. Pass only one of them.',
-      );
-    }
-    final FaceMeshModel resolvedModel =
-        model ??
-        (enableAttentionMesh ? FaceMeshModel.attention : FaceMeshModel.v1);
     // The attention and FaceMesh-V2 models already include refined irises in
     // their 478 output, so the separate iris pass only runs on the v1 model.
-    final bool runsIrisPass =
-        resolvedModel == FaceMeshModel.v1 && enableIris;
-    final bool irisIncluded =
-        resolvedModel != FaceMeshModel.v1 || enableIris;
-    final String resolvedModelPath = await _materializeMeshModel(
-      resolvedModel,
-    );
+    final bool runsIrisPass = model == FaceMeshModel.v1 && enableIris;
+    final bool irisIncluded = model != FaceMeshModel.v1 || enableIris;
+    final String resolvedModelPath = await _materializeMeshModel(model);
     final String? resolvedIrisModelPath = runsIrisPass
         ? await _materializeIrisModel()
         : null;
@@ -1703,9 +1668,7 @@ class FaceMeshProcessor {
         ..enable_smoothing = enableSmoothing ? 1 : 0
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = runsIrisPass ? 1 : 0
-        ..enable_attention_mesh = resolvedModel == FaceMeshModel.attention
-            ? 1
-            : 0
+        ..enable_attention_mesh = model == FaceMeshModel.attention ? 1 : 0
         ..iris_model_path = irisModelPathPtr.cast()
         ..tflite_library_path = ffi.nullptr;
 
@@ -1719,7 +1682,7 @@ class FaceMeshProcessor {
       }
       return FaceMeshProcessor._(
         context,
-        model: resolvedModel,
+        model: model,
         irisEnabled: irisIncluded,
         roiTrackingEnabled: enableRoiTracking,
         minTrackingConfidence: minTrackingConfidence,
@@ -1745,9 +1708,8 @@ class FaceMeshProcessor {
     double minDetectionConfidence = 0.5,
     double minTrackingConfidence = 0.5,
     double minFacePresenceConfidence = 0.5,
-    FaceMeshModel? model,
+    FaceMeshModel model = FaceMeshModel.v2,
     bool enableIris = false,
-    bool enableAttentionMesh = false,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) {
@@ -1760,7 +1722,6 @@ class FaceMeshProcessor {
       enableRoiTracking: false,
       model: model,
       enableIris: enableIris,
-      enableAttentionMesh: enableAttentionMesh,
       delegate: delegate,
       allowDelegateFallback: allowDelegateFallback,
     );
@@ -2155,10 +2116,9 @@ class FaceMeshProcessor {
 }
 
 final Finalizer<ffi.Pointer<MpBlendshapesContext>>
-_blendshapesContextFinalizer =
-    Finalizer<ffi.Pointer<MpBlendshapesContext>>(
-      (pointer) => faceBindings.mp_blendshapes_destroy(pointer),
-    );
+_blendshapesContextFinalizer = Finalizer<ffi.Pointer<MpBlendshapesContext>>(
+  (pointer) => faceBindings.mp_blendshapes_destroy(pointer),
+);
 
 /// A post-processor that turns face landmarks into 52 ARKit-style blendshape
 /// coefficients.
@@ -2190,9 +2150,8 @@ class FaceBlendshapesProcessor {
 
   /// Loads the bundled face blendshapes model.
   ///
-  /// - [delegate] selects CPU or XNNPACK execution ([FaceMeshDelegate.gpuV2]
-  ///   is deprecated, falls back to CPU, and will be removed in 3.0.0);
-  ///   check `activeDelegate` for the delegate actually in use.
+  /// - [delegate] selects CPU or XNNPACK execution; check `activeDelegate`
+  ///   for the delegate actually in use.
   /// - [threads] sets the TFLite thread count. Defaults to half the CPU
   ///   cores clamped to 1..4 (MediaPipe's default).
   /// - [allowDelegateFallback] allows CPU fallback when the requested delegate

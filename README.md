@@ -19,7 +19,7 @@ Requires Dart `>=3.8.1 <4.0.0` and Flutter `>=3.32.0`.
 ## Performance
 
 Same device (Dimensity 9400, Android 16), same inputs. One call runs
-detection plus the full face mesh in both packages:
+detection plus the full face mesh in both packages.
 
 | | mediapipe_face_mesh | google_mlkit_face_mesh_detection 0.5.0 |
 | --- |---------------------| --- |
@@ -28,7 +28,7 @@ detection plus the full face mesh in both packages:
 
 In streaming, mediapipe_face_mesh tracks the face between frames, while
 ML Kit re-runs detection every frame (it has no tracking mode).
-Single-image latency varies with device thermal state; streaming is the
+Single-image latency varies with device thermal state. Streaming is the
 stable metric. Method, full matrix, and caveats in
 [doc/BENCHMARKS.md](doc/BENCHMARKS.md).
 
@@ -63,51 +63,44 @@ final faceDetectorProcessor = await FaceDetectorProcessor.create();
 ```dart
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-final faceMeshProcessor = await FaceMeshProcessor.create(
-  model: FaceMeshModel.v2, // recommended; default is FaceMeshModel.v1 (until 3.0.0)
-);
+final faceMeshProcessor = await FaceMeshProcessor.create();
 ```
 
 `model` selects the mesh model.
 
-- `FaceMeshModel.v1` (default): the original mesh, returns 468 landmarks;
-  pass `enableIris: true` to run a separate iris pass and get the
-  478-landmark layout (10 iris points at indices `468..477`). The default
-  changes to `v2` in 3.0.0.
-- `FaceMeshModel.v2` (recommended): FaceMesh-V2, the model the current
-  upstream FaceLandmarker task uses. Same 478-landmark layout.
-- `FaceMeshModel.attention`: the `face_landmark_with_attention` model, which
-  returns 478 landmarks.
+- `FaceMeshModel.v2` (default): FaceMesh-V2, upstream
+  `face_landmarks_detector.tflite`, the model the current FaceLandmarker
+  task uses. Returns 478 landmarks (10 iris points at indices `468..477`).
+- `FaceMeshModel.attention`: the official MediaPipe model before V2. Same
+  478-landmark layout. In our benchmark its latency is slightly lower than
+  V2, and the V2 model card reports improved accuracy over it.
+- `FaceMeshModel.v1`: the original mesh, returns 468 landmarks. Pass
+  `enableIris: true` to run a separate iris pass and get the 478-landmark
+  layout.
 
 ### Delegates
 
 Every processor (`FaceDetectorProcessor`, `FaceMeshProcessor`,
-`FaceBlendshapesProcessor`) accepts a `delegate` option:
+`FaceBlendshapesProcessor`) accepts a `delegate` option.
 
 - `FaceMeshDelegate.cpu` (default)
 - `FaceMeshDelegate.xnnpack`
-- `FaceMeshDelegate.gpuV2` (deprecated, removed in 3.0.0)
 
-The bundled runtime supports `cpu` and `xnnpack`. On Android they perform
-about the same. On Windows `cpu` runs the mesh models 4~5x slower, so
-`xnnpack` is recommended there. `gpuV2` currently falls
-back to CPU and is being removed.
+On Android they perform about the same. On Windows `cpu` runs the mesh
+models 4~5x slower, so `xnnpack` is recommended there.
 
 ### Input Formats
 
-The package supports two image input types:
+The package supports two image input types.
 
 - `FaceMeshNv21Image`
   Use this for Android camera frames in NV21 layout.
 - `FaceMeshImage`
-  Use this for RGBA or BGRA buffers: iOS camera frames, desktop/USB (UVC)
-  camera frames, or any decoded image.
+  Use this for RGBA or BGRA buffers such as iOS camera frames, desktop/USB
+  (UVC) camera frames, or any decoded image.
 
-On Android, camera frame streams are commonly delivered as YUV420-family buffers
-in layouts such as single-plane NV21, Y + interleaved VU, or YUV420 Y/U/V
-planes. The package provides `FaceMeshNv21Image` helpers for converting these
-layouts into the NV21 input expected by `processNv21(...)`. See the example
-camera image adapter for usage.
+Android camera plugins deliver YUV420 in several layouts. `FaceMeshNv21Image`
+has helpers that convert them to NV21. See the example camera image adapter.
 
 ### Stream Inference
 
@@ -118,7 +111,6 @@ take a Stream of frames and return a Stream of results.
 final pipeline = FaceMeshInferencePipeline(
   detector: faceDetectorProcessor,
   mesh: faceMeshProcessor,
-  landmarkSmoothing: const LandmarkSmoothingOptions(), // recommended; off by default
 );
 final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 final frameController = StreamController<FaceMeshNv21Image>();
@@ -155,14 +147,14 @@ Use `runMesh: false` when an entire stream should run detector-only. Use
 toggle that can change while the stream is active.
 
 `rotationDegrees` is fixed per subscription. When the camera rotation (or the
-input source) changes, re-subscribe with the new value; see the example app
+input source) changes, re-subscribe with the new value. See the example app
 for a complete flow.
 
 For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
 
 #### Landmark tracking
 
-Tracking is on by default: the detector runs only to acquire or re-acquire
+Tracking is on by default. The detector runs only to acquire or re-acquire
 a face, and tracked frames report `detectionResult` as null. On face loss
 the detector re-acquires on the next frame (`isTracking` reports the
 state). Pass `enableLandmarkTracking: false` to run the detector on every
@@ -172,12 +164,11 @@ For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
 
 #### Landmark smoothing
 
-`landmarkSmoothing` (used in the examples above) smooths output landmarks
-across frames with a OneEuro filter, matching the official FaceLandmarker
-stream-mode behavior: a still face stops jittering while fast movement
-passes through with almost no lag. Off by default and recommended; planned
-to become the default from major version 3. See `LandmarkSmoothingOptions`
-and `FaceLandmarkSmoother` API docs for tuning and pipeline-free use.
+The pipeline smooths output landmarks across frames with a OneEuro filter,
+matching the official FaceLandmarker stream-mode behavior. A still face
+stops jittering while fast movement passes through with almost no lag.
+On by default. Pass `landmarkSmoothing: null` for raw per-frame landmarks.
+Tuning options are on `LandmarkSmoothingOptions`.
 
 ### Single Inference
 
@@ -187,7 +178,6 @@ Use single-frame inference in one call without a stream processor.
 final pipeline = FaceMeshInferencePipeline(
   detector: faceDetectorProcessor,
   mesh: faceMeshProcessor,
-  landmarkSmoothing: const LandmarkSmoothingOptions(), // recommended; off by default
 );
 
 final result = pipeline.processNv21(
@@ -201,12 +191,10 @@ if (meshResult != null) {
 }
 ```
 
-For detector-only inference, pass `runMesh: false`.
-
 ### Geometry and Measurements
 
 `FaceMeshResult` includes helpers for 2D distances and estimated 3D face
-geometry:
+geometry.
 
 ```dart
 // 2D pixel distance between two landmarks
@@ -264,25 +252,20 @@ if (blendshapes != null) {
 }
 ```
 
-Call `close()` when the processor is no longer needed.
-
 ### Multi-Face Inference
 
-Multi-face inference tracks each face across frames with a stable `trackId`;
-the detector runs only while fewer than `maxMeshFaces` faces are tracked.
+Multi-face inference tracks each face across frames with a stable `trackId`.
+The detector runs only while fewer than `maxMeshFaces` faces are tracked.
 The mesh processor must be created with `createForMultiFace(...)`.
 
 ```dart
-final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace(
-  model: FaceMeshModel.v2, // recommended; default is FaceMeshModel.v1 (until 3.0.0)
-);
+final faceMeshProcessor = await FaceMeshProcessor.createForMultiFace();
 final faceDetectorProcessor = await FaceDetectorProcessor.create(
   maxResults: 4,
 );
 final pipeline = FaceMeshInferencePipeline(
   detector: faceDetectorProcessor,
   mesh: faceMeshProcessor,
-  landmarkSmoothing: const LandmarkSmoothingOptions(), // recommended; off by default
 );
 final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 
@@ -325,6 +308,7 @@ Explicitly calling close() when the processors are no longer needed is recommend
 ```dart
 faceDetectorProcessor.close();
 faceMeshProcessor.close();
+blendshapesProcessor.close();
 ```
 
 ## Example app
@@ -335,17 +319,8 @@ repository.
 ## Notes
 
 - On Flutter older than 3.38.0, a debug `flutter run` on a physical iOS 17+
-  device can hang at `Installing and launching...`. Release and profile builds
-  run fine, as does launching from Xcode; Flutter 3.38.0 fixes `flutter run`
-  itself. See
-  [Running debug builds on a physical iOS device](doc/IOS_DEBUG_RUN.md). This is
-  Flutter tooling behavior and applies to any Flutter iOS project.
-- Upgrading from 2.6.0 or earlier on iOS: the bundled TensorFlow Lite runtime
-  changed from a fat `.framework` to an `.xcframework`. If a build still fails
-  with `building for 'iOS-simulator', but linking in object file built for
-  'iOS'`, a stale copy of the old framework is being picked up. Run
-  `pod deintegrate && pod install` in `ios/` and delete the build folder and
-  DerivedData.
+  device can hang at `Installing and launching...`. Flutter tooling issue,
+  see [doc/IOS_DEBUG_RUN.md](doc/IOS_DEBUG_RUN.md).
 
 ## License
 
@@ -356,7 +331,7 @@ under their own license. See
 model sources, and the modifications made to the runtime binaries, and
 [LICENSE-APACHE-2.0.txt](LICENSE-APACHE-2.0.txt) for the license text.
 
-Your app does not need to add anything: the package ships a `NOTICES` file, so
+Your app does not need to add anything. The package ships a `NOTICES` file, so
 `showLicensePage()` lists the bundled components automatically.
 
 This project is not affiliated with or endorsed by Google LLC.

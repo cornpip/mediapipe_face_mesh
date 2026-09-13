@@ -112,8 +112,8 @@ Store thinning ships only the device slice of the bundled xcframework.
   jitter is slightly lower (1.46 vs 1.51 px). FaceMesh-V2 is the
   recommended model on accuracy grounds (see below); attention is the
   lowest-latency 478 option.
-- `gpuV2` is deprecated and excluded; in our runs the GPU delegate was
-  slower for these models and only added binary size.
+- the GPU delegate is excluded (`gpuV2` was removed in 3.0.0); in our runs
+  it was slower for these models and only added binary size.
 
 ## Accuracy (upstream model cards)
 

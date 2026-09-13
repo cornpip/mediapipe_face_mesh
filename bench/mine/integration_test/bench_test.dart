@@ -22,8 +22,7 @@ const double kDriftIouFloor = 0.2;
 
 /// Delegate/model matrix. cpu runs every model; xnnpack runs v1 (cpu
 /// parity) and v2 (checks full-graph delegation) but skips attention
-/// (custom ops split its graph, so it mirrors cpu). gpuV2 is deprecated
-/// and excluded.
+/// (custom ops split its graph, so it mirrors cpu).
 const List<FaceMeshDelegate> kDelegates = <FaceMeshDelegate>[
   FaceMeshDelegate.cpu,
   FaceMeshDelegate.xnnpack,

@@ -181,24 +181,25 @@ class FaceMeshInferencePipeline {
   /// Set [enableLandmarkTracking] to false to run the detector on every
   /// frame and always derive the mesh ROI from the detection result.
   ///
-  /// Pass [landmarkSmoothing] to smooth output landmarks across frames with
-  /// a OneEuro filter, matching the official FaceLandmarker stream-mode
-  /// behavior; `const LandmarkSmoothingOptions()` selects the official
-  /// configuration. Smoothing affects only the returned landmarks — ROI
+  /// [landmarkSmoothing] smooths output landmarks across frames with a
+  /// OneEuro filter, matching the official FaceLandmarker stream-mode
+  /// behavior. The default is the official configuration. Pass `null` to
+  /// turn smoothing off. Smoothing affects only the returned landmarks. ROI
   /// tracking keeps running on the raw mesh output. In the multi-face flow
   /// each tracked face is smoothed independently while its
-  /// [TrackedFaceMesh.trackId] lives; with [enableLandmarkTracking] false
+  /// [TrackedFaceMesh.trackId] lives. With [enableLandmarkTracking] false
   /// the multi-face flow has no stable face identity, so each frame's meshes
   /// are re-associated with the previous frame's by ROI overlap and smoothed
   /// through the matching filter state. Frame timestamps default to an
-  /// internal clock; pass `timestamp` to the process methods when replaying
+  /// internal clock. Pass `timestamp` to the process methods when replaying
   /// recorded video.
   FaceMeshInferencePipeline({
     required FaceDetectorProcessor detector,
     required FaceMeshProcessor mesh,
     FaceDetectionSelector? detectionSelector,
     bool enableLandmarkTracking = true,
-    LandmarkSmoothingOptions? landmarkSmoothing,
+    LandmarkSmoothingOptions? landmarkSmoothing =
+        const LandmarkSmoothingOptions(),
   }) : _detector = detector,
        _mesh = mesh,
        _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
@@ -497,11 +498,9 @@ class FaceMeshInferencePipeline {
     final List<_FaceTrack> survivors = <_FaceTrack>[];
     try {
       if (_multiTracks.isNotEmpty) {
-        final List<FaceMeshResult> advanced = runMeshWithRois(
-          <NormalizedRect>[
-            for (final _FaceTrack track in _multiTracks) track.roi,
-          ],
-        );
+        final List<FaceMeshResult> advanced = runMeshWithRois(<NormalizedRect>[
+          for (final _FaceTrack track in _multiTracks) track.roi,
+        ]);
         for (int i = 0; i < _multiTracks.length; i++) {
           final FaceMeshResult mesh = advanced[i];
           if (mesh.landmarks.isEmpty || mesh.score < minTrackingConfidence) {

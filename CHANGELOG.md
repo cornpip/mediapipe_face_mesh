@@ -1,3 +1,14 @@
+## 3.0.0-wip
+
+- **BREAKING**: `FaceMeshInferencePipeline` smooths output landmarks by
+  default, matching the official FaceLandmarker stream mode
+  - `landmarkSmoothing: null` turns it off
+- **BREAKING**: `FaceMeshProcessor.create` and `createForMultiFace` default
+  to `FaceMeshModel.v2` (478 landmarks) instead of `FaceMeshModel.v1` (468)
+- **BREAKING**: remove `enableAttentionMesh`. `model` is the only way to pick
+  the mesh model
+- **BREAKING**: remove `FaceMeshDelegate.gpuV2`, deprecated since 2.6.0
+
 ## 2.9.0
 
 - improve NV21 plane conversion (`FaceMeshNv21Image.tryFromYuv420Planes`,
