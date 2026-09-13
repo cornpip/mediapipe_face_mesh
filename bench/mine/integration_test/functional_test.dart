@@ -134,6 +134,80 @@ void main() {
     );
   });
 
+  test('NV21 frames run through the same entry points as RGBA', () async {
+    final FaceMeshNv21Image nv21 = rgbaToNv21(portrait);
+    final FaceDetectorProcessor detector = await FaceDetectorProcessor.create();
+    final FaceMeshProcessor mesh = await FaceMeshProcessor.create(
+      enableRoiSmoothing: false,
+    );
+    try {
+      // Default model is v2 in 3.0.0.
+      expect(mesh.model, FaceMeshModel.v2);
+      expect(mesh.irisEnabled, isTrue);
+
+      final FaceDetection rgbaFace = detector
+          .process(portrait)
+          .primaryDetection!;
+      final FaceDetection nv21Face = detector.process(nv21).primaryDetection!;
+      expect(
+        nv21Face.faceRect!.xCenter,
+        closeTo(rgbaFace.faceRect!.xCenter, 0.02),
+      );
+      expect(
+        nv21Face.faceRect!.yCenter,
+        closeTo(rgbaFace.faceRect!.yCenter, 0.02),
+      );
+
+      final FaceMeshResult rgbaMesh = mesh.process(portrait, roi: faceRoi);
+      final FaceMeshResult nv21Mesh = mesh.process(nv21, roi: faceRoi);
+      expect(rgbaMesh.landmarks.length, 478);
+      expectLandmarksClose(nv21Mesh, rgbaMesh);
+
+      final List<FaceMeshResult> batch = mesh.processRois(
+        nv21,
+        rois: <NormalizedRect>[faceRoi],
+      );
+      expect(batch, hasLength(1));
+      expectLandmarksClose(batch.single, rgbaMesh);
+
+      // Pipeline: smoothing on by default, NV21 and RGBA through one method.
+      final FaceMeshInferencePipeline pipeline = FaceMeshInferencePipeline(
+        detector: detector,
+        mesh: mesh,
+      );
+      expect(pipeline.landmarkSmoothingEnabled, isTrue);
+      final FaceMeshInferenceResult single = pipeline.process(nv21);
+      expect(single.meshResult, isNotNull);
+      expectLandmarksClose(single.meshResult!, rgbaMesh);
+      final FaceMeshMultiInferenceResult multi = pipeline.processMultiFace(
+        portrait,
+        maxMeshFaces: 2,
+      );
+      expect(multi.faces, hasLength(1));
+
+      // Stream: the frame type is inferred from the stream.
+      final FaceMeshInferenceStreamProcessor streamProcessor =
+          FaceMeshInferenceStreamProcessor(pipeline);
+      pipeline.resetTracking();
+      final List<FaceMeshInferenceResult> streamed = await streamProcessor
+          .process(
+            Stream<FaceMeshNv21Image>.fromIterable(<FaceMeshNv21Image>[
+              nv21,
+              nv21,
+            ]),
+            runMeshResolver: (FaceMeshNv21Image frame) => true,
+          )
+          .toList();
+      expect(streamed, hasLength(2));
+      expect(streamed.first.detectorRan, isTrue);
+      expect(streamed.last.detectorRan, isFalse, reason: 'tracked frame');
+      expectLandmarksClose(streamed.last.meshResult!, rgbaMesh);
+    } finally {
+      mesh.close();
+      detector.close();
+    }
+  });
+
   test('NV21 chroma conversion timing', () {
     const int width = 1280;
     const int height = 720;
@@ -178,8 +252,13 @@ void main() {
 
     // The pre-2.9.0 conversion (per-pixel nullable reads), replicated here
     // as the comparison baseline.
-    int? readPlaneByte(Uint8List bytes, int rowStride, int pixelStride,
-        int row, int col) {
+    int? readPlaneByte(
+      Uint8List bytes,
+      int rowStride,
+      int pixelStride,
+      int row,
+      int col,
+    ) {
       final int index = row * rowStride + col * pixelStride;
       if (index < 0 || index >= bytes.length) {
         return null;
@@ -227,4 +306,39 @@ void main() {
       '${(oldClock.elapsedMicroseconds / runs / 1000).toStringAsFixed(3)} ms/frame)',
     );
   });
+}
+
+/// Converts an RGBA frame to NV21 (BT.601, chroma averaged per 2x2 block).
+FaceMeshNv21Image rgbaToNv21(FaceMeshImage image) {
+  final int w = image.width & ~1;
+  final int h = image.height & ~1;
+  final Uint8List y = Uint8List(w * h);
+  final Uint8List vu = Uint8List(w * (h ~/ 2));
+  for (int row = 0; row < h; row++) {
+    for (int col = 0; col < w; col++) {
+      final int i = row * image.bytesPerRow + col * 4;
+      final int r = image.pixels[i];
+      final int g = image.pixels[i + 1];
+      final int b = image.pixels[i + 2];
+      y[row * w + col] = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
+      if (row.isEven && col.isEven) {
+        final int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
+        final int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+        final int j = (row ~/ 2) * w + col;
+        vu[j] = v.clamp(0, 255);
+        vu[j + 1] = u.clamp(0, 255);
+      }
+    }
+  }
+  return FaceMeshNv21Image(yPlane: y, vuPlane: vu, width: w, height: h);
+}
+
+/// Landmarks from the NV21 path may differ slightly from the RGBA path
+/// because of chroma subsampling; 1% of the frame is well inside that.
+void expectLandmarksClose(FaceMeshResult actual, FaceMeshResult expected) {
+  expect(actual.landmarks.length, expected.landmarks.length);
+  for (int i = 0; i < expected.landmarks.length; i++) {
+    expect(actual.landmarks[i].x, closeTo(expected.landmarks[i].x, 0.01));
+    expect(actual.landmarks[i].y, closeTo(expected.landmarks[i].y, 0.01));
+  }
 }

@@ -418,7 +418,7 @@ class NormalizedRect {
 /// Pixel-space bounding box used to derive a normalized ROI.
 ///
 /// You can use this helper when providing bounding regions to
-/// [FaceMeshProcessor.process] or [FaceMeshProcessor.processNv21].
+/// [FaceMeshProcessor.process].
 class FaceMeshBox {
   /// Creates a pixel bounding box from explicit edges.
   const FaceMeshBox({
@@ -594,8 +594,20 @@ class FaceMeshImagePlane {
   final int? bytesPerPixel;
 }
 
+/// A frame accepted by every `process` method: [FaceMeshImage] (RGBA/BGRA)
+/// or [FaceMeshNv21Image] (NV21).
+sealed class FaceMeshFrame {
+  const FaceMeshFrame();
+
+  /// Frame width in pixels.
+  int get width;
+
+  /// Frame height in pixels.
+  int get height;
+}
+
 /// Container that holds RGBA/BGRA pixels used as inference input.
-class FaceMeshImage {
+class FaceMeshImage extends FaceMeshFrame {
   /// Creates an RGBA/BGRA image wrapper from raw bytes.
   FaceMeshImage({
     required this.pixels,
@@ -615,10 +627,10 @@ class FaceMeshImage {
   /// Raw pixel buffer backing this image.
   final Uint8List pixels;
 
-  /// Frame width in pixels.
+  @override
   final int width;
 
-  /// Frame height in pixels.
+  @override
   final int height;
 
   /// Bytes consumed per row (stride).
@@ -634,7 +646,7 @@ class FaceMeshImage {
 }
 
 /// Holder for NV21 (Y + interleaved VU) camera buffers.
-class FaceMeshNv21Image {
+class FaceMeshNv21Image extends FaceMeshFrame {
   /// Creates an NV21 image from Y and interleaved VU planes.
   FaceMeshNv21Image({
     required this.yPlane,
@@ -849,10 +861,11 @@ class FaceMeshNv21Image {
   /// Interleaved VU chroma plane.
   final Uint8List vuPlane;
 
-  /// Frame width in pixels.
+  @override
   final int width;
 
   /// Frame height in pixels (must be even).
+  @override
   final int height;
 
   /// Row stride for the Y plane.
@@ -1302,9 +1315,9 @@ class FaceDetectorProcessor {
     }
   }
 
-  /// Processes an RGBA/BGRA frame and returns normalized face detections.
+  /// Processes a frame and returns normalized face detections.
   FaceDetectionResult process(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
     NormalizedRect? roi,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
@@ -1315,32 +1328,36 @@ class FaceDetectorProcessor {
   }) {
     _ensureNotClosed();
     _validateRotation(rotationDegrees);
-    final double resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
-    final double resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
-    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
-    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
-    final ffi.Pointer<MpImage> nativeImage = _scratch.imageFrom(image);
     final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
         ? _toNativeRect(roi)
         : ffi.nullptr;
     final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
         _toNativeRoiTransform(
-          resolvedRoiScaleX,
-          resolvedRoiScaleY,
-          resolvedRoiShiftX,
-          resolvedRoiShiftY,
+          roiScaleX ?? _defaultRoiScaleX,
+          roiScaleY ?? _defaultRoiScaleY,
+          roiShiftX ?? _defaultRoiShiftX,
+          roiShiftY ?? _defaultRoiShiftY,
         );
-    FaceDetectionResult? processed;
+    final int mirror = mirrorHorizontal ? 1 : 0;
     try {
-      final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
-          .mp_face_detector_process(
-            _context,
-            nativeImage,
-            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-            roiTransformPtr,
-          );
+      final ffi.Pointer<MpFaceDetectorResult> resultPtr = switch (frame) {
+        FaceMeshImage() => faceBindings.mp_face_detector_process(
+          _context,
+          _scratch.imageFrom(frame),
+          roiPtr,
+          rotationDegrees,
+          mirror,
+          roiTransformPtr,
+        ),
+        FaceMeshNv21Image() => faceBindings.mp_face_detector_process_nv21(
+          _context,
+          _scratch.nv21From(frame),
+          roiPtr,
+          rotationDegrees,
+          mirror,
+          roiTransformPtr,
+        ),
+      };
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
           _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
@@ -1348,7 +1365,7 @@ class FaceDetectorProcessor {
         );
       }
       try {
-        processed = _copyResult(resultPtr.ref);
+        return _copyResult(resultPtr.ref);
       } finally {
         faceBindings.mp_face_detector_release_result(resultPtr);
       }
@@ -1356,64 +1373,6 @@ class FaceDetectorProcessor {
       if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
       if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
     }
-    return processed;
-  }
-
-  /// Processes an NV21 frame and returns normalized face detections.
-  FaceDetectionResult processNv21(
-    FaceMeshNv21Image image, {
-    NormalizedRect? roi,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-    double? roiScaleX,
-    double? roiScaleY,
-    double? roiShiftX,
-    double? roiShiftY,
-  }) {
-    _ensureNotClosed();
-    _validateRotation(rotationDegrees);
-    final double resolvedRoiScaleX = roiScaleX ?? _defaultRoiScaleX;
-    final double resolvedRoiScaleY = roiScaleY ?? _defaultRoiScaleY;
-    final double resolvedRoiShiftX = roiShiftX ?? _defaultRoiShiftX;
-    final double resolvedRoiShiftY = roiShiftY ?? _defaultRoiShiftY;
-    final ffi.Pointer<MpNv21Image> nativeImage = _scratch.nv21From(image);
-    final ffi.Pointer<MpNormalizedRect> roiPtr = roi != null
-        ? _toNativeRect(roi)
-        : ffi.nullptr;
-    final ffi.Pointer<MpRoiTransformOptions> roiTransformPtr =
-        _toNativeRoiTransform(
-          resolvedRoiScaleX,
-          resolvedRoiScaleY,
-          resolvedRoiShiftX,
-          resolvedRoiShiftY,
-        );
-    FaceDetectionResult? processed;
-    try {
-      final ffi.Pointer<MpFaceDetectorResult> resultPtr = faceBindings
-          .mp_face_detector_process_nv21(
-            _context,
-            nativeImage,
-            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-            roiTransformPtr,
-          );
-      if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
-          _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
-              'Native face detector error.',
-        );
-      }
-      try {
-        processed = _copyResult(resultPtr.ref);
-      } finally {
-        faceBindings.mp_face_detector_release_result(resultPtr);
-      }
-    } finally {
-      if (roiPtr != ffi.nullptr) pkg_ffi.calloc.free(roiPtr);
-      if (roiTransformPtr != ffi.nullptr) pkg_ffi.calloc.free(roiTransformPtr);
-    }
-    return processed;
   }
 
   ffi.Pointer<MpRoiTransformOptions> _toNativeRoiTransform(
@@ -1542,9 +1501,8 @@ class FaceMeshProcessor {
 
   /// Whether the internal tracked ROI is currently following a face.
   ///
-  /// True after a mesh call ([process]/[processNv21], or their
-  /// [processRois]/[processNv21Rois] batch forms) seeded the ROI from face
-  /// landmarks; false initially, after a face-presence or
+  /// True after [process] or [processRois] seeded the ROI from face
+  /// landmarks. False initially, after a face-presence or
   /// tracking-confidence failure dropped the ROI, or after an input
   /// rotation/mirroring change reset it. Always false when this processor
   /// was created with `enableRoiTracking: false`.
@@ -1593,7 +1551,7 @@ class FaceMeshProcessor {
   ///   the model. Landmark coordinates are not filtered here. That is
   ///   [FaceMeshInferencePipeline]'s `landmarkSmoothing`.
   /// - [enableRoiTracking] reuses internal ROI tracking when [roi] or [box]
-  ///   are omitted in later [process] or [processNv21] calls.
+  ///   are omitted in later [process] calls.
   /// - [minTrackingConfidence] is the mesh presence score below which
   ///   tracking stops trusting a followed face. The multi-face pipeline flow
   ///   drops the track and re-acquires it via the detector. The single-face
@@ -1717,7 +1675,7 @@ class FaceMeshProcessor {
     );
   }
 
-  /// Processes an image and returns face landmarks.
+  /// Processes a frame and returns face landmarks.
   ///
   /// By default, this processes using the internal ROI tracking state when
   /// [enableRoiTracking] was enabled during [create].
@@ -1730,8 +1688,10 @@ class FaceMeshProcessor {
   ///
   /// When [box] is provided, it is converted into a square ROI by default
   /// (using the max of width/height) and optionally expanded by [boxScale].
+  /// Set [mirrorHorizontal] to true if your camera preview is mirrored to
+  /// avoid flipped outputs.
   FaceMeshResult process(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
     NormalizedRect? roi,
     FaceMeshBox? box,
     double boxScale = _boxScale,
@@ -1744,37 +1704,39 @@ class FaceMeshProcessor {
       throw ArgumentError('Provide either roi or box, not both.');
     }
     _validateRotationDegrees(rotationDegrees);
-    final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
-        ? image.height
-        : image.width;
-    final int logicalHeight = (rotationDegrees == 90 || rotationDegrees == 270)
-        ? image.width
-        : image.height;
+    final bool swapped = rotationDegrees == 90 || rotationDegrees == 270;
     final NormalizedRect? effectiveRoi =
         roi ??
         (box != null
             ? _normalizedRectFromBox(
                 box,
-                imageWidth: logicalWidth,
-                imageHeight: logicalHeight,
+                imageWidth: swapped ? frame.height : frame.width,
+                imageHeight: swapped ? frame.width : frame.height,
                 scale: boxScale,
                 makeSquare: boxMakeSquare,
               )
             : null);
-    final ffi.Pointer<MpImage> nativeImage = _scratch.imageFrom(image);
     final ffi.Pointer<MpNormalizedRect> roiPtr = effectiveRoi != null
         ? _toNativeRect(effectiveRoi)
         : ffi.nullptr;
-    FaceMeshResult? processed;
+    final int mirror = mirrorHorizontal ? 1 : 0;
     try {
-      final ffi.Pointer<MpFaceMeshResult> resultPtr = faceBindings
-          .mp_face_mesh_process(
-            _context,
-            nativeImage,
-            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-          );
+      final ffi.Pointer<MpFaceMeshResult> resultPtr = switch (frame) {
+        FaceMeshImage() => faceBindings.mp_face_mesh_process(
+          _context,
+          _scratch.imageFrom(frame),
+          roiPtr,
+          rotationDegrees,
+          mirror,
+        ),
+        FaceMeshNv21Image() => faceBindings.mp_face_mesh_process_nv21(
+          _context,
+          _scratch.nv21From(frame),
+          roiPtr,
+          rotationDegrees,
+          mirror,
+        ),
+      };
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
           _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
@@ -1782,7 +1744,7 @@ class FaceMeshProcessor {
         );
       }
       try {
-        processed = _copyResult(resultPtr.ref);
+        return _copyResult(resultPtr.ref);
       } finally {
         faceBindings.mp_face_mesh_release_result(resultPtr);
       }
@@ -1791,76 +1753,6 @@ class FaceMeshProcessor {
         pkg_ffi.calloc.free(roiPtr);
       }
     }
-    return processed;
-  }
-
-  /// Processes NV21 camera frames captured directly from a camera preview.
-  ///
-  /// Parameters mirror the [process] method although the inputs are provided as
-  /// separate Y and VU planes in NV21 layout. Set [mirrorHorizontal] to true if
-  /// your camera preview is mirrored to avoid flipped outputs.
-  FaceMeshResult processNv21(
-    FaceMeshNv21Image image, {
-    NormalizedRect? roi,
-    FaceMeshBox? box,
-    double boxScale = _boxScale,
-    bool boxMakeSquare = true,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-  }) {
-    _ensureNotClosed();
-    if (roi != null && box != null) {
-      throw ArgumentError('Provide either roi or box, not both.');
-    }
-    _validateRotationDegrees(rotationDegrees);
-    final int logicalWidth = (rotationDegrees == 90 || rotationDegrees == 270)
-        ? image.height
-        : image.width;
-    final int logicalHeight = (rotationDegrees == 90 || rotationDegrees == 270)
-        ? image.width
-        : image.height;
-    final NormalizedRect? effectiveRoi =
-        roi ??
-        (box != null
-            ? _normalizedRectFromBox(
-                box,
-                imageWidth: logicalWidth,
-                imageHeight: logicalHeight,
-                scale: boxScale,
-                makeSquare: boxMakeSquare,
-              )
-            : null);
-    final ffi.Pointer<MpNv21Image> nativeImage = _scratch.nv21From(image);
-    final ffi.Pointer<MpNormalizedRect> roiPtr = effectiveRoi != null
-        ? _toNativeRect(effectiveRoi)
-        : ffi.nullptr;
-    FaceMeshResult? processed;
-    try {
-      final ffi.Pointer<MpFaceMeshResult> resultPtr = faceBindings
-          .mp_face_mesh_process_nv21(
-            _context,
-            nativeImage,
-            roiPtr == ffi.nullptr ? ffi.nullptr : roiPtr,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-          );
-      if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
-          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
-              'Native face mesh error.',
-        );
-      }
-      try {
-        processed = _copyResult(resultPtr.ref);
-      } finally {
-        faceBindings.mp_face_mesh_release_result(resultPtr);
-      }
-    } finally {
-      if (roiPtr != ffi.nullptr) {
-        pkg_ffi.calloc.free(roiPtr);
-      }
-    }
-    return processed;
   }
 
   /// Runs one mesh inference per ROI on a single native frame upload.
@@ -1878,7 +1770,7 @@ class FaceMeshProcessor {
   /// `enableRoiTracking: true` — after this call it follows the last entry
   /// in [rois] that produced landmarks (observable through [isTracking]).
   List<FaceMeshResult> processRois(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
     required List<NormalizedRect> rois,
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
@@ -1888,61 +1780,27 @@ class FaceMeshProcessor {
     if (rois.isEmpty) {
       return <FaceMeshResult>[];
     }
-    final ffi.Pointer<MpImage> nativeImage = _scratch.imageFrom(image);
     final ffi.Pointer<MpNormalizedRect> roisPtr = _toNativeRectArray(rois);
+    final int mirror = mirrorHorizontal ? 1 : 0;
     try {
-      final ffi.Pointer<MpFaceMeshMultiResult> resultPtr = faceBindings
-          .mp_face_mesh_process_rois(
-            _context,
-            nativeImage,
-            roisPtr,
-            rois.length,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-          );
-      if (resultPtr == ffi.nullptr) {
-        throw MediapipeFaceMeshException(
-          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
-              'Native face mesh error.',
-        );
-      }
-      try {
-        return _copyMultiResult(resultPtr.ref);
-      } finally {
-        faceBindings.mp_face_mesh_release_multi_result(resultPtr);
-      }
-    } finally {
-      pkg_ffi.calloc.free(roisPtr);
-    }
-  }
-
-  /// Runs one NV21 mesh inference per ROI on a single native frame upload.
-  ///
-  /// This is the NV21 counterpart of [processRois]; see that method for the
-  /// result semantics.
-  List<FaceMeshResult> processNv21Rois(
-    FaceMeshNv21Image image, {
-    required List<NormalizedRect> rois,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-  }) {
-    _ensureNotClosed();
-    _validateRotationDegrees(rotationDegrees);
-    if (rois.isEmpty) {
-      return <FaceMeshResult>[];
-    }
-    final ffi.Pointer<MpNv21Image> nativeImage = _scratch.nv21From(image);
-    final ffi.Pointer<MpNormalizedRect> roisPtr = _toNativeRectArray(rois);
-    try {
-      final ffi.Pointer<MpFaceMeshMultiResult> resultPtr = faceBindings
-          .mp_face_mesh_process_rois_nv21(
-            _context,
-            nativeImage,
-            roisPtr,
-            rois.length,
-            rotationDegrees,
-            mirrorHorizontal ? 1 : 0,
-          );
+      final ffi.Pointer<MpFaceMeshMultiResult> resultPtr = switch (frame) {
+        FaceMeshImage() => faceBindings.mp_face_mesh_process_rois(
+          _context,
+          _scratch.imageFrom(frame),
+          roisPtr,
+          rois.length,
+          rotationDegrees,
+          mirror,
+        ),
+        FaceMeshNv21Image() => faceBindings.mp_face_mesh_process_rois_nv21(
+          _context,
+          _scratch.nv21From(frame),
+          roisPtr,
+          rois.length,
+          rotationDegrees,
+          mirror,
+        ),
+      };
       if (resultPtr == ffi.nullptr) {
         throw MediapipeFaceMeshException(
           _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
@@ -1970,7 +1828,7 @@ class FaceMeshProcessor {
   /// [maxMeshFaces] limits how many mesh inferences are run from the provided
   /// [detections]. Detections without an ROI are skipped.
   List<FaceMeshResult> processMultiFace(
-    FaceMeshImage image, {
+    FaceMeshFrame frame, {
     required Iterable<FaceDetection> detections,
     int? maxMeshFaces,
     int rotationDegrees = 0,
@@ -1978,30 +1836,7 @@ class FaceMeshProcessor {
   }) {
     _validateMaxMeshFaces(maxMeshFaces);
     return processRois(
-      image,
-      rois: _roisForDetections(detections, maxMeshFaces),
-      rotationDegrees: rotationDegrees,
-      mirrorHorizontal: mirrorHorizontal,
-    );
-  }
-
-  /// Processes one NV21 mesh inference for each detector result with a usable
-  /// ROI.
-  ///
-  /// This is the NV21 counterpart of [processMultiFace].
-  ///
-  /// [maxMeshFaces] limits how many mesh inferences are run from the provided
-  /// [detections]. Detections without an ROI are skipped.
-  List<FaceMeshResult> processNv21MultiFace(
-    FaceMeshNv21Image image, {
-    required Iterable<FaceDetection> detections,
-    int? maxMeshFaces,
-    int rotationDegrees = 0,
-    bool mirrorHorizontal = false,
-  }) {
-    _validateMaxMeshFaces(maxMeshFaces);
-    return processNv21Rois(
-      image,
+      frame,
       rois: _roisForDetections(detections, maxMeshFaces),
       rotationDegrees: rotationDegrees,
       mirrorHorizontal: mirrorHorizontal,

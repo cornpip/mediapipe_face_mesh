@@ -2,6 +2,10 @@
 
 ### Breaking
 
+- every `process` method takes a `FaceMeshFrame` (`FaceMeshImage` or
+  `FaceMeshNv21Image`). `processNv21`, `processNv21Rois`, and
+  `processNv21MultiFace` are removed. Call `process`, `processRois`, and
+  `processMultiFace` with the same arguments
 - `FaceMeshInferencePipeline` smooths output landmarks by default
   - `landmarkSmoothing: null` turns it off
 - `FaceMeshProcessor.create` and `createForMultiFace` default to

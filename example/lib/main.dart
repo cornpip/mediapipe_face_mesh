@@ -167,14 +167,11 @@ class _TrackedRoiPainter extends CustomPainter {
 }
 
 class _StageInputControllers {
-  StreamController<FaceMeshNv21Image>? nv21Controller;
-  StreamController<FaceMeshImage>? bgraController;
+  StreamController<FaceMeshFrame>? controller;
 
   void close() {
-    nv21Controller?.close();
-    bgraController?.close();
-    nv21Controller = null;
-    bgraController = null;
+    controller?.close();
+    controller = null;
   }
 }
 
@@ -519,7 +516,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   void _ensureInferenceStageReady({
     required int rotationDegrees,
     required bool mirrorHorizontal,
-    required bool nv21,
   }) {
     if (_inferenceStreamSubscription != null &&
         _inferenceStreamRotation == rotationDegrees &&
@@ -533,58 +529,30 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _inferenceStreamRotation = rotationDegrees;
     _inferenceStreamMirror = mirrorHorizontal;
 
-    if (nv21) {
-      _inferenceStageInput.nv21Controller =
-          StreamController<FaceMeshNv21Image>();
-      final Stream<FaceMeshNv21Image> frames =
-          _inferenceStageInput.nv21Controller!.stream;
-      _inferenceStreamSubscription = _isMultiFaceActive
-          ? _faceMeshInferenceStreamProcessor
-                .processNv21MultiFace(
-                  frames,
-                  maxMeshFaces: _maxMeshFaces,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(
-                  _handleMultiInferenceResult,
-                  onError: _handleInferenceError,
-                )
-          : _faceMeshInferenceStreamProcessor
-                .processNv21(
-                  frames,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(_handleInferenceResult, onError: _handleInferenceError);
-    } else {
-      _inferenceStageInput.bgraController = StreamController<FaceMeshImage>();
-      final Stream<FaceMeshImage> frames =
-          _inferenceStageInput.bgraController!.stream;
-      _inferenceStreamSubscription = _isMultiFaceActive
-          ? _faceMeshInferenceStreamProcessor
-                .processMultiFace(
-                  frames,
-                  maxMeshFaces: _maxMeshFaces,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(
-                  _handleMultiInferenceResult,
-                  onError: _handleInferenceError,
-                )
-          : _faceMeshInferenceStreamProcessor
-                .process(
-                  frames,
-                  runMeshResolver: (_) => _isMeshActive,
-                  rotationDegrees: rotationDegrees,
-                  mirrorHorizontal: mirrorHorizontal,
-                )
-                .listen(_handleInferenceResult, onError: _handleInferenceError);
-    }
+    _inferenceStageInput.controller = StreamController<FaceMeshFrame>();
+    final Stream<FaceMeshFrame> frames =
+        _inferenceStageInput.controller!.stream;
+    _inferenceStreamSubscription = _isMultiFaceActive
+        ? _faceMeshInferenceStreamProcessor
+              .processMultiFace(
+                frames,
+                maxMeshFaces: _maxMeshFaces,
+                runMeshResolver: (_) => _isMeshActive,
+                rotationDegrees: rotationDegrees,
+                mirrorHorizontal: mirrorHorizontal,
+              )
+              .listen(
+                _handleMultiInferenceResult,
+                onError: _handleInferenceError,
+              )
+        : _faceMeshInferenceStreamProcessor
+              .process(
+                frames,
+                runMeshResolver: (_) => _isMeshActive,
+                rotationDegrees: rotationDegrees,
+                mirrorHorizontal: mirrorHorizontal,
+              )
+              .listen(_handleInferenceResult, onError: _handleInferenceError);
   }
 
   void _handleInferenceResult(FaceMeshInferenceResult result) {
@@ -1673,36 +1641,20 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     // tracking, same as a camera switch.
     final int effectiveRotation =
         (rotationCompensation + _inputRotationDegrees) % 360;
-    final FaceMeshNv21Image? nv21Image = frame.nv21;
-    if (nv21Image != null) {
-      _ensureInferenceStageReady(
-        rotationDegrees: effectiveRotation,
-        mirrorHorizontal: _inputMirror,
-        nv21: true,
-      );
-      final controller = _inferenceStageInput.nv21Controller;
-      if (controller == null || controller.isClosed) {
-        return;
-      }
-      _isProcessingFrame = true;
-      controller.add(nv21Image);
+    final FaceMeshFrame? input = frame.nv21 ?? frame.image;
+    if (input == null) {
       return;
     }
-
-    final FaceMeshImage? image = frame.image;
-    if (image != null) {
-      _ensureInferenceStageReady(
-        rotationDegrees: effectiveRotation,
-        mirrorHorizontal: _inputMirror,
-        nv21: false,
-      );
-      final controller = _inferenceStageInput.bgraController;
-      if (controller == null || controller.isClosed) {
-        return;
-      }
-      _isProcessingFrame = true;
-      controller.add(image);
+    _ensureInferenceStageReady(
+      rotationDegrees: effectiveRotation,
+      mirrorHorizontal: _inputMirror,
+    );
+    final controller = _inferenceStageInput.controller;
+    if (controller == null || controller.isClosed) {
+      return;
     }
+    _isProcessingFrame = true;
+    controller.add(input);
   }
 
   void _applyDetectionStage(

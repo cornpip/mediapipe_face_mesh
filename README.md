@@ -91,7 +91,7 @@ models 4~5x slower, so `xnnpack` is recommended there.
 
 ### Input Formats
 
-The package supports two image input types.
+Every `process` method takes a `FaceMeshFrame`, which is one of two types.
 
 - `FaceMeshNv21Image`
   Use this for Android camera frames in NV21 layout.
@@ -118,7 +118,7 @@ bool _isBusy = false;
 bool _isMeshActive = true; // e.g. driven by a UI toggle
 
 inferenceStreamProcessor
-    .processNv21(
+    .process(
       frameController.stream,
       runMeshResolver: (_) => _isMeshActive,
       rotationDegrees: rotationDegrees,
@@ -150,8 +150,6 @@ toggle that can change while the stream is active.
 input source) changes, re-subscribe with the new value. See the example app
 for a complete flow.
 
-For BGRA / RGBA input, use `process(...)` instead of `processNv21(...)`.
-
 #### Landmark tracking
 
 Tracking is on by default. The detector runs only to acquire or re-acquire
@@ -180,7 +178,7 @@ final pipeline = FaceMeshInferencePipeline(
   mesh: faceMeshProcessor,
 );
 
-final result = pipeline.processNv21(
+final result = pipeline.process(
   nv21Image,
   rotationDegrees: rotationDegrees,
 );
@@ -270,7 +268,7 @@ final pipeline = FaceMeshInferencePipeline(
 final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 
 inferenceStreamProcessor
-    .processNv21MultiFace(
+    .processMultiFace(
       frameController.stream,
       maxMeshFaces: 2,
       runMeshResolver: (_) => _isMeshActive,
@@ -290,16 +288,14 @@ void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
 }
 ```
 
-For BGRA / RGBA input, use `processMultiFace(...)` instead of
-`processNv21MultiFace(...)`. For single-frame multi-face inference, call
-`pipeline.processNv21MultiFace(...)` directly.
+For single-frame multi-face inference, call `pipeline.processMultiFace(...)`
+directly.
 
 ### Using an External Face Detector
 
 The bundled detector is optional. If you already use another face detector
-(e.g. ML Kit), pass its face box to `FaceMeshProcessor.process(...)` or
-`processNv21(...)` as a `FaceMeshBox` or `NormalizedRect` and skip
-`FaceDetectorProcessor` entirely.
+(e.g. ML Kit), pass its face box to `FaceMeshProcessor.process(...)` as a
+`FaceMeshBox` or `NormalizedRect` and skip `FaceDetectorProcessor` entirely.
 
 ### Close Resource
 
