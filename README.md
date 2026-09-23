@@ -4,7 +4,7 @@ Face detection and a 478-landmark face mesh pipeline, on device, in a few
 milliseconds per frame. Models and the TensorFlow Lite runtime ship inside
 the package. The only dependency is `ffi`.
 
-<img src="./readme_img/22.png" alt="face mesh preview" width="300"/> <img src="./readme_img/33.png" alt="multi-face preview" width="300"/>
+<img src="./readme_img/1b.png" alt="face mesh preview" width="300"/> <img src="./readme_img/1a.png" alt="multi-face preview" width="300"/>
 
 ## Supported Platforms
 
