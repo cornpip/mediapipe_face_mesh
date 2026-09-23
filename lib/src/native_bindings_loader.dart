@@ -5,10 +5,16 @@ import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
 
 MediapipeFaceBindings? _faceBindings;
 ffi.DynamicLibrary? _faceDylib;
+String? _customLibraryPath;
+
+/// The library path given to [initializeFaceBindings], if any. Worker
+/// isolates open the same library with it.
+String? get faceLibraryPath => _customLibraryPath;
 
 /// Optionally initialize bindings with a specific dynamic library or path.
 /// If not called, the first access will lazily load the default library.
 void initializeFaceBindings({ffi.DynamicLibrary? dylib, String? libraryPath}) {
+  _customLibraryPath = dylib == null ? libraryPath : null;
   _faceDylib = dylib ?? _openDefaultDylib(libraryPath: libraryPath);
   _faceBindings = MediapipeFaceBindings(_faceDylib!);
 }

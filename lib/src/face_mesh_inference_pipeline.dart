@@ -254,6 +254,15 @@ class FaceMeshInferencePipeline {
     _resetTrackingState();
   }
 
+  /// Closes the detector and mesh this pipeline was given.
+  ///
+  /// The pipeline does not own them, so skip this when they are shared
+  /// with other code. Closing a processor twice is a no-op.
+  void close() {
+    _detector.close();
+    _mesh.close();
+  }
+
   void _resetTrackingState() {
     _singleRoi = null;
     _clearMultiFaceState();

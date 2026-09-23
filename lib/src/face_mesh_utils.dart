@@ -16,8 +16,42 @@ Future<String> _materializeBlendshapesModel() async {
   return _materializeAsset(_defaultBlendshapesModelAsset);
 }
 
+/// Set by the worker isolate. `rootBundle` needs `ServicesBinding`, which
+/// only exists on the root isolate, so the worker asks the root isolate to
+/// load each asset and send the bytes back.
+SendPort? _assetRelayPort;
+
+Future<ByteData> _loadAsset(String key) async {
+  final SendPort? relay = _assetRelayPort;
+  if (relay == null) {
+    return rootBundle.load(key);
+  }
+  final ReceivePort reply = ReceivePort();
+  relay.send(_AssetRequest(key, reply.sendPort));
+  final _AssetReply response = await reply.first as _AssetReply;
+  final String? error = response.error;
+  if (error != null) {
+    throw FaceMeshException(error);
+  }
+  return response.data!;
+}
+
+class _AssetRequest {
+  const _AssetRequest(this.key, this.reply);
+
+  final String key;
+  final SendPort reply;
+}
+
+class _AssetReply {
+  const _AssetReply({this.data, this.error});
+
+  final ByteData? data;
+  final String? error;
+}
+
 Future<String> _materializeAsset(String key) async {
-  final ByteData data = await rootBundle.load(key);
+  final ByteData data = await _loadAsset(key);
   final Directory cacheDir = Directory(
     '${Directory.systemTemp.path}/mediapipe_face_mesh_cache',
   );

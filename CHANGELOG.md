@@ -1,3 +1,10 @@
+## 3.1.0-wip
+
+- add `FaceMeshIsolatePipeline`, which runs a `FaceMeshInferencePipeline`
+  in a worker isolate
+- add `FaceMeshInferencePipeline.close`, which closes the detector and mesh
+  it was given
+
 ## 3.0.0
 
 ### Breaking

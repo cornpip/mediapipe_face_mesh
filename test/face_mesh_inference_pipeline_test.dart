@@ -145,6 +145,12 @@ void main() {
     });
   });
 
+  test('close closes the detector and the mesh', () {
+    FaceMeshInferencePipeline(detector: detector, mesh: mesh).close();
+    expect(detector.closed, isTrue);
+    expect(mesh.closed, isTrue);
+  });
+
   group('smoothing', () {
     test('is on by default and null turns it off', () {
       expect(
@@ -222,6 +228,10 @@ FaceMeshResult _meshInside(
 class _FakeDetector implements FaceDetectorProcessor {
   List<FaceDetection> detections = <FaceDetection>[];
   int calls = 0;
+  bool closed = false;
+
+  @override
+  void close() => closed = true;
 
   @override
   FaceDetectionResult process(
@@ -248,6 +258,10 @@ class _FakeDetector implements FaceDetectorProcessor {
 
 class _FakeMesh implements FaceMeshProcessor {
   int calls = 0;
+  bool closed = false;
+
+  @override
+  void close() => closed = true;
   bool nextEmpty = false;
   List<double>? scoresForNextBatch;
   FaceMeshResult? lastResult;

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -20,6 +22,8 @@ part 'src/face_mesh_result_utils.dart';
 part 'src/face_mesh_geometry.dart';
 
 part 'src/face_mesh_inference_pipeline.dart';
+
+part 'src/face_mesh_isolate_pipeline.dart';
 
 part 'src/face_mesh_landmark_smoothing.dart';
 
