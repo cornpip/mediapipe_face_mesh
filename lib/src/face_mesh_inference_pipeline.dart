@@ -786,7 +786,12 @@ class _FaceTrack {
   FaceLandmarkSmoother? smoother;
 }
 
-/// Helper that turns a stream of frames into high-level inference results.
+/// Turns a stream of frames into inference results by calling
+/// [FaceMeshInferencePipeline.process] on each one.
+@Deprecated(
+  'Call FaceMeshInferencePipeline.process per frame instead. '
+  'Removed in 4.0.0.',
+)
 class FaceMeshInferenceStreamProcessor {
   /// Creates a stream processor bound to [pipeline].
   FaceMeshInferenceStreamProcessor(this._pipeline);

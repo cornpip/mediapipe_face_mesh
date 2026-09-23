@@ -1,5 +1,7 @@
 ## 3.1.0-wip
 
+- deprecate `FaceMeshInferenceStreamProcessor`, removed in 4.0.0. Call
+  `FaceMeshInferencePipeline.process` per frame instead
 - add `FaceMeshIsolatePipeline`, which runs a `FaceMeshInferencePipeline`
   in a worker isolate
 - add `FaceMeshInferencePipeline.close`, which closes the detector and mesh
