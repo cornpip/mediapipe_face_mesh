@@ -1,4 +1,4 @@
-## 3.1.0-wip
+## 3.1.0
 
 - deprecate `FaceMeshInferenceStreamProcessor`, removed in 4.0.0. Call
   `FaceMeshInferencePipeline.process` per frame instead
@@ -11,6 +11,7 @@
   directly
 - `FaceDetectionPainter` takes `extraRois` and a nullable `result`
 - add `FaceMeshResult.hasIris`
+- update example and docs
 
 ## 3.0.0
 
