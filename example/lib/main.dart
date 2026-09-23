@@ -1,17 +1,21 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mediapipe_face_mesh/face_detection_painter.dart';
-import 'package:mediapipe_face_mesh/face_mesh_painter.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
+import 'inference_config.dart';
 import 'sources/camera_frame_source.dart';
 import 'sources/frame_source.dart';
 import 'sources/uvc_frame_source.dart';
+import 'utils/result_text.dart';
+import 'widgets/control_bar.dart';
+import 'widgets/error_banner.dart';
+import 'widgets/option_tiles.dart';
+import 'widgets/preview_view.dart';
+import 'widgets/source_selectors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,35 +59,6 @@ class MediaPipeFacePage extends StatefulWidget {
   State<MediaPipeFacePage> createState() => _MediaPipeFacePageState();
 }
 
-/// Face mesh model selection: base mesh, base + iris two-pass, or one of the
-/// unified 478-landmark models (attention, FaceMesh-V2). A single choice
-/// avoids ambiguous combinations.
-enum _MeshMode {
-  base('Mesh (468)'),
-  iris('Mesh (468) + Iris (10)'),
-  attention('Attention Mesh (478)'),
-  faceMeshV2('FaceMesh-V2 (478, upstream)');
-
-  const _MeshMode(this.label);
-
-  final String label;
-
-  FaceMeshModel get model => switch (this) {
-    _MeshMode.base || _MeshMode.iris => FaceMeshModel.v1,
-    _MeshMode.attention => FaceMeshModel.attention,
-    _MeshMode.faceMeshV2 => FaceMeshModel.v2,
-  };
-
-  bool get enableIris => this == _MeshMode.iris;
-}
-
-/// Model choices the worker isolate builds its pipeline from. A record of
-/// enums, so it is sendable as is.
-typedef _IsolatePipelineArgs = ({
-  FaceDetectionModel detectionModel,
-  _MeshMode meshMode,
-});
-
 class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     with WidgetsBindingObserver {
   DemoFrameSource get _frameSource => widget.frameSource;
@@ -103,12 +78,18 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   bool _isCameraActive = false;
   bool _isCameraBusy = false;
   bool _isChangingCamera = false;
+
+  /// Whether frames are handed to the pipeline. On after the camera starts;
+  /// the Stop Detect button turns it off.
   bool _isDetectionActive = false;
-  bool _isMeshActive = false;
+
+  /// Whether the mesh runs on detected faces. A preference that survives
+  /// camera stops.
+  bool _isMeshActive = true;
 
   /// Run the pipeline in a worker isolate (FaceMeshIsolatePipeline) instead
-  /// of on the UI isolate. Rebuilt whenever a model changes.
-  bool _runInIsolate = false;
+  /// of on the UI isolate. On by default. Rebuilt whenever a model changes.
+  bool _runInIsolate = true;
   FaceMeshIsolatePipeline? _isolatePipeline;
   int _isolateGeneration = 0;
   static const Duration _inferenceFpsUpdateInterval = Duration(
@@ -138,11 +119,15 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   late FaceMeshProcessor _faceMeshProcessor;
   late FaceMeshInferencePipeline _faceMeshInferencePipeline;
 
+  /// False until _initialize built the processors. The camera stays off and
+  /// dispose skips them when it failed.
+  bool _isPipelineReady = false;
+
   /// Rotation of the last frame handed to inference. Null until the first
   /// frame after _resetInference, which marks a new input source.
   int? _lastInferenceRotation;
   FaceDetectionModel _detectionModel = FaceDetectionModel.shortRange;
-  _MeshMode _meshMode = _MeshMode.faceMeshV2;
+  MeshMode _meshMode = MeshMode.faceMeshV2;
   bool _isMultiFaceActive = false;
 
   /// Display-only rotation (0/90/180/270) of the composited preview and
@@ -170,12 +155,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// as-is, so the mesh visibly mirrors.
   bool _inputMirror = false;
 
-  /// OneEuro landmark smoothing (official FaceLandmarker stream-mode
-  /// behavior): removes per-point jitter on a still face while fast head
-  /// motion passes through with almost no lag. The demo always enables it.
-  static const LandmarkSmoothingOptions _landmarkSmoothing =
-      LandmarkSmoothingOptions();
-  static const int _maxMeshFaces = 4;
   final ScrollController _controlsScrollController = ScrollController();
 
   @override
@@ -194,89 +173,39 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   }
 
   Future<void> _initialize() async {
+    FaceDetectorProcessor? detector;
+    FaceMeshProcessor? mesh;
     try {
-      _faceDetectorProcessor = await _createFaceDetectorProcessor(
-        _detectionModel,
-      );
-
-      final faceMeshProcessor = await _createFaceMeshProcessor(
+      detector = await createFaceDetectorProcessor(_detectionModel);
+      mesh = await createFaceMeshProcessor(
         model: _meshMode.model,
         iris: _meshMode.enableIris,
       );
       // Create the blendshapes processor once (it loads the model), then run it
       // on each mesh result below (the mesh must include iris landmarks).
       _blendshapesProcessor = await FaceBlendshapesProcessor.create(
-        delegate: _preferredDelegate,
+        delegate: preferredDelegate,
       );
-      final inferencePipeline = FaceMeshInferencePipeline(
-        detector: _faceDetectorProcessor,
-        mesh: faceMeshProcessor,
-        landmarkSmoothing: _landmarkSmoothing,
+      _faceDetectorProcessor = detector;
+      _faceMeshProcessor = mesh;
+      _faceMeshInferencePipeline = FaceMeshInferencePipeline(
+        detector: detector,
+        mesh: mesh,
+        landmarkSmoothing: landmarkSmoothing,
       );
-      _update(() {
-        _faceMeshProcessor = faceMeshProcessor;
-        _faceMeshInferencePipeline = inferencePipeline;
-      });
+      _isPipelineReady = true;
+      // Spawns the worker when isolate mode is on, so Start Cam has one.
+      await _restartIsolatePipeline();
     } catch (error) {
       _errorMessage = '$error';
+      if (!_isPipelineReady) {
+        detector?.close();
+        mesh?.close();
+      }
     } finally {
       _update(() => _isInitializing = false);
     }
   }
-
-  /// XNNPACK with the default CPU fallback: same speed as cpu on Android,
-  /// 4~5x faster on Windows.
-  static const FaceMeshDelegate _preferredDelegate = FaceMeshDelegate.xnnpack;
-
-  /// Static so the worker isolate builds its processors with the same
-  /// options (see _createPipelineInWorker).
-  static Future<FaceDetectorProcessor> _createFaceDetectorProcessor(
-    FaceDetectionModel model,
-  ) {
-    final isFullRange = model != FaceDetectionModel.shortRange;
-    return FaceDetectorProcessor.create(
-      model: model,
-      delegate: _preferredDelegate,
-      // Let the detector return several candidates; the single-face flow
-      // still picks the best one, and the multi-face flow needs them all.
-      maxResults: _maxMeshFaces,
-      // Detector ROI defaults are scaleX/scaleY = 1.5 and shiftX/shiftY = 0.0.
-      // This demo keeps the default X values and only nudges Y; with landmark
-      // tracking these apply to (re)acquisition frames only. Tune per
-      // model/camera if the acquisition box is too loose or tight.
-      roiScaleY: isFullRange ? 1.6 : 1.7,
-      roiShiftY: isFullRange ? -0.1 : -0.2,
-    );
-  }
-
-  static Future<FaceMeshProcessor> _createFaceMeshProcessor({
-    required FaceMeshModel model,
-    required bool iris,
-  }) async {
-    final FaceMeshProcessor processor = await FaceMeshProcessor.create(
-      model: model,
-      enableIris: iris,
-      delegate: _preferredDelegate,
-    );
-    debugPrint(
-      'FaceMeshProcessor created: model=$model iris=$iris '
-      'delegate=${processor.activeDelegate}',
-    );
-    return processor;
-  }
-
-  /// Runs inside the worker isolate. Static, so it can be handed to
-  /// FaceMeshIsolatePipeline.spawn without capturing this State.
-  static Future<FaceMeshInferencePipeline> _createPipelineInWorker(
-    _IsolatePipelineArgs args,
-  ) async => FaceMeshInferencePipeline(
-    detector: await _createFaceDetectorProcessor(args.detectionModel),
-    mesh: await _createFaceMeshProcessor(
-      model: args.meshMode.model,
-      iris: args.meshMode.enableIris,
-    ),
-    landmarkSmoothing: _landmarkSmoothing,
-  );
 
   Future<void> _changeDetectionModel(FaceDetectionModel value) async {
     if (value == _detectionModel) {
@@ -289,7 +218,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     });
 
     try {
-      final newFaceDetectorProcessor = await _createFaceDetectorProcessor(
+      final newFaceDetectorProcessor = await createFaceDetectorProcessor(
         _detectionModel,
       );
       _resetInference();
@@ -299,7 +228,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       _faceMeshInferencePipeline = FaceMeshInferencePipeline(
         detector: newFaceDetectorProcessor,
         mesh: _faceMeshProcessor,
-        landmarkSmoothing: _landmarkSmoothing,
+        landmarkSmoothing: landmarkSmoothing,
       );
       oldProcessor.close();
       unawaited(_restartIsolatePipeline());
@@ -311,7 +240,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     }
   }
 
-  _IsolatePipelineArgs _currentIsolateArgs() =>
+  IsolatePipelineArgs _currentIsolateArgs() =>
       (detectionModel: _detectionModel, meshMode: _meshMode);
 
   /// Closes the current worker, if any, and spawns one for the current
@@ -324,10 +253,10 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       return;
     }
     final int generation = ++_isolateGeneration;
-    final _IsolatePipelineArgs args = _currentIsolateArgs();
+    final IsolatePipelineArgs args = _currentIsolateArgs();
     try {
       final FaceMeshIsolatePipeline pipeline =
-          await FaceMeshIsolatePipeline.spawn(_createPipelineInWorker, args);
+          await FaceMeshIsolatePipeline.spawn(createPipelineInWorker, args);
       if (generation != _isolateGeneration || !_runInIsolate || !mounted) {
         await pipeline.close();
         return;
@@ -463,7 +392,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     final String? movementLabel = _resolveMovementLabel(meshResult);
     final String? geometryText =
         meshResult != null && meshResult.landmarks.length >= 468
-        ? _geometryTextOf(meshResult)
+        ? geometryTextOf(meshResult)
         : null;
     _update(() {
       _movementLabel = movementLabel;
@@ -485,7 +414,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (blendshapes == null) {
       return null; // no face in this frame
     }
-    return _detectMovement(blendshapes);
+    return detectMovement(blendshapes);
   }
 
   @override
@@ -500,7 +429,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
       void reset() {
         _isCameraActive = false;
         _isDetectionActive = false;
-        _isMeshActive = false;
         _clearMesh();
         _resetInference();
         _clearDetections();
@@ -519,7 +447,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _frameSource.removeListener(_onFrameSourceChanged);
     _frameSource.dispose();
     _resetInference();
-    _faceMeshInferencePipeline.close();
+    if (_isPipelineReady) {
+      _faceMeshInferencePipeline.close();
+    }
     _blendshapesProcessor?.close();
     _isolatePipeline?.close();
     _controlsScrollController.dispose();
@@ -528,7 +458,11 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
 
   @override
   Widget build(BuildContext context) {
-    final isCameraAvailable = _isCameraActive && _frameSource.isReady;
+    final bool isCameraAvailable = _isCameraActive && _frameSource.isReady;
+    final bool canSwitchCamera =
+        !_isChangingCamera && !_isCameraBusy && _frameSource.isReady;
+    final bool canToggleDetect =
+        _isCameraActive && !_isCameraBusy && _frameSource.isReady;
 
     return Scaffold(
       appBar: AppBar(
@@ -537,14 +471,44 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         centerTitle: true,
       ),
       body: SafeArea(
-        child: _errorMessage != null
-            ? _buildErrorView()
-            : _isInitializing
+        child: _isInitializing
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  Center(child: _buildCameraPreview(isCameraAvailable)),
-                  SizedBox(height: 10),
+                  if (_errorMessage != null)
+                    ErrorBanner(
+                      message: _errorMessage!,
+                      onDismiss: () => setState(() => _errorMessage = null),
+                    ),
+                  Center(
+                    child: PreviewView(
+                      frameSource: _frameSource,
+                      isCameraAvailable: isCameraAvailable,
+                      inference: _inference,
+                      multiInference: _multiInference,
+                      multiFaceLabels: _multiFaceLabels,
+                      movementLabel: _movementLabel,
+                      geometryText: _geometryText,
+                      inferenceFps: _inferenceFps,
+                      showMesh: _isMeshActive,
+                      isMultiFace: _isMultiFaceActive,
+                      maxMeshFaces: maxMeshFaces,
+                      rotationDegrees: _userRotationDegrees,
+                      mirror: _userMirror,
+                      flipVertical: _userFlipVertical,
+                      onSwitchCamera: canSwitchCamera ? _switchCamera : null,
+                    ),
+                  ),
+                  ControlBar(
+                    isCameraActive: _isCameraActive,
+                    isDetectionActive: _isDetectionActive,
+                    onToggleCamera: _isCameraBusy || !_isPipelineReady
+                        ? null
+                        : _toggleCamera,
+                    onToggleDetection: canToggleDetect
+                        ? _toggleDetection
+                        : null,
+                  ),
                   Expanded(
                     child: Scrollbar(
                       controller: _controlsScrollController,
@@ -553,13 +517,23 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
                         controller: _controlsScrollController,
                         child: Column(
                           children: [
-                            ..._buildSourceSelectors(),
-                            _buildModelSelector(),
-                            _buildMeshModelSelector(),
-                            _buildMultiFaceSwitch(),
+                            SourceSelectors(
+                              frameSource: _frameSource,
+                              enabled: !_isCameraBusy,
+                            ),
+                            OptionsPanel(
+                              title: 'Models',
+                              initiallyExpanded: true,
+                              children: [
+                                _buildModelSelector(),
+                                const SizedBox(height: 8),
+                                _buildMeshModelSelector(),
+                              ],
+                            ),
+                            _buildMeshOptionsPanel(),
                             _buildCameraOptionsPanel(),
                             _buildImageProcessOptionsPanel(),
-                            _buildControlButtons(),
+                            const SizedBox(height: 8),
                           ],
                         ),
                       ),
@@ -571,548 +545,105 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     );
   }
 
-  Widget _buildErrorView() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Text(
-          _errorMessage ?? 'Unknown error',
-          style: const TextStyle(color: Colors.red),
-          textAlign: TextAlign.center,
+  Widget _buildModelSelector() {
+    return LabeledDropdown<FaceDetectionModel>(
+      label: 'Detection Model',
+      value: _detectionModel,
+      items: const [
+        DropdownMenuItem<FaceDetectionModel>(
+          value: FaceDetectionModel.shortRange,
+          child: Text('Short-range'),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCameraPreview(bool isCameraAvailable) {
-    final nativeAspectRatio = _frameSource.nativeAspectRatio;
-    final displayAspectRatio = _frameSource.displayAspectRatio;
-    // Results are drawn as-is (no compensation for the Image process
-    // options), so an input-side rotation or mirror is visible on screen:
-    // the mesh draws where the transformed coordinates say it is.
-    final mirror = _frameSource.mirrorHorizontal;
-    final fpsText =
-        'Infer: ${_inferenceFps > 0 ? _inferenceFps.toStringAsFixed(1) : '--'} fps';
-
-    return Builder(
-      builder: (context) {
-        final Size screen = MediaQuery.of(context).size;
-        // Cap by height too so wide desktop windows keep room for controls.
-        final displayWidth = math.min(
-          screen.width * 0.9,
-          screen.height * 0.55 * displayAspectRatio,
-        );
-        // Inner SizedBox keeps the camera's native ratio so it renders correctly.
-        final nativeHeight = displayWidth / nativeAspectRatio;
-
-        return SizedBox(
-          width: displayWidth,
-          child: AspectRatio(
-            aspectRatio: displayAspectRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Camera feed clipped to display ratio. The Camera options
-                // rotate/mirror the composited preview and overlays as one
-                // layer, so they cannot drift apart.
-                ClipRect(
-                  child: Transform.flip(
-                    flipX: _userMirror,
-                    flipY: _userFlipVertical,
-                    child: RotatedBox(
-                      quarterTurns: _userRotationDegrees ~/ 90,
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: displayWidth,
-                          height: nativeHeight,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (isCameraAvailable)
-                                _frameSource.buildPreview()
-                              else
-                                Container(
-                                  color: Colors.black12,
-                                  alignment: Alignment.center,
-                                  child: const Text(
-                                    'Press Start Cam',
-                                    style: TextStyle(color: Colors.black54),
-                                  ),
-                                ),
-                              // Detector frames draw the detector's ROI,
-                              // tracked frames the ROI the mesh used.
-                              if (isCameraAvailable && _inference != null)
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter: FaceDetectionPainter.fromInference(
-                                      _inference!,
-                                      // The movement from the blendshapes,
-                                      // as in the multi-face labels.
-                                      label: _movementLabel,
-                                      mirrorHorizontal: mirror,
-                                      showConfidence: false,
-                                      showFaceBox: false,
-                                    ),
-                                  ),
-                                ),
-                              if (isCameraAvailable && _multiInference != null)
-                                RepaintBoundary(
-                                  child: CustomPaint(
-                                    painter:
-                                        FaceDetectionPainter.fromMultiInference(
-                                          _multiInference!,
-                                          labelOf: (TrackedFaceMesh face) =>
-                                              _multiFaceLabels[face.trackId] ??
-                                              '#${face.trackId}',
-                                          mirrorHorizontal: mirror,
-                                          showConfidence: false,
-                                          showFaceBox: false,
-                                          // Tracked faces carry their own
-                                          // ROI. Detector ROIs only matter
-                                          // while the mesh is off.
-                                          showRoiBox: !_isMeshActive,
-                                        ),
-                                  ),
-                                ),
-                              if (isCameraAvailable &&
-                                  _isMeshActive &&
-                                  _inference?.meshResult != null)
-                                RepaintBoundary(
-                                  child: IgnorePointer(
-                                    child: CustomPaint(
-                                      painter: FaceMeshPainter.fromInference(
-                                        _inference!,
-                                        irisDotRadius: 2,
-                                        scaleWithFace: true,
-                                        mirrorHorizontal: mirror,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              if (isCameraAvailable &&
-                                  _isMeshActive &&
-                                  (_multiInference?.faces.isNotEmpty ?? false))
-                                RepaintBoundary(
-                                  child: IgnorePointer(
-                                    child: CustomPaint(
-                                      painter:
-                                          FaceMeshPainter.fromMultiInference(
-                                            _multiInference!,
-                                            irisDotRadius: 2,
-                                            scaleWithFace: true,
-                                            mirrorHorizontal: mirror,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Chips outside ClipRect so they're always visible
-                if (isCameraAvailable)
-                  Positioned(top: 12, right: 12, child: _infoChip(fpsText)),
-                if (_geometryText != null)
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: _infoChip(_geometryText!),
-                  ),
-                Positioned(
-                  bottom: 12,
-                  left: 12,
-                  child: _infoChip(_trackingChipText()),
-                ),
-              ],
-            ),
-          ),
-        );
+        DropdownMenuItem<FaceDetectionModel>(
+          value: FaceDetectionModel.fullRange,
+          child: Text('Full-range (dense)'),
+        ),
+        DropdownMenuItem<FaceDetectionModel>(
+          value: FaceDetectionModel.fullRangeSparse,
+          child: Text('Full-range (sparse)'),
+        ),
+      ],
+      onChanged: (value) {
+        if (value == null || value == _detectionModel) {
+          return;
+        }
+        _changeDetectionModel(value);
       },
     );
   }
 
-  String _trackingChipText() {
-    final int trackedFaces = _multiInference?.faces.length ?? 0;
-    if (_isMultiFaceActive && trackedFaces > 0) {
-      return 'Tracking $trackedFaces/$_maxMeshFaces';
-    }
-    if (!_isMultiFaceActive && _inference?.detectorRan == false) {
-      return 'Tracking';
-    }
-    final FaceDetectionResult? detections =
-        _inference?.detectionResult ?? _multiInference?.detectionResult;
-    return 'Faces: ${detections?.detections.length ?? 0}';
-  }
-
-  String _geometryTextOf(FaceMeshResult result) {
-    try {
-      final geometry = result.estimateGeometry();
-      final pose = geometry.headPose;
-      final measurements = geometry.measurements;
-      final double innerEyePixels = result.distancePixels(133, 362);
-      final StringBuffer buf = StringBuffer(
-        'Yaw ${pose.yawDegrees.toStringAsFixed(0)}°  '
-        'Pitch ${pose.pitchDegrees.toStringAsFixed(0)}°  '
-        'Roll ${pose.rollDegrees.toStringAsFixed(0)}°\n',
-      );
-      final ipd = measurements.interpupillaryDistance;
-      if (ipd != null) {
-        buf.write('IPD ${ipd.valueCm.toStringAsFixed(1)}cm  ');
-      }
-      buf.write(
-        'Inner eye ${measurements.eyeInnerDistance.valueCm.toStringAsFixed(1)}cm\n'
-        'Inner eye ${innerEyePixels.toStringAsFixed(0)}px',
-      );
-      return buf.toString();
-    } on Object {
-      return 'Geometry unavailable';
-    }
-  }
-
-  /// Maps the 52 blendshape coefficients to a coarse facial movement label.
-  ///
-  /// Thresholds are illustrative starting points; tune per camera and lighting.
-  String _detectMovement(FaceBlendshapes blendshapes) {
-    double v(FaceBlendshape shape) => blendshapes[shape];
-    final double smile =
-        (v(FaceBlendshape.mouthSmileLeft) + v(FaceBlendshape.mouthSmileRight)) /
-        2;
-    final double blink = math.max(
-      v(FaceBlendshape.eyeBlinkLeft),
-      v(FaceBlendshape.eyeBlinkRight),
-    );
-
-    if (blink > 0.45) {
-      return 'Blink';
-    }
-    if (v(FaceBlendshape.jawOpen) > 0.35) {
-      return 'Mouth open';
-    }
-    if (smile > 0.4) {
-      return 'Smile';
-    }
-    return 'Neutral';
-  }
-
-  Widget _infoChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  static const TextStyle _selectorTextStyle = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w600,
-    color: Colors.black87,
-  );
-
-  InputDecoration _selectorDecoration(String label) {
-    OutlineInputBorder border(Color color, [double width = 1]) =>
-        OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: color, width: width),
-        );
-    return InputDecoration(
-      labelText: label,
-      isDense: true,
-      filled: true,
-      fillColor: Colors.black.withValues(alpha: 0.035),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      labelStyle: const TextStyle(fontSize: 12, color: Colors.black54),
-      floatingLabelStyle: const TextStyle(fontSize: 12.5),
-      border: border(Colors.black12),
-      enabledBorder: border(Colors.black12),
-      focusedBorder: border(Colors.black38, 1.4),
-    );
-  }
-
-  /// Source-provided chip filters and dropdowns (UVC format filter, device
-  /// and camera mode on Windows), styled like the model selectors below.
-  /// Empty for the mobile camera source.
-  List<Widget> _buildSourceSelectors() {
-    return [
-      for (final FrameSourceTagFilter filter in _frameSource.tagFilters)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: 8,
-              children: [
-                for (var i = 0; i < filter.options.length; i++)
-                  ChoiceChip(
-                    label: Text(filter.options[i]),
-                    selected: filter.selectedIndex == i,
-                    onSelected: _isCameraBusy
-                        ? null
-                        : (_) => filter.onSelect(i),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      for (final FrameSourceSelector selector in _frameSource.selectors)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-          child: DropdownButtonFormField<int>(
-            // initialValue needs Flutter 3.35; the package supports 3.32.
-            // ignore: deprecated_member_use
-            value: selector.selectedIndex >= 0 ? selector.selectedIndex : null,
-            isDense: true,
-            isExpanded: true,
-            borderRadius: BorderRadius.circular(12),
-            style: _selectorTextStyle,
-            icon: const Icon(Icons.expand_more_rounded, size: 20),
-            decoration: _selectorDecoration(selector.label),
-            items: [
-              for (var i = 0; i < selector.options.length; i++)
-                DropdownMenuItem<int>(
-                  value: i,
-                  child: Text(
-                    selector.options[i],
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            onChanged: _isCameraBusy
-                ? null
-                : (index) {
-                    if (index == null || index == selector.selectedIndex) {
-                      return;
-                    }
-                    selector.onSelect(index);
-                  },
-          ),
-        ),
-    ];
-  }
-
-  Widget _buildModelSelector() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      child: DropdownButtonFormField<FaceDetectionModel>(
-        // ignore: deprecated_member_use
-        value: _detectionModel,
-        isDense: true,
-        borderRadius: BorderRadius.circular(12),
-        style: _selectorTextStyle,
-        icon: const Icon(Icons.expand_more_rounded, size: 20),
-        decoration: _selectorDecoration('Detection Model'),
-        items: const [
-          DropdownMenuItem<FaceDetectionModel>(
-            value: FaceDetectionModel.shortRange,
-            child: Text('Short-range'),
-          ),
-          DropdownMenuItem<FaceDetectionModel>(
-            value: FaceDetectionModel.fullRange,
-            child: Text('Full-range (dense)'),
-          ),
-          DropdownMenuItem<FaceDetectionModel>(
-            value: FaceDetectionModel.fullRangeSparse,
-            child: Text('Full-range (sparse)'),
-          ),
-        ],
-        onChanged: (value) {
-          if (value == null || value == _detectionModel) {
-            return;
-          }
-          _changeDetectionModel(value);
-        },
-      ),
-    );
-  }
-
   Widget _buildMeshModelSelector() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      child: DropdownButtonFormField<_MeshMode>(
-        // ignore: deprecated_member_use
-        value: _meshMode,
-        isDense: true,
-        borderRadius: BorderRadius.circular(12),
-        style: _selectorTextStyle,
-        icon: const Icon(Icons.expand_more_rounded, size: 20),
-        decoration: _selectorDecoration('Mesh Model'),
-        items: [
-          for (final _MeshMode mode in _MeshMode.values)
-            DropdownMenuItem<_MeshMode>(value: mode, child: Text(mode.label)),
-        ],
-        onChanged: _isCameraBusy
-            ? null
-            : (value) {
-                if (value == null) return;
-                _changeMeshMode(value);
-              },
-      ),
+    return LabeledDropdown<MeshMode>(
+      label: 'Mesh Model',
+      value: _meshMode,
+      items: [
+        for (final MeshMode mode in MeshMode.values)
+          DropdownMenuItem<MeshMode>(value: mode, child: Text(mode.label)),
+      ],
+      onChanged: _isCameraBusy
+          ? null
+          : (value) {
+              if (value == null) return;
+              _changeMeshMode(value);
+            },
     );
   }
 
-  Widget _buildControlButtons() {
-    final isControllerReady = _frameSource.isReady;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _isCameraBusy ? null : _toggleCamera,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isCameraActive
-                        ? Colors.redAccent
-                        : Colors.greenAccent,
-                    foregroundColor: Colors.black,
-                  ),
-                  icon: Icon(
-                    _isCameraActive ? Icons.stop : Icons.videocam,
-                    color: Colors.black,
-                  ),
-                  label: Text(_isCameraActive ? 'Stop Cam' : 'Start Cam'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed:
-                      (!_isCameraActive || _isCameraBusy || !isControllerReady)
-                      ? null
-                      : _toggleDetection,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isDetectionActive
-                        ? Colors.orangeAccent
-                        : Colors.blueAccent,
-                    foregroundColor: Colors.black,
-                  ),
-                  icon: Icon(
-                    _isDetectionActive ? Icons.pause : Icons.play_arrow,
-                    color: Colors.black,
-                  ),
-                  label: Text(
-                    _isDetectionActive ? 'Stop Detect' : 'Start Detect',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed:
-                      (!_isCameraActive ||
-                          _isCameraBusy ||
-                          !isControllerReady ||
-                          !_isDetectionActive)
-                      ? null
-                      : _toggleMesh,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isMeshActive
-                        ? Colors.purpleAccent
-                        : Colors.purple,
-                    foregroundColor: Colors.black,
-                  ),
-                  icon: Icon(
-                    _isMeshActive ? Icons.stop_circle : Icons.blur_on,
-                    color: Colors.black,
-                  ),
-                  label: Text(_isMeshActive ? 'Stop Mesh' : 'Start Mesh'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+  Widget _buildMeshOptionsPanel() {
+    return OptionsPanel(
+      title: 'Mesh options',
+      initiallyExpanded: true,
+      children: [
+        SwitchTile(
+          label: 'Face mesh',
+          value: _isMeshActive,
+          onChanged: _isCameraBusy ? null : (_) => _toggleMesh(),
+        ),
+        const SizedBox(height: 8),
+        // Runs the mesh on every detected face instead of one. Orthogonal
+        // to the Mesh Model choice.
+        SwitchTile(
+          label: 'Multi-face mesh',
+          value: _isMultiFaceActive,
+          onChanged: _isCameraBusy ? null : (_) => _toggleMultiFace(),
+        ),
+        const SizedBox(height: 8),
+        SwitchTile(
+          label: 'Run inference in isolate',
+          value: _runInIsolate,
+          onChanged: _isCameraBusy ? null : (_) => _toggleRunInIsolate(),
+        ),
+      ],
     );
   }
 
-  Widget _buildMultiFaceSwitch() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      // Runs the mesh model on every detected face (multi-face) instead of a
-      // single face. Orthogonal to the Mesh Model choice above.
-      child: _buildModeSwitch(
-        icon: Icons.groups,
-        label: 'Multi-face mesh',
-        value: _isMultiFaceActive,
-        onChanged: _isCameraBusy ? null : (_) => _toggleMultiFace(),
-      ),
-    );
-  }
-
-  /// Camera-related controls, collapsed by default so the main controls
-  /// stay short.
+  /// Display-side transforms. Collapsed by default.
   Widget _buildCameraOptionsPanel() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      child: ExpansionTile(
-        shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Colors.black12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        collapsedShape: RoundedRectangleBorder(
-          side: const BorderSide(color: Colors.black12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        backgroundColor: Colors.black.withValues(alpha: 0.035),
-        collapsedBackgroundColor: Colors.black.withValues(alpha: 0.035),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        leading: const Icon(Icons.tune, size: 18, color: Colors.black54),
-        title: const Text(
-          'Camera options',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
+    return OptionsPanel(
+      title: 'Camera options',
+      children: [
+        RotationTile(
+          label: 'Rotate preview',
+          tooltip: 'Rotate the preview by 90°',
+          degrees: _userRotationDegrees,
+          onRotate: () => setState(
+            () => _userRotationDegrees = (_userRotationDegrees + 90) % 360,
           ),
         ),
-        children: [
-          _buildCameraSwitchControl(),
-          const SizedBox(height: 8),
-          _buildRotationControl(
-            label: 'Rotate preview',
-            tooltip: 'Rotate the preview by 90°',
-            degrees: _userRotationDegrees,
-            onRotate: () => setState(
-              () => _userRotationDegrees = (_userRotationDegrees + 90) % 360,
-            ),
-          ),
-          const SizedBox(height: 8),
-          _buildModeSwitch(
-            icon: Icons.flip,
-            label: 'Mirror preview',
-            value: _userMirror,
-            onChanged: (_) => setState(() => _userMirror = !_userMirror),
-          ),
-          const SizedBox(height: 8),
-          _buildModeSwitch(
-            icon: Icons.swap_vert,
-            label: 'Flip vertical preview',
-            value: _userFlipVertical,
-            onChanged: (_) =>
-                setState(() => _userFlipVertical = !_userFlipVertical),
-          ),
-        ],
-      ),
+        const SizedBox(height: 8),
+        SwitchTile(
+          label: 'Mirror preview',
+          value: _userMirror,
+          onChanged: (_) => setState(() => _userMirror = !_userMirror),
+        ),
+        const SizedBox(height: 8),
+        SwitchTile(
+          label: 'Flip vertical preview',
+          value: _userFlipVertical,
+          onChanged: (_) =>
+              setState(() => _userFlipVertical = !_userFlipVertical),
+        ),
+      ],
     );
   }
 
@@ -1120,192 +651,29 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
   /// change what the processor receives and the coordinate space of its
   /// results; the demo draws results as-is, so the effect is visible.
   Widget _buildImageProcessOptionsPanel() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      child: ExpansionTile(
-        shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Colors.black12),
-          borderRadius: BorderRadius.circular(12),
+    return OptionsPanel(
+      title: 'Image process options',
+      children: [
+        RotationTile(
+          label: 'Rotate input',
+          tooltip: 'Rotate the pipeline input by 90°',
+          degrees: _inputRotationDegrees,
+          onRotate: _isCameraBusy
+              ? null
+              : () => setState(
+                  () => _inputRotationDegrees =
+                      (_inputRotationDegrees + 90) % 360,
+                ),
         ),
-        collapsedShape: RoundedRectangleBorder(
-          side: const BorderSide(color: Colors.black12),
-          borderRadius: BorderRadius.circular(12),
+        const SizedBox(height: 8),
+        SwitchTile(
+          label: 'Mirror input',
+          value: _inputMirror,
+          onChanged: _isCameraBusy
+              ? null
+              : (_) => setState(() => _inputMirror = !_inputMirror),
         ),
-        backgroundColor: Colors.black.withValues(alpha: 0.035),
-        collapsedBackgroundColor: Colors.black.withValues(alpha: 0.035),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-        childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        leading: const Icon(Icons.memory, size: 18, color: Colors.black54),
-        title: const Text(
-          'Image process options',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-        children: [
-          _buildRotationControl(
-            label: 'Rotate input',
-            tooltip: 'Rotate the pipeline input by 90°',
-            degrees: _inputRotationDegrees,
-            onRotate: _isCameraBusy
-                ? null
-                : () => setState(
-                    () => _inputRotationDegrees =
-                        (_inputRotationDegrees + 90) % 360,
-                  ),
-          ),
-          const SizedBox(height: 8),
-          _buildModeSwitch(
-            icon: Icons.compare_arrows,
-            label: 'Mirror input',
-            value: _inputMirror,
-            onChanged: _isCameraBusy
-                ? null
-                : (_) => setState(() => _inputMirror = !_inputMirror),
-          ),
-          const SizedBox(height: 8),
-          _buildModeSwitch(
-            icon: Icons.alt_route,
-            label: 'Run inference in isolate',
-            value: _runInIsolate,
-            onChanged: _isCameraBusy ? null : (_) => _toggleRunInIsolate(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCameraSwitchControl() {
-    final bool enabled =
-        _frameSource.canSwitch &&
-        !_isChangingCamera &&
-        !_isCameraBusy &&
-        _isCameraActive &&
-        _frameSource.isReady;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.035),
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: const EdgeInsets.only(left: 14, right: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.cameraswitch, size: 18, color: Colors.black54),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Switch camera',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          // front/back on mobile, the UVC device name on Windows.
-          Text(
-            _frameSource.activeSourceLabel,
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
-            overflow: TextOverflow.ellipsis,
-          ),
-          IconButton(
-            icon: const Icon(Icons.swap_horiz, size: 20),
-            tooltip: 'Switch to the next camera',
-            onPressed: enabled ? _switchCamera : null,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRotationControl({
-    required String label,
-    required String tooltip,
-    required int degrees,
-    required VoidCallback? onRotate,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.035),
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: const EdgeInsets.only(left: 14, right: 4),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.screen_rotation_alt,
-            size: 18,
-            color: Colors.black54,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Text(
-            '$degrees°',
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
-          ),
-          IconButton(
-            icon: const Icon(Icons.rotate_right, size: 20),
-            tooltip: tooltip,
-            onPressed: onRotate,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModeSwitch({
-    required IconData icon,
-    required String label,
-    required bool value,
-    required ValueChanged<bool>? onChanged,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.035),
-        border: Border.all(color: Colors.black12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      padding: const EdgeInsets.only(left: 14),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: Colors.black54),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          Transform.scale(
-            scale: 0.78,
-            child: Switch(
-              value: value,
-              onChanged: onChanged,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -1329,7 +697,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _isCameraBusy = true;
         _errorMessage = null;
         _isDetectionActive = false;
-        _isMeshActive = false;
         _clearMesh();
         _resetInference();
         _clearDetections();
@@ -1338,6 +705,9 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     try {
       final initialized = await _startFrameSource();
       _update(() => _isCameraActive = initialized);
+      if (initialized) {
+        await _startDetection();
+      }
     } finally {
       _update(() => _isCameraBusy = false);
     }
@@ -1347,7 +717,6 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     void reset() {
       _isCameraActive = false;
       _isDetectionActive = false;
-      _isMeshActive = false;
       _clearMesh();
       _resetInference();
       _clearInferenceFps();
@@ -1447,7 +816,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _handleMultiInferenceResult(
           _faceMeshInferencePipeline.processMultiFace(
             input,
-            maxMeshFaces: _maxMeshFaces,
+            maxMeshFaces: maxMeshFaces,
             runMesh: _isMeshActive,
             rotationDegrees: effectiveRotation,
             mirrorHorizontal: _inputMirror,
@@ -1495,7 +864,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         final FaceMeshMultiInferenceResult result = await pipeline
             .processMultiFace(
               input,
-              maxMeshFaces: _maxMeshFaces,
+              maxMeshFaces: maxMeshFaces,
               runMesh: _isMeshActive,
               rotationDegrees: rotationDegrees,
               mirrorHorizontal: mirrorHorizontal,
@@ -1525,20 +894,19 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     if (!_frameSource.isReady || _isCameraBusy) {
       return;
     }
-
     if (_isDetectionActive) {
-      if (mounted) {
-        setState(() {
-          _isDetectionActive = false;
-          _isMeshActive = false;
-          _clearMesh();
-          _resetInference();
-          _clearDetections();
-        });
-      }
+      _update(() {
+        _isDetectionActive = false;
+        _clearMesh();
+        _resetInference();
+        _clearDetections();
+      });
       return;
     }
+    await _startDetection();
+  }
 
+  Future<void> _startDetection() async {
     try {
       await _frameSource.ensureFrames();
       _update(() {
@@ -1546,43 +914,21 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
         _clearDetections();
       });
     } catch (error) {
-      if (mounted) {
-        setState(() => _errorMessage = 'Detection start error: $error');
-      }
+      _update(() => _errorMessage = 'Detection start error: $error');
     }
   }
 
-  Future<void> _toggleMesh() async {
-    if (_isCameraBusy || !_frameSource.isReady) {
+  void _toggleMesh() {
+    if (_isCameraBusy) {
       return;
     }
-
-    if (!_isDetectionActive) {
-      if (mounted) {
-        setState(
-          () => _errorMessage ??= 'Start Detect first to get a face ROI.',
-        );
-      }
-      return;
-    }
-
-    if (_isMeshActive) {
-      if (mounted) {
-        setState(() {
-          _isMeshActive = false;
-          _clearMesh();
-        });
-      }
-      return;
-    }
-
-    _update(() {
-      _isMeshActive = true;
+    setState(() {
+      _isMeshActive = !_isMeshActive;
       _clearMesh();
     });
   }
 
-  Future<void> _changeMeshMode(_MeshMode mode) async {
+  Future<void> _changeMeshMode(MeshMode mode) async {
     if (_isCameraBusy || mode == _meshMode) return;
     final previous = _meshMode;
     _update(() => _meshMode = mode);
@@ -1610,7 +956,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     required FaceMeshModel model,
     required bool iris,
   }) async {
-    final newProcessor = await _createFaceMeshProcessor(
+    final newProcessor = await createFaceMeshProcessor(
       model: model,
       iris: iris,
     );
@@ -1622,7 +968,7 @@ class _MediaPipeFacePageState extends State<MediaPipeFacePage>
     _faceMeshInferencePipeline = FaceMeshInferencePipeline(
       detector: _faceDetectorProcessor,
       mesh: _faceMeshProcessor,
-      landmarkSmoothing: _landmarkSmoothing,
+      landmarkSmoothing: landmarkSmoothing,
     );
     oldProcessor.close();
     unawaited(_restartIsolatePipeline());
