@@ -4,7 +4,7 @@ Face detection and a 478-landmark face mesh pipeline, on device, in a few
 milliseconds per frame. Models and the TensorFlow Lite runtime ship inside
 the package. The only dependency is `ffi`.
 
-<img src="./readme_img/22.png" alt="app_image_2" width="300"/> <img src="./readme_img/33.png" alt="app_image_2" width="300"/>
+<img src="./readme_img/22.png" alt="face mesh preview" width="300"/> <img src="./readme_img/33.png" alt="multi-face preview" width="300"/>
 
 ## Supported Platforms
 
@@ -47,6 +47,7 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 final faceDetectorProcessor = await FaceDetectorProcessor.create();
 ```
+
 `model` selects the detector model.
 
 - `FaceDetectionModel.shortRange` (default): for near faces, within
@@ -61,22 +62,18 @@ final faceDetectorProcessor = await FaceDetectorProcessor.create();
 ### Create Face Mesh Processor
 
 ```dart
-import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
-
 final faceMeshProcessor = await FaceMeshProcessor.create();
 ```
 
 `model` selects the mesh model.
 
-- `FaceMeshModel.v2` (default): FaceMesh-V2, upstream
-  `face_landmarks_detector.tflite`, the model the current FaceLandmarker
-  task uses. Returns 478 landmarks (10 iris points at indices `468..477`).
-- `FaceMeshModel.attention`: the official MediaPipe model before V2. Same
-  478-landmark layout. In our benchmark its latency is slightly lower than
-  V2, and the V2 model card reports improved accuracy over it.
-- `FaceMeshModel.v1`: the original mesh, returns 468 landmarks. Pass
-  `enableIris: true` to run a separate iris pass and get the 478-landmark
-  layout.
+- `FaceMeshModel.v2` (default): FaceMesh-V2, the current MediaPipe Face
+  Landmarker model. Returns 478 landmarks, with 10 iris points at indices
+  `468..477`.
+- `FaceMeshModel.attention`: the official model before V2. Same
+  478-landmark layout.
+- `FaceMeshModel.v1`: the original mesh, 468 landmarks. `enableIris: true`
+  adds a separate iris pass for the 478-landmark layout.
 
 ### Delegates
 
@@ -102,31 +99,23 @@ Every `process` method takes a `FaceMeshFrame`, which is one of two types.
 Android camera plugins deliver YUV420 in several layouts. `FaceMeshNv21Image`
 has helpers that convert them to NV21. See the example camera image adapter.
 
-### Stream Inference
+### Camera Frames
 
-Use stream inference when processing continuous camera frames. Stream processors
-take a Stream of frames and return a Stream of results.
+Call `process` on the pipeline for every camera frame. Each call runs the
+detector and the mesh for that frame and returns the result. The same call
+serves a single decoded image.
 
 ```dart
 final pipeline = FaceMeshInferencePipeline(
   detector: faceDetectorProcessor,
   mesh: faceMeshProcessor,
 );
-final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
-final frameController = StreamController<FaceMeshNv21Image>();
-bool _isBusy = false;
-bool _isMeshActive = true; // e.g. driven by a UI toggle
 
-inferenceStreamProcessor
-    .process(
-      frameController.stream,
-      runMeshResolver: (_) => _isMeshActive,
-      rotationDegrees: rotationDegrees,
-    )
-    .listen(_handleInferenceResult, onError: onError);
-
-void _handleInferenceResult(FaceMeshInferenceResult result) {
-  _isBusy = false;
+void onCameraFrame(FaceMeshNv21Image frame) {
+  final FaceMeshInferenceResult result = pipeline.process(
+    frame,
+    rotationDegrees: rotationDegrees,
+  );
   // detectionResult is null on landmark-tracked frames (detector skipped).
   final FaceDetectionResult? detections = result.detectionResult;
   if (detections != null) {
@@ -134,147 +123,50 @@ void _handleInferenceResult(FaceMeshInferenceResult result) {
   }
   onMeshResult(result.meshResult);
 }
-
-void onCameraFrame(FaceMeshNv21Image frame) {
-  if (_isBusy) return;
-  _isBusy = true;
-  frameController.add(frame);
-}
 ```
 
-Use `runMesh: false` when an entire stream should run detector-only. Use
-`runMeshResolver` when mesh execution should be decided per frame, such as a UI
-toggle that can change while the stream is active.
+Pipeline options (`FaceMeshInferencePipeline`), set once.
 
-`rotationDegrees` is fixed per subscription. When the camera rotation (or the
-input source) changes, re-subscribe with the new value. See the example app
-for a complete flow.
+- `landmarkSmoothing`: output landmarks are smoothed across frames by
+  default. Pass `null` for raw per-frame landmarks.
+- `enableLandmarkTracking`: on by default. See
+  [Mesh Landmark Tracking](#mesh-landmark-tracking).
+- `detectionSelector`: picks the face to mesh when the detector finds
+  several. Default is the highest score.
 
-#### Landmark tracking
+Call options (`process`, `processMultiFace`), per frame.
 
-Tracking is on by default. The detector runs only to acquire or re-acquire
-a face, and tracked frames report `detectionResult` as null. On face loss
-the detector re-acquires on the next frame (`isTracking` reports the
-state). Pass `enableLandmarkTracking: false` to run the detector on every
-frame, and call `resetTracking()` when switching input sources.
+- `rotationDegrees`, `mirrorHorizontal`: transform applied to the frame
+  before inference.
+- `runMesh: false`: returns detector output without running the mesh.
 
-For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
+The full option list and details are in the source (dartdoc).
 
-#### Landmark smoothing
-
-The pipeline smooths output landmarks across frames with a OneEuro filter,
-matching the official FaceLandmarker stream-mode behavior. A still face
-stops jittering while fast movement passes through with almost no lag.
-On by default. Pass `landmarkSmoothing: null` for raw per-frame landmarks.
-Tuning options are on `LandmarkSmoothingOptions`.
-
-### Single Inference
-
-Use single-frame inference in one call without a stream processor.
-
-```dart
-final pipeline = FaceMeshInferencePipeline(
-  detector: faceDetectorProcessor,
-  mesh: faceMeshProcessor,
-);
-
-final result = pipeline.process(
-  nv21Image,
-  rotationDegrees: rotationDegrees,
-);
-
-final meshResult = result.meshResult;
-if (meshResult != null) {
-  onResult(meshResult);
-}
-```
-
-### Geometry and Measurements
-
-`FaceMeshResult` includes helpers for 2D distances and estimated 3D face
-geometry.
-
-```dart
-// 2D pixel distance between two landmarks
-final pixelDistance = meshResult.distancePixels(33, 263);
-
-// 3D geometry estimation (native call; one per frame is typical)
-final geometry = meshResult.estimateGeometry();
-// Pass actual camera FOV for more accurate centimeter estimates (default: 63°)
-// final geometry = meshResult.estimateGeometry(verticalFovDegrees: 72.0);
-
-// Head pose: yaw (left/right), pitch (up/down), roll (tilt)
-final pose = geometry.headPose;
-// pose.yawDegrees, pose.pitchDegrees, pose.rollDegrees
-
-// Single centimeter distance between two landmarks
-final eyeDistanceCm = geometry.distanceCm(33, 263);
-
-// Preset bundle: computes all measurements at once
-// faceWidth        234 ↔ 454  cheek-to-cheek
-// faceHeight        10 ↔ 152  forehead-to-chin
-// eyeOuterDistance  33 ↔ 263  outer eye corners
-// eyeInnerDistance 133 ↔ 362  inner eye corners
-// interpupillaryDistance 468 ↔ 473  pupils (iris only, else null)
-// mouthWidth        61 ↔ 291
-// noseWidth         98 ↔ 327 
-final measurements = geometry.measurements;
-final faceWidthCm = measurements.faceWidth.valueCm;
-```
-
-Centimeter values are estimates based on the canonical face geometry model.
-Scale accuracy depends on the virtual camera assumption (default vertical FOV
-63°) and will vary by device.
-
-To look up landmark indices visually, use https://cornpip.github.io/mediapipe_landmark_viewer/
-
-### Face Blendshapes
-
-Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
-smile, etc.), useful for avatars, AR filters, and expression detection. 
-Requires a mesh that returns 478 landmarks.
-
-```dart
-final blendshapesProcessor = await FaceBlendshapesProcessor.create();
-
-// FaceBlendshapes with values in [0, 1]. Null when the frame had no face.
-final blendshapes = blendshapesProcessor.process(meshResult);
-if (blendshapes != null) {
-  final smile = (blendshapes[FaceBlendshape.mouthSmileLeft] +
-          blendshapes[FaceBlendshape.mouthSmileRight]) /
-      2;
-  if (smile > 0.5) {
-    // smiling
-  }
-}
-```
+The call is synchronous and blocks the calling isolate. To keep it off the
+UI isolate, see [Background Isolate](#background-isolate).
 
 ### Multi-Face Inference
 
 Multi-face inference tracks each face across frames with a stable `trackId`.
-The detector runs only while fewer than `maxMeshFaces` faces are tracked.
 
 ```dart
 final faceMeshProcessor = await FaceMeshProcessor.create();
 final faceDetectorProcessor = await FaceDetectorProcessor.create(
-  maxResults: 4,
+  maxResults: 4, // candidates per detector pass
 );
 final pipeline = FaceMeshInferencePipeline(
   detector: faceDetectorProcessor,
   mesh: faceMeshProcessor,
 );
-final inferenceStreamProcessor = FaceMeshInferenceStreamProcessor(pipeline);
 
-inferenceStreamProcessor
-    .processMultiFace(
-      frameController.stream,
-      maxMeshFaces: 2,
-      runMeshResolver: (_) => _isMeshActive,
-      rotationDegrees: rotationDegrees,
-    )
-    .listen(_handleMultiInferenceResult, onError: onError);
-
-void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
+void onCameraFrame(FaceMeshNv21Image frame) {
+  final FaceMeshMultiInferenceResult result = pipeline.processMultiFace(
+    frame,
+    // Faces tracked at once. The detector runs only while fewer are
+    // tracked, to fill the free slots.
+    maxMeshFaces: 2,
+    rotationDegrees: rotationDegrees,
+  );
   // detectionResult is null while all face slots are served by tracking.
   final FaceDetectionResult? detections = result.detectionResult;
   if (detections != null) {
@@ -286,8 +178,107 @@ void _handleMultiInferenceResult(FaceMeshMultiInferenceResult result) {
 }
 ```
 
-For single-frame multi-face inference, call `pipeline.processMultiFace(...)`
-directly.
+### Background Isolate
+
+`FaceMeshIsolatePipeline` runs the pipeline in a worker isolate. The
+factory runs inside the worker, so the processors it creates live there.
+
+```dart
+// A top-level or static function, as with Isolate.spawn.
+Future<FaceMeshInferencePipeline> createPipeline(FaceMeshModel model) async =>
+    FaceMeshInferencePipeline(
+      detector: await FaceDetectorProcessor.create(),
+      mesh: await FaceMeshProcessor.create(model: model),
+    );
+
+final isolatePipeline = await FaceMeshIsolatePipeline.spawn(
+  createPipeline,
+  FaceMeshModel.v2,
+);
+
+Future<void> onCameraFrame(FaceMeshNv21Image frame) async {
+  // Unlike the synchronous call, requests queue up in the worker.
+  // Drop the frame while it is busy.
+  if (isolatePipeline.isBusy) return;
+  final FaceMeshInferenceResult result = await isolatePipeline.process(
+    frame,
+    rotationDegrees: rotationDegrees,
+  );
+  onMeshResult(result.meshResult);
+}
+```
+
+Use it like the pipeline. The only difference is that its methods return
+`Future`s.
+
+### Close Resources
+
+These are all the objects that need closing.
+
+```dart
+pipeline.close(); // closes the detector and mesh it was given
+await isolatePipeline.close();
+blendshapesProcessor.close();
+```
+
+The processors release their native context on garbage collection if
+`close()` is skipped, but with no guarantee of when. Close them explicitly.
+Unlike the processors, `FaceMeshIsolatePipeline` is never released by
+garbage collection, so `close()` is required.
+
+### Mesh Landmark Tracking
+
+Tracking is on by default. The detector runs only to acquire or re-acquire
+a face, and tracked frames report `detectionResult` as null. On face loss
+the detector re-acquires on the next frame (`isTracking` reports the
+state). Tracking also resets when rotation, mirroring, frame size, or the
+frame type (NV21 or RGBA) changes. After other source switches it recovers
+within a frame or two, or right away with `resetTracking()`. Pass
+`enableLandmarkTracking: false` to run the detector on every frame.
+
+For multi-face behavior, see [Multi-Face Inference](#multi-face-inference).
+
+### Geometry and Measurements
+
+`FaceMeshResult` includes helpers for 2D distances and estimated 3D face
+geometry.
+
+```dart
+final pixelDistance = meshResult.distancePixels(33, 263);
+
+// Native solve, one per frame. Pass the camera's vertical FOV for better
+// centimeter estimates (default 63°).
+final geometry = meshResult.estimateGeometry();
+final pose = geometry.headPose; // yawDegrees, pitchDegrees, rollDegrees
+final eyeDistanceCm = geometry.distanceCm(33, 263);
+final faceWidthCm = geometry.measurements.faceWidth.valueCm;
+```
+
+Centimeter values are estimates and vary by device. The preset
+measurements and their landmark indices are listed in
+[doc/GEOMETRY_MEASUREMENTS.md](doc/GEOMETRY_MEASUREMENTS.md). To look up
+landmark indices visually, use
+https://cornpip.github.io/mediapipe_landmark_viewer/
+
+### Face Blendshapes
+
+Blendshapes are 52 ARKit-style expression coefficients (jaw open, eye blink,
+smile, etc.), useful for avatars, AR filters, and expression detection.
+Requires a mesh that returns 478 landmarks (`FaceMeshResult.hasIris`).
+
+```dart
+final blendshapesProcessor = await FaceBlendshapesProcessor.create();
+
+// FaceBlendshapes with values in [0, 1]. Null when the frame had no face.
+final blendshapes = blendshapesProcessor.process(meshResult);
+if (blendshapes != null) {
+  final left = blendshapes[FaceBlendshape.mouthSmileLeft];
+  final right = blendshapes[FaceBlendshape.mouthSmileRight];
+  if ((left + right) / 2 > 0.5) {
+    // smiling
+  }
+}
+```
 
 ### Using an External Face Detector
 
@@ -308,15 +299,17 @@ final meshResult = faceMeshProcessor.process(
 );
 ```
 
-### Close Resource
+### Overlay Painters
 
-Explicitly calling close() when the processors are no longer needed is recommended.
+Two `CustomPainter`s draw results on a preview. Each takes the same
+`rotationDegrees` and `mirrorHorizontal` used for the preview. Both have
+`fromInference(FaceMeshInferenceResult)` and
+`fromMultiInference(FaceMeshMultiInferenceResult)` constructors that take
+the pipeline result as is.
 
-```dart
-faceDetectorProcessor.close();
-faceMeshProcessor.close();
-blendshapesProcessor.close();
-```
+- `FaceMeshPainter` (`face_mesh_painter.dart`): landmarks, mesh edges, iris.
+- `FaceDetectionPainter` (`face_detection_painter.dart`): detector boxes
+  and the ROI the mesh ran on, with an optional label per face.
 
 ## Example app
 
