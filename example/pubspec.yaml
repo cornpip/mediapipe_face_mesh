@@ -12,10 +12,10 @@ dependencies:
     sdk: flutter
 
   image: ^4.1.7
-  camera: ^0.11.0
+  camera: ^0.12.0
   permission_handler: ^11.3.1
   # Windows demo: USB/UVC camera preview + RGBA frame access.
-  flutter_ffi_uvc: ^0.8.1
+  flutter_ffi_uvc: ^1.0.2
 
   mediapipe_face_mesh:
     path: ../
