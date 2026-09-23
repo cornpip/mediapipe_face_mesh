@@ -11,7 +11,7 @@
 - [ ] `pubspec.yaml` `version:` (drop the `-wip` suffix)
 - [ ] `CHANGELOG.md` `## <version>` section (rename from `-wip`)
 - [ ] `ios/mediapipe_face_mesh.podspec` `s.version` (easy to miss)
-- [ ] `flutter pub get` in `example/` (refresh lock)
+- [ ] `flutter pub get` in `example/` and `bench/mine/` (refresh locks)
 
 ## After the release commit
 
