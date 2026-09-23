@@ -1,17 +1,63 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-/// Draws [FaceDetection] boxes and detector-produced mesh ROIs.
+/// A mesh ROI to draw, with an optional label such as a track id.
+class FaceRoi {
+  /// Creates an ROI overlay entry.
+  const FaceRoi(this.rect, {this.label});
+
+  /// The rotated ROI in normalized image coordinates, as reported by
+  /// [FaceMeshInferenceResult.selectedRoi], [TrackedFaceMesh.mesh], or
+  /// [FaceMeshResult.rect].
+  final NormalizedRect rect;
+
+  /// Text drawn above the box. Null draws no label.
+  final String? label;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    if (other is! FaceRoi || other.label != label) {
+      return false;
+    }
+    final NormalizedRect a = rect;
+    final NormalizedRect b = other.rect;
+    return a.xCenter == b.xCenter &&
+        a.yCenter == b.yCenter &&
+        a.width == b.width &&
+        a.height == b.height &&
+        a.rotation == b.rotation;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    rect.xCenter,
+    rect.yCenter,
+    rect.width,
+    rect.height,
+    rect.rotation,
+    label,
+  );
+}
+
+/// Draws [FaceDetection] boxes, their mesh ROIs, and [extraRois].
+/// [FaceDetectionPainter.fromInference] and
+/// [FaceDetectionPainter.fromMultiInference] fill both from a pipeline
+/// result.
 ///
 /// This painter is intended for debug and preview overlays. It depends only on
 /// this package's detection types, so camera-specific mirroring decisions should
 /// be converted to [mirrorHorizontal] by the caller.
 class FaceDetectionPainter extends CustomPainter {
-  /// Creates a painter from a detector result.
+  /// Creates a painter from a detector result, extra ROIs, or both.
   FaceDetectionPainter({
-    required this.result,
+    this.result,
+    this.extraRois = const <FaceRoi>[],
     this.rotationDegrees = 0,
     this.mirrorHorizontal = false,
     this.showConfidence = true,
@@ -32,8 +78,99 @@ class FaceDetectionPainter extends CustomPainter {
     _validateRotationDegrees(rotationDegrees);
   }
 
-  /// Detector result to draw.
-  final FaceDetectionResult result;
+  /// Draws the detections when the detector ran, plus the ROI the mesh ran
+  /// on with [label] above it.
+  FaceDetectionPainter.fromInference(
+    FaceMeshInferenceResult inference, {
+    String? label,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    bool showConfidence = true,
+    bool showFaceBox = true,
+    bool showRoiBox = false,
+    Color faceBoxColor = Colors.amberAccent,
+    Color roiBoxColor = Colors.lightGreenAccent,
+    double strokeWidth = 2.0,
+    double roiStrokeWidth = 3.0,
+    String bboxLabel = 'Face',
+    String roiLabel = 'ROI',
+    TextStyle labelTextStyle = const TextStyle(
+      color: Colors.black87,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    ),
+  }) : this(
+         result: inference.detectionResult,
+         extraRois: <FaceRoi>[
+           if (inference.selectedRoi != null)
+             FaceRoi(inference.selectedRoi!, label: label),
+         ],
+         rotationDegrees: rotationDegrees,
+         mirrorHorizontal: mirrorHorizontal,
+         showConfidence: showConfidence,
+         showFaceBox: showFaceBox,
+         showRoiBox: showRoiBox,
+         faceBoxColor: faceBoxColor,
+         roiBoxColor: roiBoxColor,
+         strokeWidth: strokeWidth,
+         roiStrokeWidth: roiStrokeWidth,
+         bboxLabel: bboxLabel,
+         roiLabel: roiLabel,
+         labelTextStyle: labelTextStyle,
+       );
+
+  /// Draws the detections, if the detector ran, plus each tracked face's
+  /// ROI. [labelOf] names a face's ROI and defaults to `#` followed by its
+  /// track id.
+  FaceDetectionPainter.fromMultiInference(
+    FaceMeshMultiInferenceResult inference, {
+    String Function(TrackedFaceMesh face)? labelOf,
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    bool showConfidence = true,
+    bool showFaceBox = true,
+    bool showRoiBox = false,
+    Color faceBoxColor = Colors.amberAccent,
+    Color roiBoxColor = Colors.lightGreenAccent,
+    double strokeWidth = 2.0,
+    double roiStrokeWidth = 3.0,
+    String bboxLabel = 'Face',
+    String roiLabel = 'ROI',
+    TextStyle labelTextStyle = const TextStyle(
+      color: Colors.black87,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    ),
+  }) : this(
+         result: inference.detectionResult,
+         extraRois: <FaceRoi>[
+           for (final TrackedFaceMesh face in inference.faces)
+             FaceRoi(
+               face.mesh.rect,
+               label: labelOf?.call(face) ?? '#${face.trackId}',
+             ),
+         ],
+         rotationDegrees: rotationDegrees,
+         mirrorHorizontal: mirrorHorizontal,
+         showConfidence: showConfidence,
+         showFaceBox: showFaceBox,
+         showRoiBox: showRoiBox,
+         faceBoxColor: faceBoxColor,
+         roiBoxColor: roiBoxColor,
+         strokeWidth: strokeWidth,
+         roiStrokeWidth: roiStrokeWidth,
+         bboxLabel: bboxLabel,
+         roiLabel: roiLabel,
+         labelTextStyle: labelTextStyle,
+       );
+
+  /// Detector result to draw. Null on landmark-tracked frames, where the
+  /// pipeline reports no detection.
+  final FaceDetectionResult? result;
+
+  /// ROIs drawn in addition to [result], with [roiBoxColor] and
+  /// [roiStrokeWidth].
+  final List<FaceRoi> extraRois;
 
   /// Clockwise rotation applied when mapping normalized coordinates to pixels.
   final int rotationDegrees;
@@ -62,10 +199,10 @@ class FaceDetectionPainter extends CustomPainter {
   /// Stroke width for rotated ROI boxes.
   final double roiStrokeWidth;
 
-  /// Label shown for axis-aligned detector boxes.
+  /// Label shown for axis-aligned detector boxes. Empty draws no label.
   final String bboxLabel;
 
-  /// Label shown for rotated ROI boxes.
+  /// Label shown for rotated ROI boxes. Empty draws no label.
   final String roiLabel;
 
   /// Text style used for labels.
@@ -82,6 +219,21 @@ class FaceDetectionPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = roiStrokeWidth;
 
+    for (final FaceRoi roi in extraRois) {
+      final Path path = _buildRotatedRectPath(roi.rect, size);
+      canvas.drawPath(path, roiPaint);
+      _paintLabel(
+        canvas,
+        anchorRect: _rotatedRectBounds(roi.rect, size),
+        label: roi.label ?? '',
+        color: roiBoxColor,
+      );
+    }
+
+    final FaceDetectionResult? result = this.result;
+    if (result == null) {
+      return;
+    }
     for (final FaceDetection detection in result.detections) {
       if (showFaceBox) {
         final Rect rawRect = _mapBox(detection, size);
@@ -141,6 +293,9 @@ class FaceDetectionPainter extends CustomPainter {
     required String label,
     required Color color,
   }) {
+    if (label.isEmpty) {
+      return;
+    }
     final TextPainter textPainter = TextPainter(
       text: TextSpan(text: label, style: labelTextStyle),
       textDirection: TextDirection.ltr,
@@ -279,6 +434,7 @@ class FaceDetectionPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant FaceDetectionPainter oldDelegate) {
     return oldDelegate.result != result ||
+        !listEquals(oldDelegate.extraRois, extraRois) ||
         oldDelegate.rotationDegrees != rotationDegrees ||
         oldDelegate.mirrorHorizontal != mirrorHorizontal ||
         oldDelegate.showConfidence != showConfidence ||

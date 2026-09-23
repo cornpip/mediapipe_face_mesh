@@ -6,6 +6,10 @@
   in a worker isolate
 - add `FaceMeshInferencePipeline.close`, which closes the detector and mesh
   it was given
+- add `fromInference` and `fromMultiInference` constructors to
+  `FaceMeshPainter` and `FaceDetectionPainter`, taking a pipeline result
+  directly
+- `FaceDetectionPainter` takes `extraRois` and a nullable `result`
 - add `FaceMeshResult.hasIris`
 
 ## 3.0.0

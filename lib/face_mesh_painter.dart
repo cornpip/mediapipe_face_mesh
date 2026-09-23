@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
 /// Draws one or more [FaceMeshResult] overlays on a [CustomPaint] canvas.
+/// [FaceMeshPainter.fromInference] and [FaceMeshPainter.fromMultiInference]
+/// take a pipeline result directly.
 ///
 /// Provide the same [rotationDegrees] and [mirrorHorizontal] values used for
 /// preview mapping. This class intentionally does not depend on the camera
@@ -26,6 +28,79 @@ class FaceMeshPainter extends CustomPainter {
     this.scaleWithFace = false,
     this.scaleWithFaceReference = 150.0,
   }) : results = _resolveResults(result, results);
+
+  /// Draws the mesh of a single-face pipeline frame, or nothing when the
+  /// frame has no mesh.
+  FaceMeshPainter.fromInference(
+    FaceMeshInferenceResult inference, {
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    Color strokeColor = Colors.greenAccent,
+    Color irisColor = Colors.cyanAccent,
+    Color refinedEyeColor = Colors.greenAccent,
+    double strokeWidth = 0.4,
+    double dotRadius = 1.5,
+    double irisDotRadius = 1.8,
+    bool drawDots = false,
+    bool drawRefinedEyeEdges = true,
+    bool drawIris = true,
+    bool clampToBounds = true,
+    bool scaleWithFace = false,
+    double scaleWithFaceReference = 150.0,
+  }) : this(
+         results: <FaceMeshResult>[
+           if (inference.meshResult != null) inference.meshResult!,
+         ],
+         rotationDegrees: rotationDegrees,
+         mirrorHorizontal: mirrorHorizontal,
+         strokeColor: strokeColor,
+         irisColor: irisColor,
+         refinedEyeColor: refinedEyeColor,
+         strokeWidth: strokeWidth,
+         dotRadius: dotRadius,
+         irisDotRadius: irisDotRadius,
+         drawDots: drawDots,
+         drawRefinedEyeEdges: drawRefinedEyeEdges,
+         drawIris: drawIris,
+         clampToBounds: clampToBounds,
+         scaleWithFace: scaleWithFace,
+         scaleWithFaceReference: scaleWithFaceReference,
+       );
+
+  /// Draws every tracked face's mesh of a multi-face pipeline frame.
+  FaceMeshPainter.fromMultiInference(
+    FaceMeshMultiInferenceResult inference, {
+    int rotationDegrees = 0,
+    bool mirrorHorizontal = false,
+    Color strokeColor = Colors.greenAccent,
+    Color irisColor = Colors.cyanAccent,
+    Color refinedEyeColor = Colors.greenAccent,
+    double strokeWidth = 0.4,
+    double dotRadius = 1.5,
+    double irisDotRadius = 1.8,
+    bool drawDots = false,
+    bool drawRefinedEyeEdges = true,
+    bool drawIris = true,
+    bool clampToBounds = true,
+    bool scaleWithFace = false,
+    double scaleWithFaceReference = 150.0,
+  }) : this(
+         results: inference.meshResults,
+         rotationDegrees: rotationDegrees,
+         mirrorHorizontal: mirrorHorizontal,
+         strokeColor: strokeColor,
+         irisColor: irisColor,
+         refinedEyeColor: refinedEyeColor,
+         strokeWidth: strokeWidth,
+         dotRadius: dotRadius,
+         irisDotRadius: irisDotRadius,
+         drawDots: drawDots,
+         drawRefinedEyeEdges: drawRefinedEyeEdges,
+         drawIris: drawIris,
+         clampToBounds: clampToBounds,
+         scaleWithFace: scaleWithFace,
+         scaleWithFaceReference: scaleWithFaceReference,
+       );
 
   /// Mesh results to draw.
   final List<FaceMeshResult> results;
