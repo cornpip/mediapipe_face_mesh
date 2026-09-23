@@ -258,7 +258,7 @@ class MediapipeFaceBindings {
       _mp_face_mesh_release_multi_resultPtr
           .asFunction<void Function(ffi.Pointer<MpFaceMeshMultiResult>)>();
 
-  /// Non-zero while the internal tracked ROI follows a face — it was seeded
+  /// Non-zero while the internal tracked ROI follows a face, meaning it was seeded
   /// from landmarks and has not been dropped by a face-presence or
   /// tracking-confidence failure, or an input-geometry change. Always zero when
   /// the context was created with enable_roi_tracking off.

@@ -369,7 +369,7 @@ class NormalizedRect {
   );
 
   /// Returns a new [NormalizedRect] with scale, shift, and optional squaring
-  /// applied — mirroring the C++ `RectTransformationCalculator` logic.
+  /// applied, mirroring the C++ `RectTransformationCalculator` logic.
   ///
   /// All shifts and scales operate in the **face's own coordinate system**
   /// (i.e. rotated by [rotation]), so the result is correct even for tilted
@@ -1123,7 +1123,7 @@ class FaceMeshResult {
   /// square, rotated along the eye line (landmarks 33 and 263), with the size
   /// clamped while preserving the aspect ratio. It mirrors the native
   /// `RectFromLandmarks` + `SanitizeRect` implementation in
-  /// `src/mediapipe_face_mesh.cc` — keep the two in sync when changing
+  /// `src/mediapipe_face_mesh.cc`. Keep the two in sync when changing
   /// either.
   ///
   /// Returns a full-frame rect when the result has no usable landmarks.
@@ -1734,7 +1734,7 @@ class FaceMeshProcessor {
   ///
   /// Like [process] with an explicit ROI, each successful inference seeds
   /// the internal tracked ROI when the processor was created with
-  /// `enableRoiTracking: true` — after this call it follows the last entry
+  /// `enableRoiTracking: true`. After this call it follows the last entry
   /// in [rois] that produced landmarks (observable through [isTracking]).
   List<FaceMeshResult> processRois(
     FaceMeshFrame frame, {

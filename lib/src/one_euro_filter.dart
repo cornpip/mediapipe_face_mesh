@@ -80,7 +80,7 @@ class OneEuroFilter {
   ///
   /// [timestamp] must be strictly increasing across calls; a non-increasing
   /// timestamp returns [value] unfiltered, like the official implementation.
-  /// [valueScale] scales the velocity estimate — pass the inverse of the
+  /// [valueScale] scales the velocity estimate. Pass the inverse of the
   /// tracked object's size so [beta] is object-scale independent.
   double apply(Duration timestamp, double value, {double valueScale = 1.0}) {
     final int newTimeMicros = timestamp.inMicroseconds;

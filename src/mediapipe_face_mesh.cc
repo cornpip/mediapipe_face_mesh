@@ -1831,7 +1831,7 @@ class FaceMeshContext {
   }
 
   // Mirrored in Dart as FaceMeshResult.trackingRoi()
-  // (lib/mediapipe_face_mesh.dart) for the multi-face tracking flow — keep
+  // (lib/mediapipe_face_mesh.dart) for the multi-face tracking flow. Keep
   // the two implementations (including SanitizeRect) in sync.
   MpNormalizedRect RectFromLandmarks(const MpLandmark* landmarks,
                                      int count,

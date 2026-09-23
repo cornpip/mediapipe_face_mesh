@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 
-/// One frame delivered by a [DemoFrameSource] — either an NV21 buffer
+/// One frame delivered by a [DemoFrameSource], either an NV21 buffer
 /// (Android camera) or an RGBA/BGRA buffer (iOS camera, UVC webcam).
 class DemoFrame {
   const DemoFrame.nv21(FaceMeshNv21Image this.nv21) : image = null;

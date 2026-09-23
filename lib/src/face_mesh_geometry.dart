@@ -173,7 +173,7 @@ extension FaceMeshResultGeometry on FaceMeshResult {
   /// and is sufficient for most devices. Pass the actual camera FOV when known
   /// for more accurate centimeter estimates.
   ///
-  /// Makes a native FFI call on every invocation — runs a weighted Procrustes
+  /// Makes a native FFI call on every invocation. It runs a weighted Procrustes
   /// fit over all landmarks three times to recover metric scale, rotation, and
   /// translation. Call once per frame and reuse the returned [FaceMeshGeometry].
   FaceMeshGeometry estimateGeometry({double verticalFovDegrees = 63.0}) {

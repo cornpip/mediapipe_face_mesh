@@ -4,13 +4,13 @@
 no error message. Or the app is installed but dies the moment it starts.
 
 Use **Flutter 3.38.0 or newer**. This is Flutter tooling behavior and is not
-specific to this package — every Flutter iOS project hits it the same way.
+specific to this package. Every Flutter iOS project hits it the same way.
 
 ## Why debug builds need a debugger
 
 Flutter debug builds run Dart in JIT mode: the engine compiles Dart to machine
 code while the app runs, then executes that freshly written memory. iOS forbids
-executing writable memory, with one exception — a process carrying the
+executing writable memory. The one exception is a process carrying the
 `get-task-allow` entitlement *while a debugger is attached*.
 
 So on iOS, a debug build only runs with a debugger attached. Without one, the

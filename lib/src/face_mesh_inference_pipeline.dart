@@ -162,8 +162,8 @@ class FaceMeshMultiInferenceResult {
 /// makes every frame run detector-driven, in both flows.
 ///
 /// On tracked frames the detector does not run, so `detectorRoi` and the
-/// detector ROI scale/shift overrides apply only to (re)acquisition frames —
-/// a face acquired inside a restricted region keeps being tracked after it
+/// detector ROI scale/shift overrides apply only to (re)acquisition frames.
+/// A face acquired inside a restricted region keeps being tracked after it
 /// leaves that region. Tracking resets automatically when the input type,
 /// frame size, rotation, or mirroring changes; call [resetTracking] when
 /// switching between sources the pipeline cannot tell apart (for example two
@@ -204,7 +204,7 @@ class FaceMeshInferencePipeline {
        _smoothingOptions = landmarkSmoothing;
 
   /// Minimum IoU between a detection ROI and a tracked face ROI for the two
-  /// to be considered the same face — matches the official
+  /// to be considered the same face. Matches the official
   /// `AssociationNormRectCalculator` threshold.
   static const double _trackAssociationIou = 0.5;
 
@@ -486,7 +486,7 @@ class FaceMeshInferencePipeline {
       _multiTracks.removeRange(maxMeshFaces, _multiTracks.length);
     }
 
-    // Advance every tracked face on its landmark-derived ROI — one batched
+    // Advance every tracked face on its landmark-derived ROI, one batched
     // native call uploads the frame once for all of them; drop the ones
     // that lost their face or whose presence score fell below the tracking
     // confidence, so their slot is re-acquired via the detector (official

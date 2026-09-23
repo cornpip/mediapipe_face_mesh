@@ -60,7 +60,7 @@ android {
     defaultConfig {
         minSdk = 24
         ndk {
-            // 지원하는 대상 ABI 설정
+            // Target ABIs the bundled native library supports.
             abiFilters += ["arm64-v8a", "x86_64"]
         }
     }

@@ -206,7 +206,7 @@ class UvcFrameSource extends DemoFrameSource {
         }
       }
       if (startedMode == null) {
-        // Selected mode failed to verify — fall back to the library's
+        // Selected mode failed to verify. Fall back to the library's
         // MJPEG-first reliability probe.
         final UvcAutoPreviewResult autoResult = await _camera
             .startPreviewAuto();
@@ -305,7 +305,7 @@ class UvcFrameSource extends DemoFrameSource {
     }
     _selectedMode = mode;
     if (!_previewRunning) {
-      // Preview not started yet — the selection is just the start target.
+      // Preview not started yet. The selection is just the start target.
       notifyListeners();
       return;
     }

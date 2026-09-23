@@ -207,7 +207,7 @@ FFI_PLUGIN_EXPORT void mp_face_mesh_release_result(MpFaceMeshResult* result);
 FFI_PLUGIN_EXPORT void mp_face_mesh_release_multi_result(
     MpFaceMeshMultiResult* result);
 
-// Non-zero while the internal tracked ROI follows a face — it was seeded
+// Non-zero while the internal tracked ROI follows a face, meaning it was seeded
 // from landmarks and has not been dropped by a face-presence or
 // tracking-confidence failure, or an input-geometry change. Always zero when
 // the context was created with enable_roi_tracking off.
