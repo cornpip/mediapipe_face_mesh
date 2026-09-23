@@ -6,6 +6,7 @@
   in a worker isolate
 - add `FaceMeshInferencePipeline.close`, which closes the detector and mesh
   it was given
+- add `FaceMeshResult.hasIris`
 
 ## 3.0.0
 

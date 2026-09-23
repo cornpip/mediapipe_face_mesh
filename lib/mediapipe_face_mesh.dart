@@ -1089,6 +1089,13 @@ class FaceMeshResult {
   /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
 
+  /// Whether [landmarks] include the ten iris points (indices 468..477).
+  ///
+  /// True for `FaceMeshModel.v2`, `FaceMeshModel.attention`, and
+  /// `FaceMeshModel.v1` with `enableIris: true`. [FaceBlendshapesProcessor]
+  /// needs such a result.
+  bool get hasIris => landmarks.length >= 478;
+
   List<FaceMeshTriangle>? _triangles;
 
   /// Triangles describing the mesh topology.
