@@ -19,10 +19,10 @@ import 'widgets/source_selectors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Windows frames come from a USB (UVC) camera; the camera plugin has no
+  // Desktop frames come from a USB (UVC) camera; the camera plugin has no
   // image stream there and orientation control only exists on mobile
   // embedders.
-  if (Platform.isWindows) {
+  if (Platform.isWindows || Platform.isMacOS) {
     runApp(MyApp(frameSource: UvcFrameSource()));
     return;
   }

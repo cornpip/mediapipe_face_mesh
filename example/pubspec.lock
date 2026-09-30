@@ -130,10 +130,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_ffi_uvc
-      sha256: ff9eb1c05c4ad4618ed2b8357cd624516399e1770382e3e0c046e6d7c34c3802
+      sha256: "9f5e1cc4434081417a3233329dc470a6c034c3804e2d926738ec301e929a0176"
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.2"
+    version: "1.1.0"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -222,7 +222,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "3.1.0"
+    version: "3.2.0-wip"
   meta:
     dependency: transitive
     description:

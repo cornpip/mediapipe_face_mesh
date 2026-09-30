@@ -44,6 +44,3 @@ at the master merge commit.
 
 - Publishing to pub.dev is a separate manual step (`dart pub publish`); do
   not attempt it from this skill, but remind the user it remains.
-- If the repo's iOS example Podfile.lock is pinned to an older version (see
-  the release commit message), remind the user a `pod install` on macOS is
-  still pending — do not try to fix it.

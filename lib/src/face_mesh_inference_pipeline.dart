@@ -191,15 +191,13 @@ class FaceMeshInferencePipeline {
   /// internal clock. Pass `timestamp` to the process methods when replaying
   /// recorded video.
   FaceMeshInferencePipeline({
-    required FaceDetectorProcessor detector,
-    required FaceMeshProcessor mesh,
+    required this._detector,
+    required this._mesh,
     FaceDetectionSelector? detectionSelector,
     bool enableLandmarkTracking = true,
     LandmarkSmoothingOptions? landmarkSmoothing =
         const LandmarkSmoothingOptions(),
-  }) : _detector = detector,
-       _mesh = mesh,
-       _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
+  }) : _detectionSelector = detectionSelector ?? _defaultDetectionSelector,
        _landmarkTrackingEnabled = enableLandmarkTracking,
        _smoothingOptions = landmarkSmoothing;
 

@@ -45,7 +45,7 @@ class FrameSourceTagFilter {
 
 /// Abstraction over where demo frames come from, so the demo page's inference
 /// and overlay UI is identical across the mobile `camera` plugin and the
-/// Windows USB (UVC) camera.
+/// desktop USB (UVC) camera.
 ///
 /// Implementations call [notifyListeners] whenever preview state or the
 /// selector lists change, and push frames through [onFrame] while started.

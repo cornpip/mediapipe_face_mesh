@@ -7,7 +7,7 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 import 'frame_source.dart';
 
 /// [DemoFrameSource] backed by a USB (UVC) camera via `flutter_ffi_uvc`
-/// (Windows desktop).
+/// (Windows and macOS desktop).
 ///
 /// Device open and preview start are decoupled: the selected device is opened
 /// eagerly so its camera modes are listed (highest resolution first) before

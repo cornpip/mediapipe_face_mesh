@@ -5,14 +5,14 @@
 #include <vector>
 
 #if defined(__APPLE__)
-#include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
+// Apple builds use the headers bundled in TensorFlowLiteC.xcframework; the
+// other platforms use src/include.
 #include <TensorFlowLiteC/TensorFlowLiteC.h>
+#include <TensorFlowLiteC/gpu_delegate.h>
 #else
 #include "tensorflow/lite/c/c_api.h"
-#endif
-#else
-#include "tensorflow/lite/c/c_api.h"
+#include "tensorflow/lite/delegates/gpu/delegate.h"
+#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #endif
 
 #if defined(_WIN32)
@@ -21,10 +21,8 @@
 #include <dlfcn.h>
 #endif
 
-#include "tensorflow/lite/delegates/gpu/delegate.h"
-#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
-
-// Lightweight wrapper that loads the TensorFlow Lite C API at runtime.
+// Wrapper around the TensorFlow Lite C API. Apple links the bundled runtime;
+// the other platforms load it at run time.
 class TfLiteRuntime {
  public:
   using ModelCreateFromFileFn = TfLiteModel* (*)(const char*);
@@ -67,39 +65,23 @@ class TfLiteRuntime {
   ~TfLiteRuntime() { Release(); }
 
   bool Load(const char* explicit_path) {
-    if (handle_) {
+    if (handle_ || linked_) {
       return true;
     }
+#if defined(__APPLE__)
+    // Linked in. An explicit path still overrides it.
+    if (!explicit_path || explicit_path[0] == '\0') {
+      BindLinkedSymbols();
+      linked_ = true;
+      error_.clear();
+      return true;
+    }
+#endif
     std::vector<std::string> candidates;
     if (explicit_path && explicit_path[0] != '\0') {
       candidates.emplace_back(explicit_path);
     } else {
-#if defined(__APPLE__)
-#if TARGET_OS_IPHONE
-#if defined(__OBJC__)
-      @autoreleasepool {
-        NSString* bundlePath = [[NSBundle mainBundle] bundlePath];
-        NSArray<NSString*>* roots = @[
-          [[NSBundle mainBundle] privateFrameworksPath],
-          bundlePath ? [bundlePath stringByAppendingPathComponent:@"Frameworks"] : nil,
-          [[NSBundle mainBundle] resourcePath],
-        ];
-        for (NSString* root in roots) {
-          if (![root length]) {
-            continue;
-          }
-          NSString* frameworkBinary =
-              [root stringByAppendingPathComponent:
-                            @"TensorFlowLiteC.framework/TensorFlowLiteC"];
-          candidates.emplace_back([frameworkBinary UTF8String]);
-        }
-      }
-#endif  // defined(__OBJC__)
-      candidates.emplace_back("TensorFlowLiteC.framework/TensorFlowLiteC");
-      candidates.emplace_back("TensorFlowLiteC");
-#endif  // TARGET_OS_IPHONE
-      candidates.emplace_back("libtensorflowlite_c.dylib");
-#elif defined(_WIN32)
+#if defined(_WIN32)
       candidates.emplace_back("tensorflowlite_c.dll");
 #else
       candidates.emplace_back("libtensorflowlite_c.so");
@@ -119,23 +101,9 @@ class TfLiteRuntime {
         error_.clear();
         return true;
       }
-      // Opened but missing required symbols (e.g. the stub
-      // TensorFlowLiteC.framework in Swift Package Manager builds).
+      // Opened but missing required symbols.
       Release();
     }
-
-#if defined(__APPLE__)
-    // The symbols may be linked into the app or plugin binaries instead of
-    // a loadable framework (static CocoaPods linking, SPM's merged dylibs);
-    // resolve them through RTLD_DEFAULT.
-    handle_ = RTLD_DEFAULT;
-    if (LoadSymbols()) {
-      error_.clear();
-      return true;
-    }
-    handle_ = nullptr;
-    Release();
-#endif
 
     if (error_.empty()) {
       error_ = "TensorFlow Lite runtime library could not be loaded.";
@@ -148,12 +116,11 @@ class TfLiteRuntime {
 #if defined(_WIN32)
       FreeLibrary(static_cast<HMODULE>(handle_));
 #else
-      if (handle_ != RTLD_DEFAULT) {
-        dlclose(handle_);
-      }
+      dlclose(handle_);
 #endif
       handle_ = nullptr;
     }
+    linked_ = false;
     ModelCreateFromFile = nullptr;
     ModelDelete = nullptr;
     InterpreterOptionsCreate = nullptr;
@@ -214,6 +181,43 @@ class TfLiteRuntime {
   GpuDelegateV2OptionsDefaultFn GpuDelegateV2OptionsDefault = nullptr;
 
  private:
+#if defined(__APPLE__)
+  // Binds the linked symbols. The GPU delegate is not in the bundled
+  // runtime, so it is looked up in the process and stays null when absent.
+  void BindLinkedSymbols() {
+    ModelCreateFromFile = &TfLiteModelCreateFromFile;
+    ModelDelete = &TfLiteModelDelete;
+    InterpreterOptionsCreate = &TfLiteInterpreterOptionsCreate;
+    InterpreterOptionsDelete = &TfLiteInterpreterOptionsDelete;
+    InterpreterOptionsSetThreads = &TfLiteInterpreterOptionsSetNumThreads;
+    InterpreterOptionsAddDelegate = &TfLiteInterpreterOptionsAddDelegate;
+    InterpreterCreate = &TfLiteInterpreterCreate;
+    InterpreterDelete = &TfLiteInterpreterDelete;
+    InterpreterAllocateTensors = &TfLiteInterpreterAllocateTensors;
+    InterpreterInvoke = &TfLiteInterpreterInvoke;
+    InterpreterGetInputTensor = &TfLiteInterpreterGetInputTensor;
+    InterpreterGetOutputTensor = &TfLiteInterpreterGetOutputTensor;
+    InterpreterGetInputTensorCount = &TfLiteInterpreterGetInputTensorCount;
+    InterpreterGetOutputTensorCount = &TfLiteInterpreterGetOutputTensorCount;
+    TensorType = &TfLiteTensorType;
+    TensorNumDims = &TfLiteTensorNumDims;
+    TensorDim = &TfLiteTensorDim;
+    TensorByteSize = &TfLiteTensorByteSize;
+    TensorData = &TfLiteTensorData;
+    TensorCopyFromBuffer = &TfLiteTensorCopyFromBuffer;
+    TensorCopyToBuffer = &TfLiteTensorCopyToBuffer;
+    XnnpackDelegateCreate = &TfLiteXNNPackDelegateCreate;
+    XnnpackDelegateDelete = &TfLiteXNNPackDelegateDelete;
+    XnnpackDelegateOptionsDefault = &TfLiteXNNPackDelegateOptionsDefault;
+    GpuDelegateV2Create = reinterpret_cast<GpuDelegateV2CreateFn>(
+        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateV2Create"));
+    GpuDelegateV2Delete = reinterpret_cast<GpuDelegateV2DeleteFn>(
+        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateV2Delete"));
+    GpuDelegateV2OptionsDefault = reinterpret_cast<GpuDelegateV2OptionsDefaultFn>(
+        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateOptionsV2Default"));
+  }
+#endif
+
   bool LoadSymbols() {
     ModelCreateFromFile =
         reinterpret_cast<ModelCreateFromFileFn>(LoadSymbol("TfLiteModelCreateFromFile"));
@@ -307,6 +311,7 @@ class TfLiteRuntime {
   }
 
   void* handle_ = nullptr;
+  bool linked_ = false;
   std::string error_;
 };
 

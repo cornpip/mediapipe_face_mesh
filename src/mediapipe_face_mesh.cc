@@ -7,22 +7,6 @@
 #include <cstring>
 #include <cstdio>
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#if defined(__OBJC__) && TARGET_OS_IPHONE
-#import <Foundation/Foundation.h>
-#endif
-// Use the umbrella header from TensorFlowLiteC.framework on Apple platforms.
-#if TARGET_OS_IPHONE
-#include <TensorFlowLiteC/TensorFlowLiteC.h>
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-#include "tensorflow/lite/delegates/gpu/delegate.h"
-#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #include <exception>
 #include <memory>
 #include <string>

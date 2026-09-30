@@ -11,21 +11,6 @@
 #include <string>
 #include <vector>
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#if defined(__OBJC__) && TARGET_OS_IPHONE
-#import <Foundation/Foundation.h>
-#endif
-#if TARGET_OS_IPHONE
-#include <TensorFlowLiteC/TensorFlowLiteC.h>
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-#include "tensorflow/lite/delegates/gpu/delegate.h"
-#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #include "tflite_runtime.h"
 
 #if defined(__ANDROID__)

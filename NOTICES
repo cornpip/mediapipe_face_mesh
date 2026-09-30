@@ -36,10 +36,10 @@ MediaPipe
 The mediapipe_face_mesh package bundles the Apache-2.0 components below.
 
 TensorFlow Lite, Copyright The TensorFlow Authors. Prebuilt TensorFlow Lite C
-runtime binaries for Android, iOS, and Windows, plus the C/C++ headers the
-package compiles against. The runtime binaries are not stock upstream releases.
-They are rebuilt from source so that the C API's default operator resolver also
-registers the MediaPipe custom operators TransformTensorBilinear,
+runtime binaries for Android, iOS, macOS, and Windows, plus the C/C++ headers
+the package compiles against. The runtime binaries are not stock upstream
+releases. They are rebuilt from source so that the C API's default operator
+resolver also registers the MediaPipe custom operators TransformTensorBilinear,
 TransformLandmarks, Landmarks2TransformMatrix, MaxPoolingWithArgmax2D,
 MaxUnpooling2D, Convolution2DTransposeBias, and Resampler. No other change was
 made to TensorFlow Lite.

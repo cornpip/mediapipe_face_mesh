@@ -4,7 +4,7 @@ import '../sources/frame_source.dart';
 import 'option_tiles.dart';
 
 /// Source-provided chip filters and dropdowns (UVC format filter, device
-/// and camera mode on Windows). Empty for the mobile camera source.
+/// and camera mode on desktop). Empty for the mobile camera source.
 class SourceSelectors extends StatelessWidget {
   const SourceSelectors({
     super.key,

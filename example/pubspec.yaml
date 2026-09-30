@@ -5,7 +5,7 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.8.1
+  sdk: ^3.12.0
 
 dependencies:
   flutter:
@@ -14,8 +14,8 @@ dependencies:
   image: ^4.1.7
   camera: ^0.12.0
   permission_handler: ^11.3.1
-  # Windows demo: USB/UVC camera preview + RGBA frame access.
-  flutter_ffi_uvc: ^1.0.2
+  # Windows and macOS demo: USB/UVC camera preview
+  flutter_ffi_uvc: ^1.1.0
 
   mediapipe_face_mesh:
     path: ../
