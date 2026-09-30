@@ -7,6 +7,9 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #if TARGET_OS_IPHONE
+#if defined(__OBJC__)
+#import <Foundation/Foundation.h>
+#endif
 #include <TensorFlowLiteC/TensorFlowLiteC.h>
 #else
 #include "tensorflow/lite/c/c_api.h"
@@ -106,6 +109,19 @@ class TfLiteRuntime {
 #endif
     }
 
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    // macOS links the runtime statically into the plugin framework. Resolve
+    // it from the process before probing by leaf name: a bare dylib name
+    // also searches DYLD_LIBRARY_PATH and the dyld fallback paths, where a
+    // stock TensorFlow Lite build without the MediaPipe custom ops would
+    // shadow the bundled one.
+    if (!explicit_path || explicit_path[0] == '\0') {
+      if (LoadProcessSymbols()) {
+        return true;
+      }
+    }
+#endif
+
     for (const std::string& candidate : candidates) {
 #if defined(_WIN32)
       handle_ = LoadLibraryA(candidate.c_str());
@@ -126,15 +142,10 @@ class TfLiteRuntime {
 
 #if defined(__APPLE__)
     // The symbols may be linked into the app or plugin binaries instead of
-    // a loadable framework (static CocoaPods linking, SPM's merged dylibs);
-    // resolve them through RTLD_DEFAULT.
-    handle_ = RTLD_DEFAULT;
-    if (LoadSymbols()) {
-      error_.clear();
+    // a loadable framework (static CocoaPods linking, SPM's merged dylibs).
+    if (LoadProcessSymbols()) {
       return true;
     }
-    handle_ = nullptr;
-    Release();
 #endif
 
     if (error_.empty()) {
@@ -214,6 +225,20 @@ class TfLiteRuntime {
   GpuDelegateV2OptionsDefaultFn GpuDelegateV2OptionsDefault = nullptr;
 
  private:
+#if defined(__APPLE__)
+  // Resolves the symbols from the running process through RTLD_DEFAULT.
+  bool LoadProcessSymbols() {
+    handle_ = RTLD_DEFAULT;
+    if (LoadSymbols()) {
+      error_.clear();
+      return true;
+    }
+    handle_ = nullptr;
+    Release();
+    return false;
+  }
+#endif
+
   bool LoadSymbols() {
     ModelCreateFromFile =
         reinterpret_cast<ModelCreateFromFileFn>(LoadSymbol("TfLiteModelCreateFromFile"));

@@ -1,3 +1,7 @@
+## 3.2.0-wip
+
+- add macOS support (10.15+, Apple Silicon and Intel)
+
 ## 3.1.0
 
 - deprecate `FaceMeshInferenceStreamProcessor`, removed in 4.0.0. Call

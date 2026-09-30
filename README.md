@@ -12,6 +12,7 @@ the package. The only dependency is `ffi`.
 | --- | --- |
 | Android | minSdk 24 (arm64-v8a, x86_64) |
 | iOS | 13.0+ |
+| macOS | 10.15+ (arm64, x86_64) |
 | Windows | x64 |
 
 Requires Dart `>=3.8.1 <4.0.0` and Flutter `>=3.32.0`.

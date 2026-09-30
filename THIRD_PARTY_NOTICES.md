@@ -27,6 +27,7 @@ Redistributed in this package:
 | `android/src/main/jniLibs/arm64-v8a/libtensorflowlite_c.so` | Prebuilt TensorFlow Lite C runtime |
 | `android/src/main/jniLibs/x86_64/libtensorflowlite_c.so` | Prebuilt TensorFlow Lite C runtime |
 | `ios/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`ios-arm64`, `ios-arm64_x86_64-simulator`) |
+| `macos/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`macos-arm64_x86_64`) |
 | `windows/blobs/tensorflowlite_c.dll` | Prebuilt TensorFlow Lite C runtime (x64) |
 
 Each redistributed header retains its original Apache-2.0 file notice.
@@ -42,10 +43,10 @@ operator resolver also registers the MediaPipe custom operators required by
 `MaxPoolingWithArgmax2D`, `MaxUnpooling2D`, `Convolution2DTransposeBias`,
 `Resampler`.
 
-- **Android and iOS**: built from the MediaPipe Bazel workspace, which pins its
-  own `org_tensorflow` commit and applies MediaPipe's TensorFlow patches. A
-  local `tflite::CreateOpResolver()` returns `BuiltinOpResolver` combined with
-  MediaPipe's `MediaPipe_RegisterTfLiteOpResolver`.
+- **Android, iOS, and macOS**: built from the MediaPipe Bazel workspace, which
+  pins its own `org_tensorflow` commit and applies MediaPipe's TensorFlow
+  patches. A local `tflite::CreateOpResolver()` returns `BuiltinOpResolver`
+  combined with MediaPipe's `MediaPipe_RegisterTfLiteOpResolver`.
 - **Windows**: built from the TensorFlow 2.19.0 CMake tree with MediaPipe's CPU
   kernels for those operators added to the build and registered in
   `tensorflow/lite/core/create_op_resolver_with_builtin_ops.cc`. Local build
