@@ -1083,8 +1083,8 @@ class FaceMeshResult {
     required this.score,
     required this.imageWidth,
     required this.imageHeight,
-    List<FaceMeshTriangle>? triangles,
-  }) : _triangles = triangles;
+    this._triangles,
+  });
 
   /// All face landmarks returned by the native graph.
   final List<FaceMeshLandmark> landmarks;
@@ -1210,14 +1210,11 @@ class FaceMeshException implements Exception {
 class FaceDetectorProcessor {
   FaceDetectorProcessor._(
     this._context, {
-    required double defaultRoiScaleX,
-    required double defaultRoiScaleY,
-    required double defaultRoiShiftX,
-    required double defaultRoiShiftY,
-  }) : _defaultRoiScaleX = defaultRoiScaleX,
-       _defaultRoiScaleY = defaultRoiScaleY,
-       _defaultRoiShiftX = defaultRoiShiftX,
-       _defaultRoiShiftY = defaultRoiShiftY {
+    required this._defaultRoiScaleX,
+    required this._defaultRoiScaleY,
+    required this._defaultRoiShiftX,
+    required this._defaultRoiShiftY,
+  }) {
     _detectorContextFinalizer.attach(this, _context, detach: this);
     _frameScratchFinalizer.attach(this, _scratch, detach: this);
   }
@@ -1452,16 +1449,12 @@ class FaceDetectorProcessor {
 class FaceMeshProcessor {
   FaceMeshProcessor._(
     this._context, {
-    required FaceMeshModel model,
-    required bool irisEnabled,
-    required bool roiTrackingEnabled,
-    required double minTrackingConfidence,
-    required double minFacePresenceConfidence,
-  }) : _model = model,
-       _irisEnabled = irisEnabled,
-       _roiTrackingEnabled = roiTrackingEnabled,
-       _minTrackingConfidence = minTrackingConfidence,
-       _minFacePresenceConfidence = minFacePresenceConfidence {
+    required this._model,
+    required this._irisEnabled,
+    required this._roiTrackingEnabled,
+    required this._minTrackingConfidence,
+    required this._minFacePresenceConfidence,
+  }) {
     _contextFinalizer.attach(this, _context, detach: this);
     _frameScratchFinalizer.attach(this, _scratch, detach: this);
   }

@@ -15,7 +15,7 @@ the package. The only dependency is `ffi`.
 | macOS | 10.15+ (arm64, x86_64) |
 | Windows | x64 |
 
-Requires Dart `>=3.8.1 <4.0.0` and Flutter `>=3.32.0`.
+Requires Dart `>=3.12.0 <4.0.0` and Flutter `>=3.44.0`.
 
 ## Performance
 
@@ -316,12 +316,6 @@ the pipeline result as is.
 
 A demo app lives in the `example/` directory at the root of this
 repository.
-
-## Notes
-
-- On Flutter older than 3.38.0, a debug `flutter run` on a physical iOS 17+
-  device can hang at `Installing and launching...`. Flutter tooling issue,
-  see [doc/IOS_DEBUG_RUN.md](doc/IOS_DEBUG_RUN.md).
 
 ## License
 

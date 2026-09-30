@@ -56,11 +56,11 @@ class LandmarkSmoothingOptions {
 class OneEuroFilter {
   /// Creates a scalar OneEuro filter.
   OneEuroFilter({
-    double frequency = 30.0,
+    this._frequency = 30.0,
     this.minCutoff = 1.0,
     this.beta = 0.0,
     this.derivateCutoff = 1.0,
-  }) : _frequency = frequency;
+  });
 
   /// See [LandmarkSmoothingOptions.minCutoff].
   final double minCutoff;

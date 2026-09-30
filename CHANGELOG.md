@@ -1,5 +1,6 @@
 ## 3.2.0-wip
 
+- require Flutter 3.44.0 (Dart 3.12.0) or later
 - add macOS support (10.15+, Apple Silicon and Intel)
 
 ## 3.1.0
