@@ -26,8 +26,8 @@ Redistributed in this package:
 | `src/include/tensorflow/**` | C/C++ headers from TensorFlow 2.19.0, a headers-only subset of the upstream tree, used to compile this package's native sources |
 | `android/src/main/jniLibs/arm64-v8a/libtensorflowlite_c.so` | Prebuilt TensorFlow Lite C runtime |
 | `android/src/main/jniLibs/x86_64/libtensorflowlite_c.so` | Prebuilt TensorFlow Lite C runtime |
-| `ios/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`ios-arm64`, `ios-arm64_x86_64-simulator`) |
-| `macos/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`macos-arm64_x86_64`) |
+| `ios/mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`ios-arm64`, `ios-arm64_x86_64-simulator`) with a flattened copy of the C API headers |
+| `macos/mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework` | Prebuilt TensorFlow Lite C runtime (`macos-arm64_x86_64`) with a flattened copy of the C API headers |
 | `windows/blobs/tensorflowlite_c.dll` | Prebuilt TensorFlow Lite C runtime (x64) |
 
 Each redistributed header retains its original Apache-2.0 file notice.
@@ -55,7 +55,9 @@ operator resolver also registers the MediaPipe custom operators required by
 
 No changes were made to TensorFlow Lite's inference behavior beyond operator
 registration and the build configuration described above. The vendored headers
-are unmodified upstream files.
+under `src/include` are unmodified upstream files. The copies inside the
+xcframeworks differ only in their `#include` paths, which are flattened to bare
+file names.
 
 ### Components linked into the prebuilt runtime binaries
 

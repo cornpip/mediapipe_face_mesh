@@ -32,7 +32,7 @@ ffi.DynamicLibrary _openDefaultDylib({String? libraryPath}) {
   }
   const String libName = 'mediapipe_face_mesh';
   if (Platform.isMacOS || Platform.isIOS) {
-    return ffi.DynamicLibrary.open('$libName.framework/$libName');
+    return _openAppleLibrary(libName);
   }
   if (Platform.isAndroid || Platform.isLinux) {
     return ffi.DynamicLibrary.open('lib$libName.so');
@@ -41,4 +41,19 @@ ffi.DynamicLibrary _openDefaultDylib({String? libraryPath}) {
     return ffi.DynamicLibrary.open('$libName.dll');
   }
   throw UnsupportedError('Unsupported platform ${Platform.operatingSystem}');
+}
+
+/// CocoaPods builds the plugin as `mediapipe_face_mesh.framework`, Swift
+/// Package Manager as `mediapipe-face-mesh.framework` (the product name).
+/// A static build links it into the app binary instead.
+ffi.DynamicLibrary _openAppleLibrary(String libName) {
+  final String productName = libName.replaceAll('_', '-');
+  for (final String name in <String>[libName, productName]) {
+    try {
+      return ffi.DynamicLibrary.open('$name.framework/$name');
+    } on ArgumentError {
+      // Not built under this name; try the next one.
+    }
+  }
+  return ffi.DynamicLibrary.process();
 }

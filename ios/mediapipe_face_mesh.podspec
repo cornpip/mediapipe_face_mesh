@@ -8,20 +8,17 @@ Pod::Spec.new do |s|
   s.summary          = 'MediaPipe Face Mesh for Flutter.'
   s.description      = <<-DESC
 Real-time face mesh detection for Flutter with bundled MediaPipe face mesh,
-face detector, and TensorFlow Lite runtime binaries for Android and iOS.
+face detector, and TensorFlow Lite runtime binaries.
                        DESC
   s.homepage         = 'https://github.com/cornpip/mediapipe_face_mesh.git'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'mediapipe_face_mesh contributors' => 'cornpip7777@gmail.com' }
 
-  # This will ensure the source files in Classes/ are included in the native
-  # builds of apps using this FFI plugin. Podspec does not support relative
-  # paths, so Classes contains a forwarder C file that relatively imports
-  # `../src/*` so that the C sources can be shared among all target platforms.
+  # Sources/ is shared with Package.swift: ObjC++ forwarders that include
+  # src/*.cc by relative path, since neither build system compiles files
+  # outside the plugin directory. Only headers are listed from src/.
   s.source           = { :path => '.' }
-  # `.cc` files are pulled in via the ObjC++ forwarders in Classes/ to avoid
-  # double compilation; only headers are exposed here.
-  s.source_files = 'Classes/**/*', '../src/**/*.h'
+  s.source_files = 'mediapipe_face_mesh/Sources/mediapipe_face_mesh/**/*', '../src/*.h'
   s.dependency 'Flutter'
   # The arm64 simulator slice of TensorFlowLiteC.xcframework has a minimum of
   # iOS 14.0 (an Apple constraint for arm64 simulators). Apps targeting less
@@ -32,14 +29,16 @@ face detector, and TensorFlow Lite runtime binaries for Android and iOS.
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-    'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/../src/include" $(inherited)'
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386'
   }
   s.swift_version = '5.0'
 
-  # Bundle the TensorFlow Lite C runtime copied into ios/Frameworks.
-  # An xcframework, so the device slice (ios-arm64) and the simulator slice
+  # Referenced by the bundled TensorFlow Lite runtime.
+  s.frameworks = 'CoreFoundation', 'Foundation'
+
+  # Bundle the TensorFlow Lite C runtime as a library xcframework with its
+  # headers, so the device slice (ios-arm64) and the simulator slice
   # (ios-arm64_x86_64-simulator) can coexist. A plain fat framework cannot hold
   # both: arm64 device and arm64 simulator differ by platform, not by arch.
-  s.vendored_frameworks = 'Frameworks/TensorFlowLiteC.xcframework'
+  s.vendored_frameworks = 'mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework'
 end

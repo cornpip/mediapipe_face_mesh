@@ -13,19 +13,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
-#include <TensorFlowLiteC/TensorFlowLiteC.h>
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-#else
-#include "tensorflow/lite/c/c_api.h"
-#endif
-
-#include "tensorflow/lite/delegates/gpu/delegate.h"
-#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #include "tflite_runtime.h"
 
 #if defined(__ANDROID__)
@@ -743,7 +730,8 @@ class FaceDetectorContext {
               });
 
     std::vector<DecodedDetection> selected;
-    selected.reserve(std::min<int>(max_results_, detections.size()));
+    selected.reserve(
+        std::min<int>(max_results_, static_cast<int>(detections.size())));
     std::vector<bool> merged(detections.size(), false);
     for (size_t i = 0; i < detections.size(); ++i) {
       if (merged[i]) {

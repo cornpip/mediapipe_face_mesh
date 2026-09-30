@@ -2,6 +2,9 @@
 
 - require Flutter 3.44.0 (Dart 3.12.0) or later
 - add macOS support (10.15+, Apple Silicon and Intel)
+- add Swift Package Manager support on iOS and macOS
+  - under Swift Package Manager the plugin builds as
+    `mediapipe-face-mesh.framework`
 
 ## 3.1.0
 
