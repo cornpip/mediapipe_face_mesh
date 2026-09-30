@@ -4,4 +4,4 @@
 
 ## Build note
 
-Latest Flutter build version: Flutter 3.41.x.
+Latest Flutter build version: Flutter 3.47.x.
