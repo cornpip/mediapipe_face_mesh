@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "tflite_runtime.h"
+#include "tflite_c_api.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -279,27 +279,18 @@ class FaceDetectorContext {
     max_results_ = (options && options->max_results > 0) ? options->max_results
                                                          : 1;
 
-    const char* runtime_path =
-        (options && options->tflite_library_path)
-            ? options->tflite_library_path
-            : nullptr;
-    if (!runtime_.Load(runtime_path)) {
-      SetError("Failed to load TensorFlow Lite runtime: " + runtime_.error());
-      return false;
-    }
-
-    model_.reset(runtime_.ModelCreateFromFile(model_path.c_str()));
+    model_.reset(TfLiteModelCreateFromFile(model_path.c_str()));
     if (!model_) {
       SetError("Unable to load model file: " + model_path);
       return false;
     }
 
-    options_.reset(runtime_.InterpreterOptionsCreate());
+    options_.reset(TfLiteInterpreterOptionsCreate());
     if (!options_) {
       SetError("Failed to allocate interpreter options.");
       return false;
     }
-    runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+    TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
 
     const MpDelegateType delegate_choice =
         options ? static_cast<MpDelegateType>(options->delegate)
@@ -316,7 +307,7 @@ class FaceDetectorContext {
       }
       delegate_.get_deleter().deleter = deleter;
       delegate_.reset(created);
-      runtime_.InterpreterOptionsAddDelegate(
+      TfLiteInterpreterOptionsAddDelegate(
           options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
       active_delegate_ = delegate_type;
@@ -326,25 +317,12 @@ class FaceDetectorContext {
 
     switch (delegate_choice) {
       case MP_DELEGATE_XNNPACK: {
-        if (!runtime_.InterpreterOptionsAddDelegate ||
-            !runtime_.XnnpackDelegateOptionsDefault ||
-            !runtime_.XnnpackDelegateCreate ||
-            !runtime_.XnnpackDelegateDelete) {
-          if (!allow_delegate_fallback) {
-            SetError("XNNPACK delegate is unavailable for face detector and "
-                     "delegate fallback is disabled.");
-            return false;
-          }
-          MP_DETECT_LOGI(
-              "XNNPACK delegate requested but unavailable in runtime.\n");
-          break;
-        }
         TfLiteXNNPackDelegateOptions delegate_options =
-            runtime_.XnnpackDelegateOptionsDefault();
+            TfLiteXNNPackDelegateOptionsDefault();
         delegate_options.num_threads = threads_;
         TfLiteDelegate* created =
-            runtime_.XnnpackDelegateCreate(&delegate_options);
-        if (!AttachDelegate(created, runtime_.XnnpackDelegateDelete,
+            TfLiteXNNPackDelegateCreate(&delegate_options);
+        if (!AttachDelegate(created, TfLiteXNNPackDelegateDelete,
                             "XNNPACK", MP_DELEGATE_XNNPACK)) {
           if (!allow_delegate_fallback) {
             SetError("Failed to create XNNPACK delegate for face detector "
@@ -361,10 +339,10 @@ class FaceDetectorContext {
         break;
     }
 
-    interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
+    interpreter_.reset(TfLiteInterpreterCreate(model_.get(), options_.get()));
     bool tensors_ready =
         interpreter_ &&
-        runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+        TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
     // builds or allocates tensors. Honor delegate fallback for that stage
     // too.
@@ -374,19 +352,19 @@ class FaceDetectorContext {
           "Interpreter creation with the requested delegate failed. "
           "Falling back to CPU.\n");
       interpreter_.reset();
-      options_.reset(runtime_.InterpreterOptionsCreate());
+      options_.reset(TfLiteInterpreterOptionsCreate());
       delegate_.reset();
       if (!options_) {
         SetError("Failed to allocate interpreter options.");
         return false;
       }
-      runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+      TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
       active_delegate_ = MP_DELEGATE_CPU;
       interpreter_.reset(
-          runtime_.InterpreterCreate(model_.get(), options_.get()));
+          TfLiteInterpreterCreate(model_.get(), options_.get()));
       tensors_ready =
           interpreter_ &&
-          runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+          TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     }
     if (!interpreter_) {
       SetError("Failed to create interpreter.");
@@ -397,27 +375,27 @@ class FaceDetectorContext {
       return false;
     }
 
-    if (runtime_.InterpreterGetInputTensorCount(interpreter_.get()) < 1) {
+    if (TfLiteInterpreterGetInputTensorCount(interpreter_.get()) < 1) {
       SetError("Interpreter input tensor missing.");
       return false;
     }
-    input_tensor_ = runtime_.InterpreterGetInputTensor(interpreter_.get(), 0);
+    input_tensor_ = TfLiteInterpreterGetInputTensor(interpreter_.get(), 0);
     if (!input_tensor_) {
       SetError("Input tensor unavailable.");
       return false;
     }
-    if (runtime_.TensorType(input_tensor_) != kTfLiteFloat32) {
+    if (TfLiteTensorType(input_tensor_) != kTfLiteFloat32) {
       SetError("Face detector input must be float32.");
       return false;
     }
-    if (runtime_.TensorNumDims(input_tensor_) != 4) {
+    if (TfLiteTensorNumDims(input_tensor_) != 4) {
       SetError("Expected NHWC input tensor layout.");
       return false;
     }
-    const int batch = runtime_.TensorDim(input_tensor_, 0);
-    input_height_ = runtime_.TensorDim(input_tensor_, 1);
-    input_width_ = runtime_.TensorDim(input_tensor_, 2);
-    const int channels = runtime_.TensorDim(input_tensor_, 3);
+    const int batch = TfLiteTensorDim(input_tensor_, 0);
+    input_height_ = TfLiteTensorDim(input_tensor_, 1);
+    input_width_ = TfLiteTensorDim(input_tensor_, 2);
+    const int channels = TfLiteTensorDim(input_tensor_, 3);
     if (batch != 1 || channels != 3) {
       SetError("Model expects 1xHxWx3 input.");
       return false;
@@ -426,34 +404,34 @@ class FaceDetectorContext {
         static_cast<size_t>(input_height_ * input_width_ * channels));
 
     const int output_count =
-        runtime_.InterpreterGetOutputTensorCount(interpreter_.get());
+        TfLiteInterpreterGetOutputTensorCount(interpreter_.get());
     if (output_count < 2) {
       SetError("Face detector expects at least 2 output tensors.");
       return false;
     }
 
-    output_boxes_tensor_ = runtime_.InterpreterGetOutputTensor(interpreter_.get(), 0);
+    output_boxes_tensor_ = TfLiteInterpreterGetOutputTensor(interpreter_.get(), 0);
     output_scores_tensor_ =
-        runtime_.InterpreterGetOutputTensor(interpreter_.get(), 1);
+        TfLiteInterpreterGetOutputTensor(interpreter_.get(), 1);
     if (!output_boxes_tensor_ || !output_scores_tensor_) {
       SetError("Detector outputs are unavailable.");
       return false;
     }
-    if (runtime_.TensorType(output_boxes_tensor_) != kTfLiteFloat32 ||
-        runtime_.TensorType(output_scores_tensor_) != kTfLiteFloat32) {
+    if (TfLiteTensorType(output_boxes_tensor_) != kTfLiteFloat32 ||
+        TfLiteTensorType(output_scores_tensor_) != kTfLiteFloat32) {
       SetError("Detector outputs must be float32.");
       return false;
     }
 
     boxes_count_ = 1;
-    const int boxes_dims = runtime_.TensorNumDims(output_boxes_tensor_);
+    const int boxes_dims = TfLiteTensorNumDims(output_boxes_tensor_);
     for (int i = 0; i < boxes_dims; ++i) {
-      boxes_count_ *= runtime_.TensorDim(output_boxes_tensor_, i);
+      boxes_count_ *= TfLiteTensorDim(output_boxes_tensor_, i);
     }
     scores_count_ = 1;
-    const int scores_dims = runtime_.TensorNumDims(output_scores_tensor_);
+    const int scores_dims = TfLiteTensorNumDims(output_scores_tensor_);
     for (int i = 0; i < scores_dims; ++i) {
-      scores_count_ *= runtime_.TensorDim(output_scores_tensor_, i);
+      scores_count_ *= TfLiteTensorDim(output_scores_tensor_, i);
     }
     if (boxes_count_ <= 0 || scores_count_ <= 0) {
       SetError("Detector outputs are empty.");
@@ -583,28 +561,25 @@ class FaceDetectorContext {
 
  private:
   struct TfLiteModelDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteModel* model) const {
-      if (runtime && model) {
-        runtime->ModelDelete(model);
+      if (model) {
+        TfLiteModelDelete(model);
       }
     }
   };
 
   struct TfLiteOptionsDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreterOptions* options) const {
-      if (runtime && options) {
-        runtime->InterpreterOptionsDelete(options);
+      if (options) {
+        TfLiteInterpreterOptionsDelete(options);
       }
     }
   };
 
   struct TfLiteInterpreterDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreter* interpreter) const {
-      if (runtime && interpreter) {
-        runtime->InterpreterDelete(interpreter);
+      if (interpreter) {
+        TfLiteInterpreterDelete(interpreter);
       }
     }
   };
@@ -624,7 +599,6 @@ class FaceDetectorContext {
     options_.reset();
     model_.reset();
     delegate_.reset();
-    runtime_.Release();
   }
 
   MpNormalizedRect DefaultRect() const {
@@ -666,23 +640,23 @@ class FaceDetectorContext {
                                         const MpNormalizedRect& rect,
                                         const MpRoiTransformOptions* roi_transform = nullptr) {
     const size_t input_bytes = input_buffer_.size() * sizeof(float);
-    if (runtime_.TensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
-                                      input_bytes) != kTfLiteOk) {
+    if (TfLiteTensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
+                                   input_bytes) != kTfLiteOk) {
       SetError("Failed to copy detector input buffer.");
       return nullptr;
     }
-    if (runtime_.InterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
+    if (TfLiteInterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
       SetError("Detector invocation failed.");
       return nullptr;
     }
-    if (runtime_.TensorCopyToBuffer(output_boxes_tensor_, boxes_buffer_.data(),
-                                    boxes_buffer_.size() * sizeof(float)) !=
+    if (TfLiteTensorCopyToBuffer(output_boxes_tensor_, boxes_buffer_.data(),
+                                 boxes_buffer_.size() * sizeof(float)) !=
         kTfLiteOk) {
       SetError("Unable to read detector box output.");
       return nullptr;
     }
-    if (runtime_.TensorCopyToBuffer(output_scores_tensor_, scores_buffer_.data(),
-                                    scores_buffer_.size() * sizeof(float)) !=
+    if (TfLiteTensorCopyToBuffer(output_scores_tensor_, scores_buffer_.data(),
+                                 scores_buffer_.size() * sizeof(float)) !=
         kTfLiteOk) {
       SetError("Unable to read detector score output.");
       return nullptr;
@@ -1446,12 +1420,9 @@ class FaceDetectorContext {
     MP_DETECT_LOGE("%s\n", message.c_str());
   }
 
-  TfLiteRuntime runtime_;
-  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_{nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_{
-      nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_{
-      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_;
+  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_;
+  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_;
   std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> delegate_{nullptr, {}};
 
   TfLiteTensor* input_tensor_ = nullptr;

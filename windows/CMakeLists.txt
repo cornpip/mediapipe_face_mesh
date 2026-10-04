@@ -38,9 +38,12 @@ target_compile_definitions(mediapipe_face_mesh PRIVATE NOMINMAX)
 target_include_directories(mediapipe_face_mesh PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/../src/include"
 )
+target_link_libraries(mediapipe_face_mesh PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/blobs/mpfm_tensorflowlite_c.lib"
+)
 
-# Bundle the plugin library and the TensorFlow Lite C runtime next to the
-# executable so `LoadLibrary("mpfm_tensorflowlite_c.dll")` resolves at runtime.
+# Bundle the plugin library and the TensorFlow Lite C runtime it links next
+# to the executable.
 set(mediapipe_face_mesh_bundled_libraries
   $<TARGET_FILE:mediapipe_face_mesh>
   "${CMAKE_CURRENT_SOURCE_DIR}/blobs/mpfm_tensorflowlite_c.dll"

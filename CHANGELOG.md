@@ -3,6 +3,7 @@
 - rename the bundled TensorFlow Lite runtime to
   `libmpfm_tensorflowlite_c.so` (Android) and `mpfm_tensorflowlite_c.dll`
   (Windows)
+- link the bundled TensorFlow Lite runtime directly (Android, Windows)
 
 ## 3.2.0
 

@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "tflite_runtime.h"
+#include "tflite_c_api.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -56,26 +56,18 @@ class BlendshapesContext {
                   const MpBlendshapesCreateOptions* options) {
     threads_ = (options && options->threads > 0) ? options->threads : 2;
 
-    const char* runtime_path = (options && options->tflite_library_path)
-                                   ? options->tflite_library_path
-                                   : nullptr;
-    if (!runtime_.Load(runtime_path)) {
-      SetError("Failed to load TensorFlow Lite runtime: " + runtime_.error());
-      return false;
-    }
-
-    model_.reset(runtime_.ModelCreateFromFile(model_path.c_str()));
+    model_.reset(TfLiteModelCreateFromFile(model_path.c_str()));
     if (!model_) {
       SetError("Unable to load blendshapes model file: " + model_path);
       return false;
     }
 
-    options_.reset(runtime_.InterpreterOptionsCreate());
+    options_.reset(TfLiteInterpreterOptionsCreate());
     if (!options_) {
       SetError("Failed to allocate interpreter options.");
       return false;
     }
-    runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+    TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
 
     const MpDelegateType delegate_choice =
         options ? static_cast<MpDelegateType>(options->delegate)
@@ -91,7 +83,7 @@ class BlendshapesContext {
       }
       delegate_.get_deleter().deleter = deleter;
       delegate_.reset(created);
-      runtime_.InterpreterOptionsAddDelegate(
+      TfLiteInterpreterOptionsAddDelegate(
           options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
       active_delegate_ = delegate_type;
@@ -101,20 +93,12 @@ class BlendshapesContext {
 
     switch (delegate_choice) {
       case MP_DELEGATE_XNNPACK: {
-        if (runtime_.InterpreterOptionsAddDelegate &&
-            runtime_.XnnpackDelegateOptionsDefault &&
-            runtime_.XnnpackDelegateCreate && runtime_.XnnpackDelegateDelete) {
-          TfLiteXNNPackDelegateOptions xnnpack_options =
-              runtime_.XnnpackDelegateOptionsDefault();
-          xnnpack_options.num_threads = threads_;
-          AttachDelegate(runtime_.XnnpackDelegateCreate(&xnnpack_options),
-                         runtime_.XnnpackDelegateDelete, "XNNPACK",
-                         MP_DELEGATE_XNNPACK);
-        } else if (!allow_delegate_fallback) {
-          SetError("XNNPACK delegate is unavailable for blendshapes model and "
-                   "delegate fallback is disabled.");
-          return false;
-        }
+        TfLiteXNNPackDelegateOptions xnnpack_options =
+            TfLiteXNNPackDelegateOptionsDefault();
+        xnnpack_options.num_threads = threads_;
+        AttachDelegate(TfLiteXNNPackDelegateCreate(&xnnpack_options),
+                       TfLiteXNNPackDelegateDelete, "XNNPACK",
+                       MP_DELEGATE_XNNPACK);
         break;
       }
       case MP_DELEGATE_CPU:
@@ -129,10 +113,10 @@ class BlendshapesContext {
       return false;
     }
 
-    interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
+    interpreter_.reset(TfLiteInterpreterCreate(model_.get(), options_.get()));
     bool tensors_ready =
         interpreter_ &&
-        runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+        TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
     // builds or allocates tensors. Honor delegate fallback for that stage
     // too.
@@ -142,19 +126,19 @@ class BlendshapesContext {
           "Blendshapes interpreter creation with the requested delegate "
           "failed. Falling back to CPU.\n");
       interpreter_.reset();
-      options_.reset(runtime_.InterpreterOptionsCreate());
+      options_.reset(TfLiteInterpreterOptionsCreate());
       delegate_.reset();
       if (!options_) {
         SetError("Failed to allocate interpreter options.");
         return false;
       }
-      runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+      TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
       active_delegate_ = MP_DELEGATE_CPU;
       interpreter_.reset(
-          runtime_.InterpreterCreate(model_.get(), options_.get()));
+          TfLiteInterpreterCreate(model_.get(), options_.get()));
       tensors_ready =
           interpreter_ &&
-          runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+          TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     }
     if (!interpreter_) {
       SetError("Failed to create blendshapes interpreter.");
@@ -164,13 +148,13 @@ class BlendshapesContext {
       SetError("Blendshapes tensor allocation failed.");
       return false;
     }
-    if (runtime_.InterpreterGetInputTensorCount(interpreter_.get()) < 1) {
+    if (TfLiteInterpreterGetInputTensorCount(interpreter_.get()) < 1) {
       SetError("Blendshapes interpreter input tensor missing.");
       return false;
     }
-    input_tensor_ = runtime_.InterpreterGetInputTensor(interpreter_.get(), 0);
+    input_tensor_ = TfLiteInterpreterGetInputTensor(interpreter_.get(), 0);
     if (!input_tensor_ ||
-        runtime_.TensorType(input_tensor_) != kTfLiteFloat32) {
+        TfLiteTensorType(input_tensor_) != kTfLiteFloat32) {
       SetError("Blendshapes model input must be float32.");
       return false;
     }
@@ -181,13 +165,13 @@ class BlendshapesContext {
     }
     input_buffer_.resize(static_cast<size_t>(kBlendshapeInputLandmarkCount * 2));
 
-    if (runtime_.InterpreterGetOutputTensorCount(interpreter_.get()) < 1) {
+    if (TfLiteInterpreterGetOutputTensorCount(interpreter_.get()) < 1) {
       SetError("Blendshapes model output missing.");
       return false;
     }
-    output_tensor_ = runtime_.InterpreterGetOutputTensor(interpreter_.get(), 0);
+    output_tensor_ = TfLiteInterpreterGetOutputTensor(interpreter_.get(), 0);
     if (!output_tensor_ ||
-        runtime_.TensorType(output_tensor_) != kTfLiteFloat32) {
+        TfLiteTensorType(output_tensor_) != kTfLiteFloat32) {
       SetError("Blendshapes output tensor must be float32.");
       return false;
     }
@@ -225,18 +209,18 @@ class BlendshapesContext {
       input_buffer_[i * 2 + 1] = landmark.y * height;
     }
 
-    if (runtime_.TensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
-                                      input_buffer_.size() * sizeof(float)) !=
+    if (TfLiteTensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
+                                   input_buffer_.size() * sizeof(float)) !=
         kTfLiteOk) {
       SetError("Failed to copy blendshapes input buffer.");
       return nullptr;
     }
-    if (runtime_.InterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
+    if (TfLiteInterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
       SetError("Blendshapes invocation failed.");
       return nullptr;
     }
-    if (runtime_.TensorCopyToBuffer(output_tensor_, output_buffer_.data(),
-                                    output_buffer_.size() * sizeof(float)) !=
+    if (TfLiteTensorCopyToBuffer(output_tensor_, output_buffer_.data(),
+                                 output_buffer_.size() * sizeof(float)) !=
         kTfLiteOk) {
       SetError("Unable to read blendshapes output.");
       return nullptr;
@@ -261,28 +245,25 @@ class BlendshapesContext {
 
  private:
   struct TfLiteModelDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteModel* model) const {
-      if (runtime && model) {
-        runtime->ModelDelete(model);
+      if (model) {
+        TfLiteModelDelete(model);
       }
     }
   };
 
   struct TfLiteOptionsDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreterOptions* options) const {
-      if (runtime && options) {
-        runtime->InterpreterOptionsDelete(options);
+      if (options) {
+        TfLiteInterpreterOptionsDelete(options);
       }
     }
   };
 
   struct TfLiteInterpreterDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreter* interpreter) const {
-      if (runtime && interpreter) {
-        runtime->InterpreterDelete(interpreter);
+      if (interpreter) {
+        TfLiteInterpreterDelete(interpreter);
       }
     }
   };
@@ -302,14 +283,13 @@ class BlendshapesContext {
     options_.reset();
     model_.reset();
     delegate_.reset();
-    runtime_.Release();
   }
 
   size_t TensorElementCount(const TfLiteTensor* tensor) const {
     int total = 1;
-    const int dims = runtime_.TensorNumDims(tensor);
+    const int dims = TfLiteTensorNumDims(tensor);
     for (int i = 0; i < dims; ++i) {
-      total *= runtime_.TensorDim(tensor, i);
+      total *= TfLiteTensorDim(tensor, i);
     }
     return static_cast<size_t>(total);
   }
@@ -319,12 +299,9 @@ class BlendshapesContext {
     MP_BS_LOGE("%s\n", message.c_str());
   }
 
-  TfLiteRuntime runtime_;
-  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_{nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_{
-      nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_{
-      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_;
+  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_;
+  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_;
   std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> delegate_{nullptr, {}};
 
   TfLiteTensor* input_tensor_ = nullptr;

@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "tflite_runtime.h"
+#include "tflite_c_api.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -161,28 +161,18 @@ class FaceMeshContext {
     MP_LOGI("Initialize start: model=%s threads=%d\n", model_path.c_str(),
             threads_);
 
-    const char* runtime_path =
-        (options && options->tflite_library_path)
-            ? options->tflite_library_path
-            : nullptr;
-
-    if (!runtime_.Load(runtime_path)) {
-      SetError("Failed to load TensorFlow Lite runtime: " + runtime_.error());
-      return false;
-    }
-
-    model_.reset(runtime_.ModelCreateFromFile(model_path.c_str()));
+    model_.reset(TfLiteModelCreateFromFile(model_path.c_str()));
     if (!model_) {
       SetError("Unable to load model file: " + model_path);
       return false;
     }
 
-    options_.reset(runtime_.InterpreterOptionsCreate());
+    options_.reset(TfLiteInterpreterOptionsCreate());
     if (!options_) {
       SetError("Failed to allocate interpreter options.");
       return false;
     }
-    runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+    TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
 
     const MpDelegateType delegate_choice =
         options ? static_cast<MpDelegateType>(options->delegate)
@@ -199,7 +189,7 @@ class FaceMeshContext {
       }
       delegate_.get_deleter().deleter = deleter;
       delegate_.reset(created);
-      runtime_.InterpreterOptionsAddDelegate(
+      TfLiteInterpreterOptionsAddDelegate(
           options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(delegate_.get()));
       active_delegate_ = delegate_type;
@@ -208,23 +198,12 @@ class FaceMeshContext {
     };
     switch (delegate_choice) {
       case MP_DELEGATE_XNNPACK: {
-        if (!runtime_.InterpreterOptionsAddDelegate ||
-            !runtime_.XnnpackDelegateOptionsDefault ||
-            !runtime_.XnnpackDelegateCreate || !runtime_.XnnpackDelegateDelete) {
-          if (!allow_delegate_fallback) {
-            SetError("XNNPACK delegate is unavailable for face mesh and "
-                     "delegate fallback is disabled.");
-            return false;
-          }
-          MP_LOGI("XNNPACK delegate requested but not available in runtime.\n");
-          break;
-        }
         TfLiteXNNPackDelegateOptions xnnpack_options =
-            runtime_.XnnpackDelegateOptionsDefault();
+            TfLiteXNNPackDelegateOptionsDefault();
         xnnpack_options.num_threads = threads_;
         TfLiteDelegate* created_delegate =
-            runtime_.XnnpackDelegateCreate(&xnnpack_options);
-        if (!AttachDelegate(created_delegate, runtime_.XnnpackDelegateDelete,
+            TfLiteXNNPackDelegateCreate(&xnnpack_options);
+        if (!AttachDelegate(created_delegate, TfLiteXNNPackDelegateDelete,
                             "XNNPACK", MP_DELEGATE_XNNPACK)) {
           if (!allow_delegate_fallback) {
             SetError("Failed to create XNNPACK delegate for face mesh because "
@@ -240,10 +219,10 @@ class FaceMeshContext {
         break;
     }
 
-    interpreter_.reset(runtime_.InterpreterCreate(model_.get(), options_.get()));
+    interpreter_.reset(TfLiteInterpreterCreate(model_.get(), options_.get()));
     bool tensors_ready =
         interpreter_ &&
-        runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+        TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
     // builds or allocates tensors. Honor delegate fallback for that stage
     // too.
@@ -252,19 +231,19 @@ class FaceMeshContext {
       MP_LOGE("Interpreter creation with the requested delegate failed. "
               "Falling back to CPU.\n");
       interpreter_.reset();
-      options_.reset(runtime_.InterpreterOptionsCreate());
+      options_.reset(TfLiteInterpreterOptionsCreate());
       delegate_.reset();
       if (!options_) {
         SetError("Failed to allocate interpreter options.");
         return false;
       }
-      runtime_.InterpreterOptionsSetThreads(options_.get(), threads_);
+      TfLiteInterpreterOptionsSetNumThreads(options_.get(), threads_);
       active_delegate_ = MP_DELEGATE_CPU;
       interpreter_.reset(
-          runtime_.InterpreterCreate(model_.get(), options_.get()));
+          TfLiteInterpreterCreate(model_.get(), options_.get()));
       tensors_ready =
           interpreter_ &&
-          runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
+          TfLiteInterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     }
     if (!interpreter_) {
       SetError("Failed to create interpreter.");
@@ -275,27 +254,27 @@ class FaceMeshContext {
       return false;
     }
 
-    if (runtime_.InterpreterGetInputTensorCount(interpreter_.get()) < 1) {
+    if (TfLiteInterpreterGetInputTensorCount(interpreter_.get()) < 1) {
       SetError("Interpreter input tensor missing.");
       return false;
     }
-    input_tensor_ = runtime_.InterpreterGetInputTensor(interpreter_.get(), 0);
+    input_tensor_ = TfLiteInterpreterGetInputTensor(interpreter_.get(), 0);
     if (!input_tensor_) {
       SetError("Input tensor unavailable.");
       return false;
     }
-    if (runtime_.TensorType(input_tensor_) != kTfLiteFloat32) {
+    if (TfLiteTensorType(input_tensor_) != kTfLiteFloat32) {
       SetError("Model input must be float32.");
       return false;
     }
-    if (runtime_.TensorNumDims(input_tensor_) != 4) {
+    if (TfLiteTensorNumDims(input_tensor_) != 4) {
       SetError("Expected NHWC tensor layout.");
       return false;
     }
-    const int batch = runtime_.TensorDim(input_tensor_, 0);
-    input_height_ = runtime_.TensorDim(input_tensor_, 1);
-    input_width_ = runtime_.TensorDim(input_tensor_, 2);
-    const int channels = runtime_.TensorDim(input_tensor_, 3);
+    const int batch = TfLiteTensorDim(input_tensor_, 0);
+    input_height_ = TfLiteTensorDim(input_tensor_, 1);
+    input_width_ = TfLiteTensorDim(input_tensor_, 2);
+    const int channels = TfLiteTensorDim(input_tensor_, 3);
     if (batch != 1 || channels != 3) {
       SetError("Model expects 1xHxWx3 input.");
       return false;
@@ -303,7 +282,7 @@ class FaceMeshContext {
     input_buffer_.resize(static_cast<size_t>(input_height_ * input_width_ * channels));
 
     const int output_count =
-        runtime_.InterpreterGetOutputTensorCount(interpreter_.get());
+        TfLiteInterpreterGetOutputTensorCount(interpreter_.get());
     if (output_count < 1) {
       SetError("Model outputs are missing.");
       return false;
@@ -314,19 +293,19 @@ class FaceMeshContext {
       }
     } else {
       output_landmarks_tensor_ =
-          runtime_.InterpreterGetOutputTensor(interpreter_.get(), 0);
+          TfLiteInterpreterGetOutputTensor(interpreter_.get(), 0);
       if (!output_landmarks_tensor_) {
         SetError("Landmark tensor missing.");
         return false;
       }
-      if (runtime_.TensorType(output_landmarks_tensor_) != kTfLiteFloat32) {
+      if (TfLiteTensorType(output_landmarks_tensor_) != kTfLiteFloat32) {
         SetError("Landmark tensor must be float32.");
         return false;
       }
       int total = 1;
-      const int dims = runtime_.TensorNumDims(output_landmarks_tensor_);
+      const int dims = TfLiteTensorNumDims(output_landmarks_tensor_);
       for (int i = 0; i < dims; ++i) {
-        total *= runtime_.TensorDim(output_landmarks_tensor_, i);
+        total *= TfLiteTensorDim(output_landmarks_tensor_, i);
       }
       if (total % 3 != 0) {
         SetError("Unexpected landmark size.");
@@ -337,9 +316,9 @@ class FaceMeshContext {
 
       if (output_count > 1) {
         output_score_tensor_ =
-            runtime_.InterpreterGetOutputTensor(interpreter_.get(), 1);
+            TfLiteInterpreterGetOutputTensor(interpreter_.get(), 1);
         if (output_score_tensor_ &&
-            runtime_.TensorType(output_score_tensor_) != kTfLiteFloat32) {
+            TfLiteTensorType(output_score_tensor_) != kTfLiteFloat32) {
           output_score_tensor_ = nullptr;
         }
       }
@@ -427,13 +406,13 @@ class FaceMeshContext {
     }
 
     const size_t bytes = input_buffer_.size() * sizeof(float);
-    if (runtime_.TensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
-                                      bytes) != kTfLiteOk) {
+    if (TfLiteTensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
+                                   bytes) != kTfLiteOk) {
       SetError("Failed to copy input buffer.");
       return nullptr;
     }
 
-    if (runtime_.InterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
+    if (TfLiteInterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
       SetError("Interpreter invocation failed.");
       return nullptr;
     }
@@ -444,15 +423,15 @@ class FaceMeshContext {
         return nullptr;
       }
     } else {
-      if (runtime_.TensorCopyToBuffer(
+      if (TfLiteTensorCopyToBuffer(
               output_landmarks_tensor_, landmarks_buffer_.data(),
               landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
         SetError("Unable to read landmark output.");
         return nullptr;
       }
       if (output_score_tensor_) {
-        if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
-                                        sizeof(float)) != kTfLiteOk) {
+        if (TfLiteTensorCopyToBuffer(output_score_tensor_, &raw_score,
+                                     sizeof(float)) != kTfLiteOk) {
           SetError("Unable to read confidence output.");
           return nullptr;
         }
@@ -561,13 +540,13 @@ class FaceMeshContext {
     }
 
     const size_t bytes = input_buffer_.size() * sizeof(float);
-    if (runtime_.TensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
-                                      bytes) != kTfLiteOk) {
+    if (TfLiteTensorCopyFromBuffer(input_tensor_, input_buffer_.data(),
+                                   bytes) != kTfLiteOk) {
       SetError("Failed to copy input buffer.");
       return nullptr;
     }
 
-    if (runtime_.InterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
+    if (TfLiteInterpreterInvoke(interpreter_.get()) != kTfLiteOk) {
       SetError("Interpreter invocation failed.");
       return nullptr;
     }
@@ -578,15 +557,15 @@ class FaceMeshContext {
         return nullptr;
       }
     } else {
-      if (runtime_.TensorCopyToBuffer(
+      if (TfLiteTensorCopyToBuffer(
               output_landmarks_tensor_, landmarks_buffer_.data(),
               landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
         SetError("Unable to read landmark output.");
         return nullptr;
       }
       if (output_score_tensor_) {
-        if (runtime_.TensorCopyToBuffer(output_score_tensor_, &raw_score,
-                                        sizeof(float)) != kTfLiteOk) {
+        if (TfLiteTensorCopyToBuffer(output_score_tensor_, &raw_score,
+                                     sizeof(float)) != kTfLiteOk) {
           SetError("Unable to read confidence output.");
           return nullptr;
         }
@@ -656,28 +635,25 @@ class FaceMeshContext {
 
  private:
   struct TfLiteModelDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteModel* model) const {
-      if (runtime && model) {
-        runtime->ModelDelete(model);
+      if (model) {
+        TfLiteModelDelete(model);
       }
     }
   };
 
   struct TfLiteOptionsDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreterOptions* options) const {
-      if (runtime && options) {
-        runtime->InterpreterOptionsDelete(options);
+      if (options) {
+        TfLiteInterpreterOptionsDelete(options);
       }
     }
   };
 
   struct TfLiteInterpreterDeleter {
-    TfLiteRuntime* runtime;
     void operator()(TfLiteInterpreter* interpreter) const {
-      if (runtime && interpreter) {
-        runtime->InterpreterDelete(interpreter);
+      if (interpreter) {
+        TfLiteInterpreterDelete(interpreter);
       }
     }
   };
@@ -701,24 +677,23 @@ class FaceMeshContext {
     options_.reset();
     model_.reset();
     delegate_.reset();
-    runtime_.Release();
   }
 
   bool InitializeIris(const std::string& iris_model_path,
                       MpDelegateType delegate_choice,
                       bool allow_delegate_fallback) {
-    iris_model_.reset(runtime_.ModelCreateFromFile(iris_model_path.c_str()));
+    iris_model_.reset(TfLiteModelCreateFromFile(iris_model_path.c_str()));
     if (!iris_model_) {
       SetError("Unable to load iris model file: " + iris_model_path);
       return false;
     }
 
-    iris_options_.reset(runtime_.InterpreterOptionsCreate());
+    iris_options_.reset(TfLiteInterpreterOptionsCreate());
     if (!iris_options_) {
       SetError("Failed to allocate iris interpreter options.");
       return false;
     }
-    runtime_.InterpreterOptionsSetThreads(iris_options_.get(), threads_);
+    TfLiteInterpreterOptionsSetNumThreads(iris_options_.get(), threads_);
 
     active_iris_delegate_ = MP_DELEGATE_CPU;
     auto AttachIrisDelegate = [&](TfLiteDelegate* created,
@@ -730,7 +705,7 @@ class FaceMeshContext {
       }
       iris_delegate_.get_deleter().deleter = deleter;
       iris_delegate_.reset(created);
-      runtime_.InterpreterOptionsAddDelegate(
+      TfLiteInterpreterOptionsAddDelegate(
           iris_options_.get(),
           reinterpret_cast<TfLiteOpaqueDelegate*>(iris_delegate_.get()));
       active_iris_delegate_ = delegate_type;
@@ -740,20 +715,12 @@ class FaceMeshContext {
 
     switch (delegate_choice) {
       case MP_DELEGATE_XNNPACK: {
-        if (runtime_.InterpreterOptionsAddDelegate &&
-            runtime_.XnnpackDelegateOptionsDefault &&
-            runtime_.XnnpackDelegateCreate && runtime_.XnnpackDelegateDelete) {
-          TfLiteXNNPackDelegateOptions xnnpack_options =
-              runtime_.XnnpackDelegateOptionsDefault();
-          xnnpack_options.num_threads = threads_;
-          AttachIrisDelegate(runtime_.XnnpackDelegateCreate(&xnnpack_options),
-                             runtime_.XnnpackDelegateDelete, "XNNPACK",
-                             MP_DELEGATE_XNNPACK);
-        } else if (!allow_delegate_fallback) {
-          SetError("XNNPACK delegate is unavailable for iris model and "
-                   "delegate fallback is disabled.");
-          return false;
-        }
+        TfLiteXNNPackDelegateOptions xnnpack_options =
+            TfLiteXNNPackDelegateOptionsDefault();
+        xnnpack_options.num_threads = threads_;
+        AttachIrisDelegate(TfLiteXNNPackDelegateCreate(&xnnpack_options),
+                           TfLiteXNNPackDelegateDelete, "XNNPACK",
+                           MP_DELEGATE_XNNPACK);
         break;
       }
       case MP_DELEGATE_CPU:
@@ -769,10 +736,10 @@ class FaceMeshContext {
     }
 
     iris_interpreter_.reset(
-        runtime_.InterpreterCreate(iris_model_.get(), iris_options_.get()));
+        TfLiteInterpreterCreate(iris_model_.get(), iris_options_.get()));
     bool iris_tensors_ready =
         iris_interpreter_ &&
-        runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) ==
+        TfLiteInterpreterAllocateTensors(iris_interpreter_.get()) ==
             kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
     // builds or allocates tensors. Honor delegate fallback for that stage
@@ -782,19 +749,19 @@ class FaceMeshContext {
       MP_LOGE("Iris interpreter creation with the requested delegate failed. "
               "Falling back to CPU.\n");
       iris_interpreter_.reset();
-      iris_options_.reset(runtime_.InterpreterOptionsCreate());
+      iris_options_.reset(TfLiteInterpreterOptionsCreate());
       iris_delegate_.reset();
       if (!iris_options_) {
         SetError("Failed to allocate iris interpreter options.");
         return false;
       }
-      runtime_.InterpreterOptionsSetThreads(iris_options_.get(), threads_);
+      TfLiteInterpreterOptionsSetNumThreads(iris_options_.get(), threads_);
       active_iris_delegate_ = MP_DELEGATE_CPU;
       iris_interpreter_.reset(
-          runtime_.InterpreterCreate(iris_model_.get(), iris_options_.get()));
+          TfLiteInterpreterCreate(iris_model_.get(), iris_options_.get()));
       iris_tensors_ready =
           iris_interpreter_ &&
-          runtime_.InterpreterAllocateTensors(iris_interpreter_.get()) ==
+          TfLiteInterpreterAllocateTensors(iris_interpreter_.get()) ==
               kTfLiteOk;
     }
     if (!iris_interpreter_) {
@@ -805,22 +772,22 @@ class FaceMeshContext {
       SetError("Iris tensor allocation failed.");
       return false;
     }
-    if (runtime_.InterpreterGetInputTensorCount(iris_interpreter_.get()) < 1) {
+    if (TfLiteInterpreterGetInputTensorCount(iris_interpreter_.get()) < 1) {
       SetError("Iris interpreter input tensor missing.");
       return false;
     }
     iris_input_tensor_ =
-        runtime_.InterpreterGetInputTensor(iris_interpreter_.get(), 0);
+        TfLiteInterpreterGetInputTensor(iris_interpreter_.get(), 0);
     if (!iris_input_tensor_ ||
-        runtime_.TensorType(iris_input_tensor_) != kTfLiteFloat32 ||
-        runtime_.TensorNumDims(iris_input_tensor_) != 4) {
+        TfLiteTensorType(iris_input_tensor_) != kTfLiteFloat32 ||
+        TfLiteTensorNumDims(iris_input_tensor_) != 4) {
       SetError("Iris model input must be float32 NHWC.");
       return false;
     }
-    iris_input_height_ = runtime_.TensorDim(iris_input_tensor_, 1);
-    iris_input_width_ = runtime_.TensorDim(iris_input_tensor_, 2);
-    const int iris_channels = runtime_.TensorDim(iris_input_tensor_, 3);
-    if (runtime_.TensorDim(iris_input_tensor_, 0) != 1 || iris_channels != 3) {
+    iris_input_height_ = TfLiteTensorDim(iris_input_tensor_, 1);
+    iris_input_width_ = TfLiteTensorDim(iris_input_tensor_, 2);
+    const int iris_channels = TfLiteTensorDim(iris_input_tensor_, 3);
+    if (TfLiteTensorDim(iris_input_tensor_, 0) != 1 || iris_channels != 3) {
       SetError("Iris model expects 1xHxWx3 input.");
       return false;
     }
@@ -832,17 +799,17 @@ class FaceMeshContext {
     iris_input_buffer_.resize(
         static_cast<size_t>(iris_input_width_ * iris_input_height_ * 3));
 
-    if (runtime_.InterpreterGetOutputTensorCount(iris_interpreter_.get()) < 2) {
+    if (TfLiteInterpreterGetOutputTensorCount(iris_interpreter_.get()) < 2) {
       SetError("Iris model must expose eye contour and iris outputs.");
       return false;
     }
     iris_eye_tensor_ =
-        runtime_.InterpreterGetOutputTensor(iris_interpreter_.get(), 0);
+        TfLiteInterpreterGetOutputTensor(iris_interpreter_.get(), 0);
     iris_landmarks_tensor_ =
-        runtime_.InterpreterGetOutputTensor(iris_interpreter_.get(), 1);
+        TfLiteInterpreterGetOutputTensor(iris_interpreter_.get(), 1);
     if (!iris_eye_tensor_ || !iris_landmarks_tensor_ ||
-        runtime_.TensorType(iris_eye_tensor_) != kTfLiteFloat32 ||
-        runtime_.TensorType(iris_landmarks_tensor_) != kTfLiteFloat32) {
+        TfLiteTensorType(iris_eye_tensor_) != kTfLiteFloat32 ||
+        TfLiteTensorType(iris_landmarks_tensor_) != kTfLiteFloat32) {
       SetError("Iris output tensors must be float32.");
       return false;
     }
@@ -1395,8 +1362,8 @@ class FaceMeshContext {
     };
     for (const Bind& b : binds) {
       const TfLiteTensor* t =
-          runtime_.InterpreterGetOutputTensor(interpreter_.get(), b.index);
-      if (!t || runtime_.TensorType(t) != kTfLiteFloat32 ||
+          TfLiteInterpreterGetOutputTensor(interpreter_.get(), b.index);
+      if (!t || TfLiteTensorType(t) != kTfLiteFloat32 ||
           static_cast<int>(TensorElementCount(t)) != b.expected) {
         SetError(std::string("Attention output tensor mismatch: ") + b.name);
         return false;
@@ -1417,8 +1384,8 @@ class FaceMeshContext {
   // the model's input-pixel units (matching the mesh path so BuildResultFromSize
   // applies the same transform). Also returns the raw face-presence logit.
   bool ReadAttentionLandmarks(float* raw_score_out) {
-    if (runtime_.TensorCopyToBuffer(attn_mesh_tensor_, landmarks_buffer_.data(),
-                                    kFaceLandmarkCount * 3 * sizeof(float)) !=
+    if (TfLiteTensorCopyToBuffer(attn_mesh_tensor_, landmarks_buffer_.data(),
+                                 kFaceLandmarkCount * 3 * sizeof(float)) !=
         kTfLiteOk) {
       SetError("Unable to read attention mesh output.");
       return false;
@@ -1436,8 +1403,8 @@ class FaceMeshContext {
         {attn_right_iris_tensor_, &attn_right_iris_buffer_, "right_iris"},
     };
     for (const Sub& s : subs) {
-      if (runtime_.TensorCopyToBuffer(s.tensor, s.buffer->data(),
-                                      s.buffer->size() * sizeof(float)) !=
+      if (TfLiteTensorCopyToBuffer(s.tensor, s.buffer->data(),
+                                   s.buffer->size() * sizeof(float)) !=
           kTfLiteOk) {
         SetError(std::string("Unable to read attention output: ") + s.name);
         return false;
@@ -1476,8 +1443,8 @@ class FaceMeshContext {
     }
 
     float raw = 0.0f;
-    if (runtime_.TensorCopyToBuffer(attn_faceflag_tensor_, &raw,
-                                    sizeof(float)) != kTfLiteOk) {
+    if (TfLiteTensorCopyToBuffer(attn_faceflag_tensor_, &raw,
+                                 sizeof(float)) != kTfLiteOk) {
       SetError("Unable to read attention face-flag output.");
       return false;
     }
@@ -1498,9 +1465,9 @@ class FaceMeshContext {
 
   size_t TensorElementCount(const TfLiteTensor* tensor) const {
     int total = 1;
-    const int dims = runtime_.TensorNumDims(tensor);
+    const int dims = TfLiteTensorNumDims(tensor);
     for (int i = 0; i < dims; ++i) {
-      total *= runtime_.TensorDim(tensor, i);
+      total *= TfLiteTensorDim(tensor, i);
     }
     return static_cast<size_t>(total);
   }
@@ -1635,20 +1602,20 @@ class FaceMeshContext {
       }
     }
 
-    if (runtime_.TensorCopyFromBuffer(
+    if (TfLiteTensorCopyFromBuffer(
             iris_input_tensor_, iris_input_buffer_.data(),
             iris_input_buffer_.size() * sizeof(float)) != kTfLiteOk) {
       SetError("Failed to copy iris input buffer.");
       return false;
     }
-    if (runtime_.InterpreterInvoke(iris_interpreter_.get()) != kTfLiteOk) {
+    if (TfLiteInterpreterInvoke(iris_interpreter_.get()) != kTfLiteOk) {
       SetError("Iris interpreter invocation failed.");
       return false;
     }
-    if (runtime_.TensorCopyToBuffer(
+    if (TfLiteTensorCopyToBuffer(
             iris_eye_tensor_, iris_eye_buffer_.data(),
             iris_eye_buffer_.size() * sizeof(float)) != kTfLiteOk ||
-        runtime_.TensorCopyToBuffer(
+        TfLiteTensorCopyToBuffer(
             iris_landmarks_tensor_, iris_landmarks_buffer_.data(),
             iris_landmarks_buffer_.size() * sizeof(float)) != kTfLiteOk) {
       SetError("Unable to read iris outputs.");
@@ -1834,19 +1801,15 @@ class FaceMeshContext {
     MP_LOGE("%s\n", message.c_str());
   }
 
-  TfLiteRuntime runtime_;
-  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_{nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_{
-      nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_{
-      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_;
+  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_;
+  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_;
   std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> delegate_{nullptr, {}};
-  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> iris_model_{
-      nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> iris_options_{
-      nullptr, {&runtime_}};
-  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> iris_interpreter_{
-      nullptr, {&runtime_}};
+  std::unique_ptr<TfLiteModel, TfLiteModelDeleter> iris_model_;
+  std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter>
+      iris_options_;
+  std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter>
+      iris_interpreter_;
   std::unique_ptr<TfLiteDelegate, TfLiteDelegateDeleter> iris_delegate_{
       nullptr, {}};
 

@@ -34,7 +34,13 @@ target_include_directories(mediapipe_face_mesh PRIVATE
 if (ANDROID)
   # Support Android 15 16k page size
   target_link_options(mediapipe_face_mesh PRIVATE "-Wl,-z,max-page-size=16384")
-  target_link_libraries(mediapipe_face_mesh PRIVATE log dl)
-elseif (UNIX AND NOT APPLE)
-  target_link_libraries(mediapipe_face_mesh PRIVATE dl)
+  # The bundled TensorFlow Lite runtime. Its SONAME must match the file name.
+  # The symbols are versioned, and the Android loader resolves versioned
+  # symbols by SONAME.
+  add_library(mpfm_tensorflowlite_c SHARED IMPORTED)
+  set_target_properties(mpfm_tensorflowlite_c PROPERTIES
+    IMPORTED_LOCATION
+      "${CMAKE_CURRENT_SOURCE_DIR}/../src/main/jniLibs/${ANDROID_ABI}/libmpfm_tensorflowlite_c.so"
+  )
+  target_link_libraries(mediapipe_face_mesh PRIVATE mpfm_tensorflowlite_c log)
 endif()

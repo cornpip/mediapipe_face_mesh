@@ -885,8 +885,6 @@ final class MpFaceGeometryResult extends ffi.Struct {
 }
 
 final class MpFaceMeshCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   external ffi.Pointer<ffi.Char> iris_model_path;
 
   @ffi.Int32()
@@ -963,8 +961,6 @@ final class MpFaceDetectorResult extends ffi.Struct {
 }
 
 final class MpFaceDetectorCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   @ffi.Int32()
   external int threads;
 
@@ -1003,8 +999,6 @@ final class MpRoiTransformOptions extends ffi.Struct {
 final class MpBlendshapesContext extends ffi.Opaque {}
 
 final class MpBlendshapesCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   @ffi.Int32()
   external int threads;
 
