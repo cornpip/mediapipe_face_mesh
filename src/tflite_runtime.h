@@ -76,9 +76,9 @@ class TfLiteRuntime {
       candidates.emplace_back(explicit_path);
     } else {
 #if defined(_WIN32)
-      candidates.emplace_back("tensorflowlite_c.dll");
+      candidates.emplace_back("mpfm_tensorflowlite_c.dll");
 #else
-      candidates.emplace_back("libtensorflowlite_c.so");
+      candidates.emplace_back("libmpfm_tensorflowlite_c.so");
 #endif
     }
 
