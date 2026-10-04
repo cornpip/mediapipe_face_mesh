@@ -117,24 +117,6 @@ class BlendshapesContext {
         }
         break;
       }
-      case MP_DELEGATE_GPU_V2: {
-        if (runtime_.InterpreterOptionsAddDelegate &&
-            runtime_.GpuDelegateV2OptionsDefault &&
-            runtime_.GpuDelegateV2Create && runtime_.GpuDelegateV2Delete) {
-          TfLiteGpuDelegateOptionsV2 gpu_options =
-              runtime_.GpuDelegateV2OptionsDefault();
-          gpu_options.experimental_flags |=
-              TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
-          AttachDelegate(runtime_.GpuDelegateV2Create(&gpu_options),
-                         runtime_.GpuDelegateV2Delete, "GPU V2",
-                         MP_DELEGATE_GPU_V2);
-        } else if (!allow_delegate_fallback) {
-          SetError("GPU delegate (V2) is unavailable for blendshapes model and "
-                   "delegate fallback is disabled.");
-          return false;
-        }
-        break;
-      }
       case MP_DELEGATE_CPU:
       default:
         break;
@@ -152,8 +134,8 @@ class BlendshapesContext {
         interpreter_ &&
         runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
-    // builds or allocates tensors (e.g. the GPU delegate rejecting a graph
-    // with custom ops). Honor delegate fallback for that stage too.
+    // builds or allocates tensors. Honor delegate fallback for that stage
+    // too.
     if (!tensors_ready && active_delegate_ != MP_DELEGATE_CPU &&
         allow_delegate_fallback) {
       MP_BS_LOGE(

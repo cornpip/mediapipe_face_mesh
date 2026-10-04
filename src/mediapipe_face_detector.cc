@@ -356,37 +356,6 @@ class FaceDetectorContext {
         }
         break;
       }
-      case MP_DELEGATE_GPU_V2: {
-        if (!runtime_.InterpreterOptionsAddDelegate ||
-            !runtime_.GpuDelegateV2OptionsDefault ||
-            !runtime_.GpuDelegateV2Create || !runtime_.GpuDelegateV2Delete) {
-          if (!allow_delegate_fallback) {
-            SetError("GPU delegate (V2) is unavailable for face detector and "
-                     "delegate fallback is disabled.");
-            return false;
-          }
-          MP_DETECT_LOGI(
-              "GPU delegate (V2) requested but unavailable in runtime.\n");
-          break;
-        }
-        TfLiteGpuDelegateOptionsV2 delegate_options =
-            runtime_.GpuDelegateV2OptionsDefault();
-        delegate_options.experimental_flags |=
-            TFLITE_GPU_EXPERIMENTAL_FLAGS_ENABLE_QUANT;
-        TfLiteDelegate* created =
-            runtime_.GpuDelegateV2Create(&delegate_options);
-        if (!AttachDelegate(created, runtime_.GpuDelegateV2Delete, "GPU V2",
-                            MP_DELEGATE_GPU_V2)) {
-          if (!allow_delegate_fallback) {
-            SetError("Failed to create GPU delegate for face detector because "
-                     "delegate fallback is disabled.");
-            return false;
-          }
-          MP_DETECT_LOGE(
-              "Failed to create GPU delegate. Falling back to CPU.\n");
-        }
-        break;
-      }
       case MP_DELEGATE_CPU:
       default:
         break;
@@ -397,8 +366,8 @@ class FaceDetectorContext {
         interpreter_ &&
         runtime_.InterpreterAllocateTensors(interpreter_.get()) == kTfLiteOk;
     // A delegate can also fail after it is attached, while the interpreter
-    // builds or allocates tensors (e.g. the GPU delegate rejecting a graph
-    // with custom ops). Honor delegate fallback for that stage too.
+    // builds or allocates tensors. Honor delegate fallback for that stage
+    // too.
     if (!tensors_ready && active_delegate_ != MP_DELEGATE_CPU &&
         allow_delegate_fallback) {
       MP_DETECT_LOGE(

@@ -735,8 +735,7 @@ enum MpPixelFormat {
 
 enum MpDelegateType {
   MP_DELEGATE_CPU(0),
-  MP_DELEGATE_XNNPACK(1),
-  MP_DELEGATE_GPU_V2(2);
+  MP_DELEGATE_XNNPACK(1);
 
   final int value;
   const MpDelegateType(this.value);
@@ -744,7 +743,6 @@ enum MpDelegateType {
   static MpDelegateType fromValue(int value) => switch (value) {
     0 => MP_DELEGATE_CPU,
     1 => MP_DELEGATE_XNNPACK,
-    2 => MP_DELEGATE_GPU_V2,
     _ => throw ArgumentError("Unknown value for MpDelegateType: $value"),
   };
 }

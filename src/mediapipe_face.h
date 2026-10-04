@@ -24,7 +24,6 @@ typedef enum {
 typedef enum {
   MP_DELEGATE_CPU = 0,
   MP_DELEGATE_XNNPACK = 1,
-  MP_DELEGATE_GPU_V2 = 2,
 } MpDelegateType;
 
 typedef struct {

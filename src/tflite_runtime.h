@@ -8,10 +8,8 @@
 // Apple builds use the headers bundled in TensorFlowLiteC.xcframework; the
 // other platforms use src/include.
 #include <TensorFlowLiteC/TensorFlowLiteC.h>
-#include <TensorFlowLiteC/gpu_delegate.h>
 #else
 #include "tensorflow/lite/c/c_api.h"
-#include "tensorflow/lite/delegates/gpu/delegate.h"
 #include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 #endif
 
@@ -56,10 +54,6 @@ class TfLiteRuntime {
       TfLiteDelegate* (*)(const TfLiteXNNPackDelegateOptions*);
   using XnnpackDelegateDeleteFn = void (*)(TfLiteDelegate*);
   using XnnpackDelegateOptionsDefaultFn = TfLiteXNNPackDelegateOptions (*)();
-  using GpuDelegateV2CreateFn =
-      TfLiteDelegate* (*)(const TfLiteGpuDelegateOptionsV2*);
-  using GpuDelegateV2DeleteFn = void (*)(TfLiteDelegate*);
-  using GpuDelegateV2OptionsDefaultFn = TfLiteGpuDelegateOptionsV2 (*)();
 
   TfLiteRuntime() = default;
   ~TfLiteRuntime() { Release(); }
@@ -145,9 +139,6 @@ class TfLiteRuntime {
     XnnpackDelegateCreate = nullptr;
     XnnpackDelegateDelete = nullptr;
     XnnpackDelegateOptionsDefault = nullptr;
-    GpuDelegateV2Create = nullptr;
-    GpuDelegateV2Delete = nullptr;
-    GpuDelegateV2OptionsDefault = nullptr;
   }
 
   std::string error() const { return error_; }
@@ -176,14 +167,10 @@ class TfLiteRuntime {
   XnnpackDelegateCreateFn XnnpackDelegateCreate = nullptr;
   XnnpackDelegateDeleteFn XnnpackDelegateDelete = nullptr;
   XnnpackDelegateOptionsDefaultFn XnnpackDelegateOptionsDefault = nullptr;
-  GpuDelegateV2CreateFn GpuDelegateV2Create = nullptr;
-  GpuDelegateV2DeleteFn GpuDelegateV2Delete = nullptr;
-  GpuDelegateV2OptionsDefaultFn GpuDelegateV2OptionsDefault = nullptr;
 
  private:
 #if defined(__APPLE__)
-  // Binds the linked symbols. The GPU delegate is not in the bundled
-  // runtime, so it is looked up in the process and stays null when absent.
+  // Binds the linked symbols.
   void BindLinkedSymbols() {
     ModelCreateFromFile = &TfLiteModelCreateFromFile;
     ModelDelete = &TfLiteModelDelete;
@@ -209,12 +196,6 @@ class TfLiteRuntime {
     XnnpackDelegateCreate = &TfLiteXNNPackDelegateCreate;
     XnnpackDelegateDelete = &TfLiteXNNPackDelegateDelete;
     XnnpackDelegateOptionsDefault = &TfLiteXNNPackDelegateOptionsDefault;
-    GpuDelegateV2Create = reinterpret_cast<GpuDelegateV2CreateFn>(
-        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateV2Create"));
-    GpuDelegateV2Delete = reinterpret_cast<GpuDelegateV2DeleteFn>(
-        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateV2Delete"));
-    GpuDelegateV2OptionsDefault = reinterpret_cast<GpuDelegateV2OptionsDefaultFn>(
-        dlsym(RTLD_DEFAULT, "TfLiteGpuDelegateOptionsV2Default"));
   }
 #endif
 
@@ -263,12 +244,6 @@ class TfLiteRuntime {
         LoadSymbolOptional("TfLiteXNNPackDelegateDelete"));
     XnnpackDelegateOptionsDefault = reinterpret_cast<XnnpackDelegateOptionsDefaultFn>(
         LoadSymbolOptional("TfLiteXNNPackDelegateOptionsDefault"));
-    GpuDelegateV2Create = reinterpret_cast<GpuDelegateV2CreateFn>(
-        LoadSymbolOptional("TfLiteGpuDelegateV2Create"));
-    GpuDelegateV2Delete = reinterpret_cast<GpuDelegateV2DeleteFn>(
-        LoadSymbolOptional("TfLiteGpuDelegateV2Delete"));
-    GpuDelegateV2OptionsDefault = reinterpret_cast<GpuDelegateV2OptionsDefaultFn>(
-        LoadSymbolOptional("TfLiteGpuDelegateOptionsV2Default"));
 
     if (!ModelCreateFromFile || !ModelDelete || !InterpreterOptionsCreate ||
         !InterpreterOptionsDelete || !InterpreterOptionsSetThreads ||

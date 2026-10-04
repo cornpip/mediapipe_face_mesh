@@ -328,9 +328,6 @@ FaceMeshDelegate _faceMeshDelegateFromNative(MpDelegateType delegate) {
       return FaceMeshDelegate.cpu;
     case MpDelegateType.MP_DELEGATE_XNNPACK:
       return FaceMeshDelegate.xnnpack;
-    case MpDelegateType.MP_DELEGATE_GPU_V2:
-      // Unreachable. Dart never requests it and the runtimes do not export it.
-      throw StateError('Unexpected active delegate: GPU V2.');
   }
 }
 
