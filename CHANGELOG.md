@@ -1,4 +1,4 @@
-## 3.2.1-wip
+## 3.2.1
 
 - rename the bundled TensorFlow Lite runtime to
   `libmpfm_tensorflowlite_c.so` (Android) and `mpfm_tensorflowlite_c.dll`
