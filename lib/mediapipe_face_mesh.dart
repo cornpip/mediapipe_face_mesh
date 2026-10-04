@@ -328,9 +328,6 @@ FaceMeshDelegate _faceMeshDelegateFromNative(MpDelegateType delegate) {
       return FaceMeshDelegate.cpu;
     case MpDelegateType.MP_DELEGATE_XNNPACK:
       return FaceMeshDelegate.xnnpack;
-    case MpDelegateType.MP_DELEGATE_GPU_V2:
-      // Unreachable. Dart never requests it and the runtimes do not export it.
-      throw StateError('Unexpected active delegate: GPU V2.');
   }
 }
 
@@ -1291,8 +1288,7 @@ class FaceDetectorProcessor {
         ..min_suppression_threshold = minSuppressionThreshold
         ..max_results = maxResults
         ..delegate = delegate.index
-        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
-        ..tflite_library_path = ffi.nullptr;
+        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1;
 
       final ffi.Pointer<MpFaceDetectorContext> context = faceBindings
           .mp_face_detector_create(modelPathPtr.cast(), optionsPtr);
@@ -1607,8 +1603,7 @@ class FaceMeshProcessor {
         ..enable_roi_tracking = enableRoiTracking ? 1 : 0
         ..enable_iris = runsIrisPass ? 1 : 0
         ..enable_attention_mesh = model == FaceMeshModel.attention ? 1 : 0
-        ..iris_model_path = irisModelPathPtr.cast()
-        ..tflite_library_path = ffi.nullptr;
+        ..iris_model_path = irisModelPathPtr.cast();
 
       final ffi.Pointer<MpFaceMeshContext> context = faceBindings
           .mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
@@ -1948,8 +1943,7 @@ class FaceBlendshapesProcessor {
       optionsPtr.ref
         ..threads = threads ?? _defaultInferenceThreads()
         ..delegate = delegate.index
-        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1
-        ..tflite_library_path = ffi.nullptr;
+        ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1;
 
       final ffi.Pointer<MpBlendshapesContext> context = faceBindings
           .mp_blendshapes_create(modelPathPtr.cast(), optionsPtr);

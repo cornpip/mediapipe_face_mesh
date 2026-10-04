@@ -735,8 +735,7 @@ enum MpPixelFormat {
 
 enum MpDelegateType {
   MP_DELEGATE_CPU(0),
-  MP_DELEGATE_XNNPACK(1),
-  MP_DELEGATE_GPU_V2(2);
+  MP_DELEGATE_XNNPACK(1);
 
   final int value;
   const MpDelegateType(this.value);
@@ -744,7 +743,6 @@ enum MpDelegateType {
   static MpDelegateType fromValue(int value) => switch (value) {
     0 => MP_DELEGATE_CPU,
     1 => MP_DELEGATE_XNNPACK,
-    2 => MP_DELEGATE_GPU_V2,
     _ => throw ArgumentError("Unknown value for MpDelegateType: $value"),
   };
 }
@@ -887,8 +885,6 @@ final class MpFaceGeometryResult extends ffi.Struct {
 }
 
 final class MpFaceMeshCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   external ffi.Pointer<ffi.Char> iris_model_path;
 
   @ffi.Int32()
@@ -965,8 +961,6 @@ final class MpFaceDetectorResult extends ffi.Struct {
 }
 
 final class MpFaceDetectorCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   @ffi.Int32()
   external int threads;
 
@@ -1005,8 +999,6 @@ final class MpRoiTransformOptions extends ffi.Struct {
 final class MpBlendshapesContext extends ffi.Opaque {}
 
 final class MpBlendshapesCreateOptions extends ffi.Struct {
-  external ffi.Pointer<ffi.Char> tflite_library_path;
-
   @ffi.Int32()
   external int threads;
 

@@ -1,3 +1,10 @@
+## 3.2.1-wip
+
+- rename the bundled TensorFlow Lite runtime to
+  `libmpfm_tensorflowlite_c.so` (Android) and `mpfm_tensorflowlite_c.dll`
+  (Windows)
+- link the bundled TensorFlow Lite runtime directly (Android, Windows)
+
 ## 3.2.0
 
 - require Flutter 3.44.0 (Dart 3.12.0) or later

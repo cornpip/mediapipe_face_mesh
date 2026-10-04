@@ -24,7 +24,6 @@ typedef enum {
 typedef enum {
   MP_DELEGATE_CPU = 0,
   MP_DELEGATE_XNNPACK = 1,
-  MP_DELEGATE_GPU_V2 = 2,
 } MpDelegateType;
 
 typedef struct {
@@ -104,7 +103,6 @@ typedef struct {
 } MpFaceGeometryResult;
 
 typedef struct {
-  const char* tflite_library_path;
   const char* iris_model_path;
   int32_t threads;
   float min_detection_confidence;
@@ -144,7 +142,6 @@ typedef struct {
 } MpFaceDetectorResult;
 
 typedef struct {
-  const char* tflite_library_path;
   int32_t threads;
   float min_detection_confidence;
   float min_suppression_threshold;
@@ -245,7 +242,6 @@ FFI_PLUGIN_EXPORT const char* mp_face_geometry_last_error(void);
 typedef struct MpBlendshapesContext MpBlendshapesContext;
 
 typedef struct {
-  const char* tflite_library_path;
   int32_t threads;
   MpDelegateType delegate;
   // When non-zero, fail creation instead of falling back to CPU if the
