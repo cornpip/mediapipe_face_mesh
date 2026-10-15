@@ -1,4 +1,4 @@
-## 3.2.2-wip
+## 3.2.2
 
 - fix a leak on the exception path of `*_create`, `*_process`, and
   `mp_face_geometry_estimate`
