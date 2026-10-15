@@ -1,3 +1,7 @@
+## 3.2.2-wip
+
+- fix a leak on the exception path of `*_create` and `*_process`
+
 ## 3.2.1
 
 - rename the bundled TensorFlow Lite runtime to

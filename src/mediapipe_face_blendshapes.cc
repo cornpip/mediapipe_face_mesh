@@ -226,13 +226,14 @@ class BlendshapesContext {
       return nullptr;
     }
 
-    auto* result = new MpBlendshapesResult();
-    result->scores = new float[kBlendshapeCount];
-    result->scores_count = kBlendshapeCount;
+    std::unique_ptr<float[]> scores(new float[kBlendshapeCount]);
     for (int i = 0; i < kBlendshapeCount; ++i) {
-      result->scores[i] = output_buffer_[i];
+      scores[i] = output_buffer_[i];
     }
-    return result;
+    std::unique_ptr<MpBlendshapesResult> result(new MpBlendshapesResult());
+    result->scores = scores.release();
+    result->scores_count = kBlendshapeCount;
+    return result.release();
   }
 
   const char* last_error() const { return last_error_.c_str(); }
@@ -368,13 +369,12 @@ FFI_PLUGIN_EXPORT MpBlendshapesContext* mp_blendshapes_create(
       SetGlobalBlendshapesError("Model path is null.");
       return nullptr;
     }
-    auto* context = new MpBlendshapesContext();
+    auto context = std::make_unique<MpBlendshapesContext>();
     if (!context->impl.Initialize(model_path, options)) {
       SetGlobalBlendshapesError(context->impl.last_error());
-      delete context;
       return nullptr;
     }
-    return context;
+    return context.release();
   });
 }
 

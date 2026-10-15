@@ -805,33 +805,24 @@ class FaceDetectorContext {
       int image_height,
       const std::vector<DecodedDetection>& detections,
       const MpRoiTransformOptions* roi_transform = nullptr) {
-    MpFaceDetectorResult* result = new MpFaceDetectorResult();
-    if (!result) {
-      SetError("Unable to allocate detector result.");
-      return nullptr;
-    }
+    std::unique_ptr<MpFaceDetectorResult> result(new MpFaceDetectorResult());
     result->image_width = image_width;
     result->image_height = image_height;
     result->detections_count = static_cast<int32_t>(detections.size());
     result->detections = nullptr;
     if (detections.empty()) {
-      return result;
+      return result.release();
     }
 
-    result->detections = new MpDetection[detections.size()];
-    if (!result->detections) {
-      delete result;
-      SetError("Unable to allocate detector detections buffer.");
-      return nullptr;
-    }
+    std::unique_ptr<MpDetection[]> out(new MpDetection[detections.size()]);
     for (size_t i = 0; i < detections.size(); ++i) {
-      result->detections[i].left = detections[i].left;
-      result->detections[i].top = detections[i].top;
-      result->detections[i].right = detections[i].right;
-      result->detections[i].bottom = detections[i].bottom;
-      result->detections[i].score = detections[i].score;
-      std::memcpy(result->detections[i].keypoints, detections[i].keypoints.data(),
-                  sizeof(result->detections[i].keypoints));
+      out[i].left = detections[i].left;
+      out[i].top = detections[i].top;
+      out[i].right = detections[i].right;
+      out[i].bottom = detections[i].bottom;
+      out[i].score = detections[i].score;
+      std::memcpy(out[i].keypoints, detections[i].keypoints.data(),
+                  sizeof(out[i].keypoints));
       const RectInPixels face_rect = DetectionToRect(detections[i]);
       const float roi_sx = roi_transform ? roi_transform->scale_x : 1.0f;
       const float roi_sy = roi_transform ? roi_transform->scale_y : 1.0f;
@@ -839,12 +830,13 @@ class FaceDetectorContext {
       const float roi_dy = roi_transform ? roi_transform->shift_y : 0.0f;
       const RectInPixels expanded_face_rect =
           TransformRect(face_rect, roi_sx, roi_sy, true, roi_dx, roi_dy);
-      result->detections[i].face_rect =
+      out[i].face_rect =
           ToNormalizedRect(face_rect, image_width, image_height);
-      result->detections[i].expanded_face_rect =
+      out[i].expanded_face_rect =
           ToNormalizedRect(expanded_face_rect, image_width, image_height);
     }
-    return result;
+    result->detections = out.release();
+    return result.release();
   }
 
   bool ConfigureDecoder() {
@@ -1509,14 +1501,13 @@ MpFaceDetectorContext* mp_face_detector_create(
       GlobalFaceDetectorError() = "Model path is empty.";
       return nullptr;
     }
-    auto* context = new MpFaceDetectorContext();
+    auto context = std::make_unique<MpFaceDetectorContext>();
     if (!context->impl.Initialize(model_path, options)) {
       GlobalFaceDetectorError() = context->impl.last_error();
-      delete context;
       return nullptr;
     }
     GlobalFaceDetectorError().clear();
-    return context;
+    return context.release();
   });
 }
 

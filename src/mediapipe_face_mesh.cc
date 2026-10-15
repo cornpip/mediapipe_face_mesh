@@ -127,6 +127,30 @@ bool IsPixelSpaceLandmarkBuffer(const float* buffer, int landmark_count) {
   return false;
 }
 
+// Own a result (and its landmarks) or a multi result (and every entry's
+// landmarks) until it is released to the caller, so an exception on the way
+// out frees what was built so far instead of leaking it.
+struct FaceMeshResultDeleter {
+  void operator()(MpFaceMeshResult* result) const {
+    delete[] result->landmarks;
+    delete result;
+  }
+};
+using FaceMeshResultPtr =
+    std::unique_ptr<MpFaceMeshResult, FaceMeshResultDeleter>;
+
+struct FaceMeshMultiResultDeleter {
+  void operator()(MpFaceMeshMultiResult* multi) const {
+    for (int32_t i = 0; i < multi->results_count; ++i) {
+      delete[] multi->results[i].landmarks;
+    }
+    delete[] multi->results;
+    delete multi;
+  }
+};
+using FaceMeshMultiResultPtr =
+    std::unique_ptr<MpFaceMeshMultiResult, FaceMeshMultiResultDeleter>;
+
 class FaceMeshContext {
  public:
   FaceMeshContext() = default;
@@ -440,9 +464,8 @@ class FaceMeshContext {
     const float face_presence_score =
         1.0f / (1.0f + std::exp(-raw_score));
 
-    MpFaceMeshResult* result =
-        BuildResultFromSize(logical_width, logical_height, rect,
-                            face_presence_score);
+    FaceMeshResultPtr result(BuildResultFromSize(
+        logical_width, logical_height, rect, face_presence_score));
     if (!result) {
       return nullptr;
     }
@@ -455,14 +478,12 @@ class FaceMeshContext {
         has_valid_rect_ = false;
         tracking_active_ = false;
       }
-      return result;
+      return result.release();
     }
 
     if (iris_enabled_ &&
-        !AugmentResultWithIris(image, result, rot, mirror_horizontal,
+        !AugmentResultWithIris(image, result.get(), rot, mirror_horizontal,
                                logical_width, logical_height)) {
-      delete[] result->landmarks;
-      delete result;
       return nullptr;
     }
 
@@ -481,7 +502,7 @@ class FaceMeshContext {
       }
     }
 
-    return result;
+    return result.release();
   }
 
   MpFaceMeshResult* ProcessNv21(const MpNv21Image& image,
@@ -574,9 +595,8 @@ class FaceMeshContext {
     const float face_presence_score =
         1.0f / (1.0f + std::exp(-raw_score));
 
-    MpFaceMeshResult* result =
-        BuildResultFromSize(logical_width, logical_height, rect,
-                            face_presence_score);
+    FaceMeshResultPtr result(BuildResultFromSize(
+        logical_width, logical_height, rect, face_presence_score));
     if (!result) {
       return nullptr;
     }
@@ -589,14 +609,13 @@ class FaceMeshContext {
         has_valid_rect_ = false;
         tracking_active_ = false;
       }
-      return result;
+      return result.release();
     }
 
     if (iris_enabled_ &&
-        !AugmentResultWithIrisNv21(image, result, rot, mirror_horizontal,
-                                   logical_width, logical_height)) {
-      delete[] result->landmarks;
-      delete result;
+        !AugmentResultWithIrisNv21(image, result.get(), rot,
+                                   mirror_horizontal, logical_width,
+                                   logical_height)) {
       return nullptr;
     }
 
@@ -615,7 +634,7 @@ class FaceMeshContext {
       }
     }
 
-    return result;
+    return result.release();
   }
 
   const char* last_error() const { return last_error_.c_str(); }
@@ -1278,18 +1297,9 @@ class FaceMeshContext {
                                         int height,
                                         const MpNormalizedRect& rect,
                                         float score) {
-    auto* result = new MpFaceMeshResult();
-    if (!result) {
-      SetError("Unable to allocate result.");
-      return nullptr;
-    }
-    result->landmarks_count = output_landmark_count_;
+    FaceMeshResultPtr result(new MpFaceMeshResult());
     result->landmarks = new MpLandmark[output_landmark_count_];
-    if (!result->landmarks) {
-      SetError("Unable to allocate landmarks buffer.");
-      delete result;
-      return nullptr;
-    }
+    result->landmarks_count = output_landmark_count_;
     result->rect = rect;
     result->score = score;
     result->image_width = width;
@@ -1335,7 +1345,7 @@ class FaceMeshContext {
           Clamp(abs_y / static_cast<float>(height), -0.5f, 1.5f);
       landmark.z = abs_z / static_cast<float>(width);
     }
-    return result;
+    return result.release();
   }
 
   // Binds and validates the 7 output tensors of the attention model by their
@@ -1534,11 +1544,7 @@ class FaceMeshContext {
     }
 
     constexpr int kOutputCount = kFaceLandmarkCount + kIrisLandmarkCount * 2;
-    MpLandmark* updated = new MpLandmark[kOutputCount];
-    if (!updated) {
-      SetError("Unable to allocate iris-augmented landmarks buffer.");
-      return false;
-    }
+    std::unique_ptr<MpLandmark[]> updated(new MpLandmark[kOutputCount]);
     for (int i = 0; i < kFaceLandmarkCount; ++i) {
       updated[i] = result->landmarks[i];
     }
@@ -1553,7 +1559,7 @@ class FaceMeshContext {
     }
 
     delete[] result->landmarks;
-    result->landmarks = updated;
+    result->landmarks = updated.release();
     result->landmarks_count = kOutputCount;
     return true;
   }
@@ -1890,22 +1896,22 @@ template <typename ProcessOneFn>
 MpFaceMeshMultiResult* ProcessRoisImpl(const MpNormalizedRect* rois,
                                        int32_t rois_count,
                                        ProcessOneFn&& process_one) {
-  auto* multi = new MpFaceMeshMultiResult();
-  multi->results_count = rois_count;
+  FaceMeshMultiResultPtr multi(new MpFaceMeshMultiResult());
   multi->results =
       rois_count > 0 ? new MpFaceMeshResult[rois_count]() : nullptr;
+  multi->results_count = rois_count;
   for (int32_t i = 0; i < rois_count; ++i) {
-    MpFaceMeshResult* result = process_one(rois[i]);
+    FaceMeshResultPtr result(process_one(rois[i]));
     if (!result) {
       // Value-initialized entry: no landmarks, score 0. Keep the input ROI
       // so the caller can still see which region the failure belongs to.
       multi->results[i].rect = rois[i];
       continue;
     }
-    multi->results[i] = *result;  // Takes ownership of result->landmarks.
-    delete result;
+    multi->results[i] = *result;
+    result->landmarks = nullptr;  // Ownership moved into the entry.
   }
-  return multi;
+  return multi.release();
 }
 
 // No C++ exception may unwind across the FFI boundary into Dart (the process
@@ -1947,13 +1953,12 @@ FFI_PLUGIN_EXPORT MpFaceMeshContext* mp_face_mesh_create(
       SetGlobalError("Model path is null.");
       return nullptr;
     }
-    auto* context = new MpFaceMeshContext();
+    auto context = std::make_unique<MpFaceMeshContext>();
     if (!context->impl.Initialize(model_path, options)) {
       SetGlobalError(context->impl.last_error());
-      delete context;
       return nullptr;
     }
-    return context;
+    return context.release();
   });
 }
 
