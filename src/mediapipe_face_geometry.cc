@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -519,21 +520,21 @@ MpFaceGeometryResult* mp_face_geometry_estimate(
       return nullptr;
     }
 
-    auto* result = new MpFaceGeometryResult();
+    std::unique_ptr<MpLandmark[]> out(new MpLandmark[metric_landmarks.size()]);
+    for (size_t i = 0; i < metric_landmarks.size(); ++i) {
+      out[i].x = metric_landmarks[i].x;
+      out[i].y = metric_landmarks[i].y;
+      out[i].z = metric_landmarks[i].z;
+    }
+    std::unique_ptr<MpFaceGeometryResult> result(new MpFaceGeometryResult());
     result->metric_landmarks_count =
         static_cast<int32_t>(metric_landmarks.size());
-    result->metric_landmarks = new MpLandmark[metric_landmarks.size()];
-
-    for (size_t i = 0; i < metric_landmarks.size(); ++i) {
-      result->metric_landmarks[i].x = metric_landmarks[i].x;
-      result->metric_landmarks[i].y = metric_landmarks[i].y;
-      result->metric_landmarks[i].z = metric_landmarks[i].z;
-    }
+    result->metric_landmarks = out.release();
     FillMatrix(pose_transform, result->pose_transform_matrix);
     ExtractEulerDegrees(pose_transform, &result->yaw_degrees,
                         &result->pitch_degrees, &result->roll_degrees);
     result->scale = pose_transform.scale;
-    return result;
+    return result.release();
   } catch (const std::exception& e) {
     GeometryLastError() =
         std::string("Unhandled native exception: ") + e.what();

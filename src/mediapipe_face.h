@@ -179,10 +179,9 @@ FFI_PLUGIN_EXPORT MpFaceMeshResult* mp_face_mesh_process_nv21(
     uint8_t mirror_horizontal);
 
 // Runs one mesh inference per ROI on the given frame, equivalent to calling
-// mp_face_mesh_process once per ROI. The batch form exists so a language
-// binding can copy the frame across its boundary once per frame instead of
-// once per face. Returns null and sets the context error if any ROI fails.
-// Release the result with mp_face_mesh_release_multi_result.
+// mp_face_mesh_process once per ROI with the frame copied once. An ROI whose
+// inference fails comes back without landmarks and leaves its error in
+// mp_face_mesh_last_error. Release with mp_face_mesh_release_multi_result.
 FFI_PLUGIN_EXPORT MpFaceMeshMultiResult* mp_face_mesh_process_rois(
     MpFaceMeshContext* context,
     const MpImage* image,
