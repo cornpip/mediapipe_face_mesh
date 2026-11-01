@@ -212,6 +212,11 @@ Future<void> onCameraFrame(FaceMeshNv21Image frame) async {
 Use it like the pipeline. The only difference is that its methods return
 `Future`s.
 
+To run inference off the UI isolate, use `FaceMeshIsolatePipeline` rather
+than passing a processor or pipeline to another isolate (for example with
+`Isolate.run`). The copy shares the original's native resources, and
+closing the original releases them for the copy as well.
+
 ### Close Resources
 
 These are all the objects that need closing.
