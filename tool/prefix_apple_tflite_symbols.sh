@@ -50,11 +50,15 @@ die() {
   exit 1
 }
 
-# Prints the path of an LLVM tool: the override if set, else PATH, else the
-# Xcode toolchain, else Homebrew's keg-only llvm.
+# Prints the path of an LLVM tool: the value of the override variable if set,
+# else PATH, else the Xcode toolchain, else Homebrew's keg-only llvm.
+#   $1 tool name, $2 name of the override variable
 find_tool() {
-  local name="$1" override="$2" dir
+  local name="$1" variable="$2" dir
+  local override="${!variable:-}"
   if [[ -n "${override}" ]]; then
+    command -v "${override}" >/dev/null 2>&1 \
+      || die "${variable}=${override} is not an executable"
     echo "${override}"
     return
   fi
@@ -73,11 +77,14 @@ find_tool() {
       return
     fi
   fi
-  die "${name} not found. Install LLVM (macOS: brew install llvm) or set the override variable."
+  die "${name} not found. Install LLVM (macOS: brew install llvm) or set ${variable}."
 }
 
-OBJCOPY="$(find_tool llvm-objcopy "${LLVM_OBJCOPY:-}")"
-NM="$(find_tool llvm-nm "${LLVM_NM:-}")"
+OBJCOPY="$(find_tool llvm-objcopy LLVM_OBJCOPY)"
+NM="$(find_tool llvm-nm LLVM_NM)"
+
+# Set once an archive has been rewritten without ranlib.
+needs_ranlib=0
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
@@ -99,6 +106,12 @@ stage_library() {
   if ! grep -q -E "^_(${PREFIX})?TfLite" "${before}"; then
     die "${lib}: no TfLite symbols found"
   fi
+  # Objective-C metadata symbols (_OBJC_CLASS_$_Foo) carry their meaning in
+  # the name, so prefixing them breaks the class instead of hiding it.
+  if grep -q -E '\$|^__?OBJC_' "${before}"; then
+    grep -E '\$|^__?OBJC_' "${before}" | sed 's/^/    /' >&2
+    die "${lib}: exports Objective-C symbols, which this script cannot prefix"
+  fi
 
   # The set of names every architecture must end up with. Compared as a set,
   # so a universal slice with only one architecture prefixed still passes.
@@ -116,6 +129,8 @@ stage_library() {
   # Apple's linker wants a current table of contents in a static archive.
   if [[ "$(uname -s)" == "Darwin" ]]; then
     xcrun ranlib "${staged}"
+  else
+    needs_ranlib=1
   fi
 
   global_symbols "${staged}" > "${symbols_out}"
@@ -184,6 +199,17 @@ process_xcframework() {
   cat "${stage}"/*.symbols | sed -n -E "s/^_${PREFIX}(TfLite.*)$/\1/p" \
     | sort -u > "${names}"
 
+  # The header is shared, so a name one slice lacks only fails when that
+  # slice is linked.
+  index=0
+  while IFS= read -r lib; do
+    index=$((index + 1))
+    if ! sed -n -E "s/^_${PREFIX}(TfLite.*)$/\1/p" "${stage}/${index}.symbols" \
+        | cmp -s - "${names}"; then
+      echo "  warning: ${lib} lacks some of the names the other slices export" >&2
+    fi
+  done <<< "${libs}"
+
   index=0
   while IFS= read -r lib; do
     index=$((index + 1))
@@ -214,3 +240,9 @@ fi
 for xcframework in "$@"; do
   process_xcframework "${xcframework%/}"
 done
+
+if [[ "${needs_ranlib}" -eq 1 ]]; then
+  echo "warning: not run on macOS, so the rewritten archives have no fresh" \
+    "table of contents. Run 'xcrun ranlib' on them on a Mac before" \
+    "committing." >&2
+fi
