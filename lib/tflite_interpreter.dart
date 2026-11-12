@@ -793,10 +793,9 @@ class TfliteInterpreter {
     if (bytes.isEmpty) {
       return;
     }
-    _inputPointer(index)
-        .cast<ffi.Uint8>()
-        .asTypedList(bytes.length)
-        .setAll(0, bytes);
+    _inputPointer(
+      index,
+    ).cast<ffi.Uint8>().asTypedList(bytes.length).setAll(0, bytes);
   }
 
   ffi.Pointer<ffi.Void> _inputPointer(int index) {
