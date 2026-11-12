@@ -225,6 +225,7 @@ These are all the objects that need closing.
 pipeline.close(); // closes the detector and mesh it was given
 await isolatePipeline.close();
 blendshapesProcessor.close();
+interpreter.close(); // TfliteInterpreter
 ```
 
 The processors release their native context on garbage collection if
@@ -304,6 +305,35 @@ final meshResult = faceMeshProcessor.process(
   rotationDegrees: rotationDegrees,
 );
 ```
+
+### Running Other TFLite Models
+
+Experimental. `TfliteInterpreter` runs any TensorFlow Lite model on the
+runtime this package bundles, so an app does not need a second TFLite
+plugin for its other models.
+
+```dart
+import 'package:mediapipe_face_mesh/tflite_interpreter.dart';
+
+final interpreter = TfliteInterpreter.fromBuffer(modelBytes);
+// or TfliteInterpreter.fromFile(path)
+
+print(interpreter.inputs); // name, type, shape of each input
+
+interpreter.setInput(0, input); // flat Float32List, row-major
+interpreter.invoke();
+final Float32List output = interpreter.output(0);
+
+interpreter.close();
+```
+
+- The runtime includes the TFLite builtin operators and the MediaPipe
+  custom operators. A model that needs other operators fails to load.
+- Tensors keep the shapes stored in the model. Resizing is not supported.
+- `setInput` and `output` are for float32 tensors. Use `setInputBytes` and
+  `outputBytes` for other types.
+- `fromBuffer` copies the model bytes, so the list can be discarded
+  afterwards.
 
 ### Overlay Painters
 
