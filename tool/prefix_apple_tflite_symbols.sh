@@ -23,7 +23,11 @@
 #
 # Nothing in the xcframework is touched until every slice has been renamed
 # and checked. Running it again on an already prefixed binary only
-# regenerates the header.
+# regenerates the header. It stops when a slice exports Objective-C or Swift
+# symbols, which a prefix would break.
+#
+# Run it on macOS. Elsewhere it skips ranlib, and the rewritten archives need
+# `xcrun ranlib` on a Mac before they are committed.
 #
 # Usage:
 #   tool/prefix_apple_tflite_symbols.sh [path/to/TensorFlowLiteC.xcframework ...]
@@ -106,11 +110,12 @@ stage_library() {
   if ! grep -q -E "^_(${PREFIX})?TfLite" "${before}"; then
     die "${lib}: no TfLite symbols found"
   fi
-  # Objective-C metadata symbols (_OBJC_CLASS_$_Foo) carry their meaning in
-  # the name, so prefixing them breaks the class instead of hiding it.
+  # Objective-C metadata symbols (_OBJC_CLASS_$_Foo) and Swift symbols carry
+  # their meaning in the name, so prefixing them breaks them instead of
+  # hiding them.
   if grep -q -E '\$|^__?OBJC_' "${before}"; then
     grep -E '\$|^__?OBJC_' "${before}" | sed 's/^/    /' >&2
-    die "${lib}: exports Objective-C symbols, which this script cannot prefix"
+    die "${lib}: exports Objective-C or Swift symbols, which this script cannot prefix"
   fi
 
   # The set of names every architecture must end up with. Compared as a set,

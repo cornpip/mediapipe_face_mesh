@@ -16,7 +16,8 @@ When a bundled iOS or macOS binary is replaced:
   static archive per slice, built with `libtool -static`), not a framework:
   Xcode tries to embed a framework from a Swift package binary target and
   fails on a static one.
-- Run `tool/prefix_apple_tflite_symbols.sh` after the headers are in place.
+- Run `tool/prefix_apple_tflite_symbols.sh` on a Mac after the headers are
+  in place.
   It prefixes the runtime's global symbols with `mpfm_` in every slice, so
   another TensorFlow Lite in the same app never resolves to this one. It
   also generates `mpfm_symbol_prefix.h`, which maps the `TfLite*` names back
