@@ -63,7 +63,12 @@ def _tensor(b, name, tensor_type, shape, signature, quantization):
 
 
 def build(
-    tensor_type, in_quantization=None, out_quantization=None, two_inputs=False
+    tensor_type,
+    in_quantization=None,
+    out_quantization=None,
+    two_inputs=False,
+    shape=(1, 3),
+    signature=(1, -1),
 ):
     b = flatbuffers.Builder(512)
 
@@ -79,10 +84,10 @@ def build(
     tensors = _offset_vector(
         b,
         [
-            _tensor(b, name, tensor_type, [1, 3], [1, -1], in_quantization)
+            _tensor(b, name, tensor_type, shape, signature, in_quantization)
             for name in names
         ]
-        + [_tensor(b, "sum", tensor_type, [1, 3], [1, -1], out_quantization)],
+        + [_tensor(b, "sum", tensor_type, shape, signature, out_quantization)],
     )
     sum_index = len(names)
 
@@ -126,6 +131,7 @@ if __name__ == "__main__":
         # real = (q - 3) * 0.5 in, (q - 6) * 1.0 out, so the output is q + 3.
         "uint8 quantized add": build(UINT8, (0.5, 3), (1.0, 6)),
         "int32 add of two inputs": build(INT32, two_inputs=True),
+        "int32 scalar add": build(INT32, shape=(), signature=()),
     }
     for name, data in models.items():
         print(f"{name} ({len(data)} bytes)")

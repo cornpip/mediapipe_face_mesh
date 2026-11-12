@@ -1062,7 +1062,6 @@ int _fillNested(
           : value.toInt();
     }
     // A list of another element type rejects the assignment.
-    // ignore: avoid_catching_errors
   } on TypeError {
     final String element = isBool
         ? 'bool'
@@ -1074,7 +1073,6 @@ int _fillNested(
       '$element values, for example List<$element>.filled(n, ...). Got a '
       '${target.runtimeType}.',
     );
-    // ignore: avoid_catching_errors
   } on UnsupportedError {
     throw ArgumentError(
       '$what cannot be copied into an unmodifiable list. Pass lists that '

@@ -10,7 +10,7 @@ import 'package:mediapipe_face_mesh/tflite_interpreter.dart';
 
 /// Functional exercises for the generic interpreter, run on the bundled
 /// blendshapes model (146x2 float32 landmarks in, 52 float32 scores out) and
-/// on three one-operator models that add integers.
+/// on four one-operator models that add integers.
 
 /// int32, shape [1, 3] with a dynamic second dimension. Tensors `x` and
 /// `sum`. Built by tool/make_interpreter_test_models.py.
@@ -28,6 +28,11 @@ final Uint8List _uint8AddModel = base64Decode(
 /// dimension, added into `sum`. The inputs must be resized together.
 final Uint8List _int32AddTwoModel = base64Decode(
   'CAAAAFRGTDPC////kAEAABAAAAAoAAAAeAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAwAAAAGAAAABwAAABoAAAABAAAAG1haW4AAAAAAQAAAAIAAAACAAAAAAAAAAEAAAABAAAAFAAAAAAADgAUAAAAEAAMAAsABAAOAAAAJAAAAAAAAAsIAAAADAAAAAEAAAACAAAAAgAAAAAAAAABAAAAKP///wMAAACIAAAAPAAAAAQAAACY////EAAAACQAAAAAAAACEAAAAAIAAAABAAAA/////wIAAAABAAAAAwAAAAMAAABzdW0AzP///xAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAABAAAAeQAAABQAFAAQAA8AAAAIAAAAAAAAAAQAFAAAABAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAABAAAAeAAAAAEAAAAEAAAA9P///wEAAAAIAAAABAAEAAQAAAA=',
+);
+
+/// int32 scalar (shape []), same graph as [_int32AddModel].
+final Uint8List _int32ScalarAddModel = base64Decode(
+  'CAAAAFRGTDPC////NAEAABAAAAAoAAAAHAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAsAAAAGAAAABwAAABkAAAABAAAAG1haW4AAAAAAQAAAAEAAAABAAAAAAAAAAEAAAAUAAAAAAAOABQAAAAQAAwACwAEAA4AAAAkAAAAAAAACwgAAAAMAAAAAQAAAAEAAAACAAAAAAAAAAAAAACA////AgAAAEAAAAAEAAAA3P///xAAAAAUAAAAAAAAAggAAAAAAAAAAAAAAAMAAABzdW0AFAAUABAADwAAAAgAAAAAAAAABAAUAAAAEAAAABQAAAAAAAACCAAAAAAAAAAAAAAAAQAAAHgAAAABAAAABAAAAPT///8BAAAACAAAAAQABAAEAAAA',
 );
 
 void main() {
@@ -505,6 +510,53 @@ void main() {
       );
       interpreter.invoke();
       expect(interpreter.outputData(0), <int>[6, 8, 16]);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('a scalar tensor takes a plain number and fills a one-element list', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32ScalarAddModel,
+    );
+    try {
+      expect(interpreter.inputs.single.shape, isEmpty);
+      expect(interpreter.inputs.single.elementCount, 1);
+
+      interpreter
+        ..setInput(0, 21)
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[42]);
+
+      final List<int> output = <int>[0];
+      interpreter.run(5, output);
+      expect(output, <int>[10]);
+      expect(interpreter.inputs.single.shape, isEmpty);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('an empty output only fits an empty target', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddModel,
+    );
+    try {
+      interpreter
+        ..resizeInput(0, <int>[1, 0])
+        ..setInput(0, <int>[])
+        ..invoke();
+      expect(interpreter.outputs.single.shape, <int>[1, 0]);
+      expect(interpreter.outputData(0), isEmpty);
+
+      interpreter.copyOutputTo(0, <List<int>>[<int>[]]);
+      // A target that expects values must not be left as it was.
+      expect(
+        () => interpreter.copyOutputTo(0, <List<int>>[
+          <int>[7, 7, 7],
+        ]),
+        throwsArgumentError,
+      );
     } finally {
       interpreter.close();
     }
