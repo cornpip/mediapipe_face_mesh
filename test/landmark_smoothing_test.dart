@@ -152,6 +152,37 @@ void main() {
       }
     });
 
+    test('reset starts a fresh smoothing sequence', () {
+      final OneEuroLandmarksSmoother smoother = OneEuroLandmarksSmoother();
+      final math.Random random = math.Random(5);
+      for (int i = 0; i < 10; i++) {
+        smoother.apply(
+          landmarks: jitteredFace(random, 0.004),
+          imageWidth: 640,
+          imageHeight: 480,
+          timestamp: _frameTime(i),
+        );
+      }
+      // Same landmark count, far from the smoothed position. Without the
+      // reset the filters would pull the result back toward the old face.
+      final List<SmoothablePoint> moved = <SmoothablePoint>[
+        for (final SmoothablePoint point in jitteredFace(random, 0))
+          (x: point.x + 0.3, y: point.y + 0.3, z: point.z),
+      ];
+      smoother.reset();
+      final List<SmoothablePoint> result = smoother.apply(
+        landmarks: moved,
+        imageWidth: 640,
+        imageHeight: 480,
+        timestamp: _frameTime(10),
+      );
+      for (int i = 0; i < moved.length; i++) {
+        expect(result[i].x, closeTo(moved[i].x, 1e-9));
+        expect(result[i].y, closeTo(moved[i].y, 1e-9));
+        expect(result[i].z, closeTo(moved[i].z, 1e-9));
+      }
+    });
+
     test('velocity normalization makes small and large faces behave alike',
         () {
       // The same face pattern rendered at 1x and 4x scale, with jitter
