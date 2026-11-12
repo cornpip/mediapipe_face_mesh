@@ -313,6 +313,78 @@ FFI_PLUGIN_EXPORT const char* mp_face_detector_last_global_error(void);
 FFI_PLUGIN_EXPORT MpDelegateType mp_face_detector_active_delegate(
     const MpFaceDetectorContext* context);
 
+// ---- Generic interpreter ---------------------------------------------------
+// Runs an arbitrary TensorFlow Lite model on the bundled runtime. Tensors keep
+// the shapes the model was allocated with; resizing is not supported.
+
+typedef struct MpInterpreterContext MpInterpreterContext;
+
+#define MP_TENSOR_MAX_DIMS 8
+
+typedef struct {
+  int32_t threads;
+  MpDelegateType delegate;
+  // When non-zero, fail creation instead of falling back to CPU if the
+  // requested delegate is unavailable or cannot be created.
+  uint8_t disable_delegate_fallback;
+} MpInterpreterCreateOptions;
+
+typedef struct {
+  // Owned by the context. Valid until the context is destroyed.
+  const char* name;
+  // TfLiteType value of the tensor.
+  int32_t type;
+  int32_t dims[MP_TENSOR_MAX_DIMS];
+  int32_t dims_count;
+  uint64_t byte_size;
+} MpTensorInfo;
+
+FFI_PLUGIN_EXPORT MpInterpreterContext* mp_interpreter_create_from_file(
+    const char* model_path, const MpInterpreterCreateOptions* options);
+
+// Copies [model_data], so the caller may free it as soon as this returns.
+FFI_PLUGIN_EXPORT MpInterpreterContext* mp_interpreter_create_from_buffer(
+    const uint8_t* model_data,
+    uint64_t model_size,
+    const MpInterpreterCreateOptions* options);
+
+FFI_PLUGIN_EXPORT void mp_interpreter_destroy(MpInterpreterContext* context);
+
+FFI_PLUGIN_EXPORT int32_t mp_interpreter_input_count(
+    const MpInterpreterContext* context);
+
+FFI_PLUGIN_EXPORT int32_t mp_interpreter_output_count(
+    const MpInterpreterContext* context);
+
+// Fill [info] for the tensor at [index]. Return zero on error. An output with
+// a dynamic shape reports its final shape and size only after
+// mp_interpreter_invoke.
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_input_info(
+    MpInterpreterContext* context, int32_t index, MpTensorInfo* info);
+
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_output_info(
+    MpInterpreterContext* context, int32_t index, MpTensorInfo* info);
+
+// Tensor memory, byte_size bytes long. Write inputs before
+// mp_interpreter_invoke and read outputs after it. An output pointer is valid
+// until the next mp_interpreter_invoke. Returns null on error.
+FFI_PLUGIN_EXPORT void* mp_interpreter_input_data(
+    MpInterpreterContext* context, int32_t index);
+
+FFI_PLUGIN_EXPORT const void* mp_interpreter_output_data(
+    MpInterpreterContext* context, int32_t index);
+
+// Returns zero on error.
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_invoke(MpInterpreterContext* context);
+
+FFI_PLUGIN_EXPORT const char* mp_interpreter_last_error(
+    const MpInterpreterContext* context);
+
+FFI_PLUGIN_EXPORT const char* mp_interpreter_last_global_error(void);
+
+FFI_PLUGIN_EXPORT MpDelegateType mp_interpreter_active_delegate(
+    const MpInterpreterContext* context);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

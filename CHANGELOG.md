@@ -1,3 +1,12 @@
+## 3.3.0-wip
+
+- add `TfliteInterpreter` (experimental) in
+  `package:mediapipe_face_mesh/tflite_interpreter.dart`, which runs any
+  TensorFlow Lite model on the bundled runtime
+  - `fromBuffer` loads a model from bytes, `fromFile` from a path
+  - float32 input and output through `setInput` and `output`, raw bytes
+    through `setInputBytes` and `outputBytes`
+
 ## 3.2.2
 
 - fix a leak on the exception path of `*_create`, `*_process`, and
