@@ -738,7 +738,8 @@ class MediapipeFaceBindings {
             )
           >();
 
-  /// Copies [model_data], so the caller may free it as soon as this returns.
+  /// Does not copy [model_data]: the caller keeps it alive until the context is
+  /// destroyed and frees it afterwards.
   ffi.Pointer<MpInterpreterContext> mp_interpreter_create_from_buffer(
     ffi.Pointer<ffi.Uint8> model_data,
     int model_size,

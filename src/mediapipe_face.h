@@ -345,7 +345,8 @@ typedef struct {
 FFI_PLUGIN_EXPORT MpInterpreterContext* mp_interpreter_create_from_file(
     const char* model_path, const MpInterpreterCreateOptions* options);
 
-// Copies [model_data], so the caller may free it as soon as this returns.
+// Does not copy [model_data]: the caller keeps it alive until the context is
+// destroyed and frees it afterwards.
 FFI_PLUGIN_EXPORT MpInterpreterContext* mp_interpreter_create_from_buffer(
     const uint8_t* model_data,
     uint64_t model_size,

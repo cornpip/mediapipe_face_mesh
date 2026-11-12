@@ -6,7 +6,6 @@
 #include <exception>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "tflite_c_api.h"
 
@@ -41,9 +40,9 @@ class InterpreterContext {
 
   bool InitializeFromBuffer(const uint8_t* data, uint64_t size,
                             const MpInterpreterCreateOptions* options) {
-    // TfLiteModelCreate does not copy: the bytes must outlive the model.
-    model_data_.assign(data, data + static_cast<size_t>(size));
-    model_.reset(TfLiteModelCreate(model_data_.data(), model_data_.size()));
+    // TfLiteModelCreate does not copy. The caller owns the bytes and keeps
+    // them alive for the life of this context.
+    model_.reset(TfLiteModelCreate(data, static_cast<size_t>(size)));
     if (!model_) {
       SetError("Unable to load model from the given buffer.");
       return false;
@@ -302,7 +301,6 @@ class InterpreterContext {
     options_.reset();
     model_.reset();
     delegate_.reset();
-    model_data_.clear();
   }
 
   void SetError(const std::string& message) {
@@ -310,8 +308,6 @@ class InterpreterContext {
     MP_IN_LOGE("%s\n", message.c_str());
   }
 
-  // Backs model_ when it was created from a buffer.
-  std::vector<uint8_t> model_data_;
   std::unique_ptr<TfLiteModel, TfLiteModelDeleter> model_;
   std::unique_ptr<TfLiteInterpreterOptions, TfLiteOptionsDeleter> options_;
   std::unique_ptr<TfLiteInterpreter, TfLiteInterpreterDeleter> interpreter_;
