@@ -276,7 +276,7 @@ extension FaceMeshResultGeometry on FaceMeshResult {
 
 String? _nativeGeometryLastError() {
   try {
-    return _readCString(faceBindings.mp_face_geometry_last_error());
+    return readCString(faceBindings.mp_face_geometry_last_error());
   } catch (_) {
     return null;
   }
