@@ -39,7 +39,7 @@ enum TfliteTensorType {
   /// 8-bit signed integer.
   int8(9, 1),
 
-  /// 16-bit float.
+  /// 16-bit float. Readable and writable as raw bytes only.
   float16(10, 2),
 
   /// 64-bit float.
@@ -74,6 +74,32 @@ enum TfliteTensorType {
   }
 }
 
+/// Quantization parameters of a tensor:
+/// `real = (quantized - zeroPoint) * scale`.
+@experimental
+@immutable
+class TfliteQuantization {
+  /// Creates quantization parameters.
+  const TfliteQuantization({required this.scale, required this.zeroPoint});
+
+  /// Step between two adjacent quantized values.
+  final double scale;
+
+  /// Quantized value that represents real zero.
+  final int zeroPoint;
+
+  /// Converts a quantized value to its real value.
+  double dequantize(int value) => (value - zeroPoint) * scale;
+
+  /// Converts a real value to the nearest quantized value, without clamping
+  /// it to the tensor type's range.
+  int quantize(double value) => (value / scale).round() + zeroPoint;
+
+  @override
+  String toString() =>
+      'TfliteQuantization(scale: $scale, zeroPoint: $zeroPoint)';
+}
+
 /// Name, type, and shape of one input or output tensor.
 @experimental
 @immutable
@@ -84,6 +110,7 @@ class TfliteTensorInfo {
     required this.type,
     required this.shape,
     required this.byteSize,
+    this.quantization,
   });
 
   /// Tensor name stored in the model.
@@ -97,6 +124,9 @@ class TfliteTensorInfo {
 
   /// Size of the tensor data in bytes.
   final int byteSize;
+
+  /// Quantization parameters, or null when the tensor is not quantized.
+  final TfliteQuantization? quantization;
 
   /// Number of elements: the product of [shape].
   int get elementCount =>
@@ -114,15 +144,22 @@ final Finalizer<ffi.Pointer<MpInterpreterContext>> _interpreterFinalizer =
 
 /// Runs a TensorFlow Lite model on the bundled runtime.
 ///
-/// Tensors keep the shapes stored in the model. Inputs and outputs are flat,
-/// in row-major order.
+/// [run] takes and fills nested lists shaped like the tensors:
 ///
 /// ```dart
 /// final interpreter = TfliteInterpreter.fromBuffer(modelBytes);
-/// interpreter.setInput(0, input);
+/// final output = [List<double>.filled(2, 0)]; // shape [1, 2]
+/// interpreter.run(image, output); // image: nested list or typed data
+/// interpreter.close();
+/// ```
+///
+/// [setInput], [invoke], and [output] do the same with flat typed data and
+/// skip the list conversion:
+///
+/// ```dart
+/// interpreter.setInput(0, input); // Float32List, row-major
 /// interpreter.invoke();
 /// final Float32List scores = interpreter.output(0);
-/// interpreter.close();
 /// ```
 ///
 /// The bundled runtime includes the TensorFlow Lite builtin operators and the
@@ -136,15 +173,8 @@ class TfliteInterpreter {
   TfliteInterpreter._(this._context) {
     _interpreterFinalizer.attach(this, _context, detach: this);
     try {
-      inputs = List<TfliteTensorInfo>.unmodifiable(<TfliteTensorInfo>[
-        for (
-          int i = 0;
-          i < faceBindings.mp_interpreter_input_count(_context);
-          i++
-        )
-          _readInfo(i, isInput: true),
-      ]);
       outputCount = faceBindings.mp_interpreter_output_count(_context);
+      _inputs = _readInputs();
     } catch (_) {
       close();
       rethrow;
@@ -250,22 +280,39 @@ class TfliteInterpreter {
   final ffi.Pointer<MpInterpreterContext> _context;
   bool _closed = false;
 
-  /// Input tensors, in model order.
-  late final List<TfliteTensorInfo> inputs;
+  /// True between [resizeInput] and the next allocation.
+  bool _needsAllocation = false;
+  List<TfliteTensorInfo>? _inputs;
 
   /// Number of output tensors.
   late final int outputCount;
+
+  /// Input tensors, in model order.
+  List<TfliteTensorInfo> get inputs {
+    _ensureReady();
+    return _inputs ??= _readInputs();
+  }
 
   /// Output tensors, in model order.
   ///
   /// An output with a dynamic shape reports its final shape only after
   /// [invoke].
   List<TfliteTensorInfo> get outputs {
-    _ensureNotClosed();
+    _ensureReady();
     return <TfliteTensorInfo>[
       for (int i = 0; i < outputCount; i++) _readInfo(i, isInput: false),
     ];
   }
+
+  /// Index of the input tensor named [name].
+  ///
+  /// Throws [ArgumentError] when no input has that name.
+  int inputIndex(String name) => _indexOf(inputs, name, 'input');
+
+  /// Index of the output tensor named [name].
+  ///
+  /// Throws [ArgumentError] when no output has that name.
+  int outputIndex(String name) => _indexOf(outputs, name, 'output');
 
   /// Delegate the model is actually running on after fallback.
   FaceMeshDelegate get activeDelegate {
@@ -276,52 +323,160 @@ class TfliteInterpreter {
     };
   }
 
-  /// Writes [data] to the float32 input at [index].
+  /// Changes the shape of the input at [index] to [shape].
   ///
-  /// Throws [ArgumentError] when the input is not float32 or [data] does not
-  /// hold exactly its element count.
-  void setInput(int index, Float32List data) {
-    final TfliteTensorInfo info = _inputInfo(index);
-    if (info.type != TfliteTensorType.float32) {
-      throw ArgumentError(
-        'Input $index is ${info.type.name}, not float32. Use setInputBytes.',
-      );
-    }
-    if (data.lengthInBytes != info.byteSize) {
+  /// Tensors are reallocated on the next call that needs them, or right away
+  /// with [allocateTensors]. Input data written before the resize is lost.
+  void resizeInput(int index, List<int> shape) {
+    _ensureNotClosed();
+    RangeError.checkValidIndex(index, null, 'index', _inputCount);
+    if (shape.length > MP_TENSOR_MAX_DIMS) {
       throw ArgumentError.value(
-        data.length,
-        'data.length',
-        'input $index holds ${info.byteSize ~/ 4} elements',
+        shape,
+        'shape',
+        'at most $MP_TENSOR_MAX_DIMS dimensions are supported',
       );
     }
-    _inputPointer(
-      index,
-    ).cast<ffi.Float>().asTypedList(data.length).setAll(0, data);
+    final ffi.Pointer<ffi.Int32> dimsPtr = pkg_ffi.calloc<ffi.Int32>(
+      shape.isEmpty ? 1 : shape.length,
+    );
+    try {
+      dimsPtr.asTypedList(shape.length).setAll(0, shape);
+      if (faceBindings.mp_interpreter_resize_input(
+            _context,
+            index,
+            dimsPtr,
+            shape.length,
+          ) ==
+          0) {
+        throw FaceMeshException(_lastError('Unable to resize input $index.'));
+      }
+    } finally {
+      pkg_ffi.calloc.free(dimsPtr);
+    }
+    _needsAllocation = true;
+    _inputs = null;
+  }
+
+  /// Reallocates tensors after [resizeInput].
+  ///
+  /// Throws [FaceMeshException] when the model cannot run with the new
+  /// shapes.
+  void allocateTensors() {
+    _ensureNotClosed();
+    if (faceBindings.mp_interpreter_allocate_tensors(_context) == 0) {
+      throw FaceMeshException(_lastError('Tensor allocation failed.'));
+    }
+    _needsAllocation = false;
+    _inputs = null;
+  }
+
+  /// Runs the model on one [input] and writes its first output to [output].
+  ///
+  /// See [runForMultipleInputs] for the accepted values.
+  void run(Object input, Object output) =>
+      runForMultipleInputs(<Object>[input], <int, Object>{0: output});
+
+  /// Runs the model on [inputs], in model order, and writes the outputs
+  /// named by index in [outputs].
+  ///
+  /// Each input is a nested list shaped like its tensor, a flat list, a
+  /// typed list of the tensor's type, or raw bytes ([Uint8List], [ByteData],
+  /// [ByteBuffer]). A nested list whose shape differs from the tensor's
+  /// resizes that input first.
+  ///
+  /// Each output is a nested list shaped like its tensor, filled in place, or
+  /// typed data of the tensor's byte size.
+  ///
+  /// Throws [ArgumentError] when a value does not fit its tensor.
+  void runForMultipleInputs(List<Object> inputs, Map<int, Object> outputs) {
+    _ensureNotClosed();
+    if (inputs.length != _inputCount) {
+      throw ArgumentError.value(
+        inputs.length,
+        'inputs.length',
+        'the model has $_inputCount inputs',
+      );
+    }
+    for (int i = 0; i < inputs.length; i++) {
+      final Object input = inputs[i];
+      if (input is TypedData || input is ByteBuffer || input is! List) {
+        continue;
+      }
+      final List<int> shape = _nestedShape(input);
+      final TfliteTensorInfo info = this.inputs[i];
+      final int count = shape.fold<int>(1, (int a, int b) => a * b);
+      if (count != info.elementCount) {
+        resizeInput(i, shape);
+      }
+    }
+    for (int i = 0; i < inputs.length; i++) {
+      setInput(i, inputs[i]);
+    }
+    invoke();
+    outputs.forEach(copyOutputTo);
+  }
+
+  /// Writes [data] to the input at [index].
+  ///
+  /// [data] is a typed list of the tensor's type (a [Float32List] for a
+  /// float32 tensor), raw bytes ([Uint8List], [ByteData], [ByteBuffer]), or a
+  /// flat or nested list of numbers or bools in row-major order.
+  ///
+  /// Throws [ArgumentError] when [data] does not match the tensor's type or
+  /// size.
+  void setInput(int index, Object data) {
+    final TfliteTensorInfo info = _inputInfo(index);
+    if (data is ByteBuffer) {
+      _writeBytes(index, info, data.asUint8List());
+    } else if (data is TypedData) {
+      if (data is! Uint8List &&
+          data is! ByteData &&
+          !_isTypedListOf(data, info.type)) {
+        throw ArgumentError(
+          'Input $index is ${info.type.name}, but the data is a '
+          '${data.runtimeType}.',
+        );
+      }
+      _writeBytes(
+        index,
+        info,
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      );
+    } else if (data is List) {
+      final List<num> view = _numView(
+        _inputPointer(index),
+        info.type,
+        info.elementCount,
+        'Input $index',
+      );
+      final int written = _flattenInto(data, view, 0, info.type);
+      if (written != info.elementCount) {
+        throw ArgumentError(
+          'Input $index holds ${info.elementCount} elements, got $written.',
+        );
+      }
+    } else {
+      throw ArgumentError.value(
+        data,
+        'data',
+        'must be a list, typed data, or a byte buffer',
+      );
+    }
   }
 
   /// Writes raw [data] to the input at [index], whatever its type.
   ///
   /// Throws [ArgumentError] when [data] is not exactly the tensor's
   /// [TfliteTensorInfo.byteSize].
-  void setInputBytes(int index, Uint8List data) {
-    final TfliteTensorInfo info = _inputInfo(index);
-    if (data.length != info.byteSize) {
-      throw ArgumentError.value(
-        data.length,
-        'data.length',
-        'input $index holds ${info.byteSize} bytes',
-      );
-    }
-    _inputPointer(
-      index,
-    ).cast<ffi.Uint8>().asTypedList(data.length).setAll(0, data);
-  }
+  void setInputBytes(int index, Uint8List data) =>
+      _writeBytes(index, _inputInfo(index), data);
 
   /// Runs the model on the current inputs.
   ///
   /// Throws [FaceMeshException] when inference fails.
   void invoke() {
-    _ensureNotClosed();
+    _ensureReady();
     if (faceBindings.mp_interpreter_invoke(_context) == 0) {
       throw FaceMeshException(_lastError('Interpreter invocation failed.'));
     }
@@ -329,20 +484,32 @@ class TfliteInterpreter {
 
   /// Returns a copy of the float32 output at [index].
   ///
-  /// Throws [ArgumentError] when the output is not float32.
+  /// Throws [ArgumentError] when the output is not float32. Use [outputData]
+  /// for other types.
   Float32List output(int index) {
     final TfliteTensorInfo info = _outputInfo(index);
     if (info.type != TfliteTensorType.float32) {
       throw ArgumentError(
-        'Output $index is ${info.type.name}, not float32. Use outputBytes.',
+        'Output $index is ${info.type.name}, not float32. Use outputData.',
       );
     }
-    final int count = info.byteSize ~/ 4;
+    return outputData(index) as Float32List;
+  }
+
+  /// Returns a copy of the output at [index] as a typed list of its type: a
+  /// [Float32List] for float32, an [Int32List] for int32, and so on. Bool
+  /// tensors come back as a [Uint8List] of 0 and 1.
+  ///
+  /// Throws [UnsupportedError] for float16 and [TfliteTensorType.other]
+  /// tensors. Use [outputBytes] for those.
+  TypedData outputData(int index) {
+    final TfliteTensorInfo info = _outputInfo(index);
+    final int count = info.elementCount;
     if (count == 0) {
-      return Float32List(0);
+      return _emptyTyped(info.type, 'Output $index');
     }
-    return Float32List.fromList(
-      _outputPointer(index).cast<ffi.Float>().asTypedList(count),
+    return _copyTyped(
+      _numView(_outputPointer(index), info.type, count, 'Output $index'),
     );
   }
 
@@ -358,6 +525,55 @@ class TfliteInterpreter {
     );
   }
 
+  /// Copies the output at [index] into [target].
+  ///
+  /// [target] is a nested list shaped like the tensor, whose innermost lists
+  /// are filled in place, or typed data of the tensor's byte size.
+  ///
+  /// Throws [ArgumentError] when [target] does not fit the tensor.
+  void copyOutputTo(int index, Object target) {
+    final TfliteTensorInfo info = _outputInfo(index);
+    if (target is ByteBuffer || target is TypedData) {
+      final Uint8List bytes = target is ByteBuffer
+          ? target.asUint8List()
+          : (target as TypedData).buffer.asUint8List(
+              target.offsetInBytes,
+              target.lengthInBytes,
+            );
+      if (bytes.length != info.byteSize) {
+        throw ArgumentError(
+          'Output $index holds ${info.byteSize} bytes, the target holds '
+          '${bytes.length}.',
+        );
+      }
+      if (info.byteSize > 0) {
+        bytes.setAll(
+          0,
+          _outputPointer(index).cast<ffi.Uint8>().asTypedList(info.byteSize),
+        );
+      }
+    } else if (target is List) {
+      if (info.elementCount == 0) {
+        return;
+      }
+      final List<num> view = _numView(
+        _outputPointer(index),
+        info.type,
+        info.elementCount,
+        'Output $index',
+      );
+      // A scalar tensor fills a one-element list.
+      final List<int> shape = info.shape.isEmpty ? const <int>[1] : info.shape;
+      _fillNested(target, view, shape, 0, 0, info.type, 'Output $index');
+    } else {
+      throw ArgumentError.value(
+        target,
+        'target',
+        'must be a list, typed data, or a byte buffer',
+      );
+    }
+  }
+
   /// Releases the native interpreter and the model it holds.
   void close() {
     if (_closed) {
@@ -368,16 +584,47 @@ class TfliteInterpreter {
     _closed = true;
   }
 
+  int get _inputCount => faceBindings.mp_interpreter_input_count(_context);
+
+  List<TfliteTensorInfo> _readInputs() =>
+      List<TfliteTensorInfo>.unmodifiable(<TfliteTensorInfo>[
+        for (int i = 0; i < _inputCount; i++) _readInfo(i, isInput: true),
+      ]);
+
+  int _indexOf(List<TfliteTensorInfo> tensors, String name, String kind) {
+    final int index = tensors.indexWhere(
+      (TfliteTensorInfo info) => info.name == name,
+    );
+    if (index < 0) {
+      throw ArgumentError.value(name, 'name', 'no $kind tensor has this name');
+    }
+    return index;
+  }
+
   TfliteTensorInfo _inputInfo(int index) {
-    _ensureNotClosed();
-    RangeError.checkValidIndex(index, inputs, 'index');
-    return inputs[index];
+    final List<TfliteTensorInfo> tensors = inputs;
+    RangeError.checkValidIndex(index, tensors, 'index');
+    return tensors[index];
   }
 
   TfliteTensorInfo _outputInfo(int index) {
-    _ensureNotClosed();
+    _ensureReady();
     RangeError.checkValidIndex(index, null, 'index', outputCount);
     return _readInfo(index, isInput: false);
+  }
+
+  void _writeBytes(int index, TfliteTensorInfo info, Uint8List bytes) {
+    if (bytes.length != info.byteSize) {
+      throw ArgumentError(
+        'Input $index holds ${info.byteSize} bytes, got ${bytes.length}.',
+      );
+    }
+    if (bytes.isEmpty) {
+      return;
+    }
+    _inputPointer(
+      index,
+    ).cast<ffi.Uint8>().asTypedList(bytes.length).setAll(0, bytes);
   }
 
   ffi.Pointer<ffi.Void> _inputPointer(int index) {
@@ -415,6 +662,12 @@ class TfliteInterpreter {
           for (int i = 0; i < info.dims_count; i++) info.dims[i],
         ]),
         byteSize: info.byte_size,
+        quantization: info.quantization_scale == 0
+            ? null
+            : TfliteQuantization(
+                scale: info.quantization_scale,
+                zeroPoint: info.quantization_zero_point,
+              ),
       );
     } finally {
       pkg_ffi.calloc.free(infoPtr);
@@ -425,11 +678,178 @@ class TfliteInterpreter {
       _readCString(faceBindings.mp_interpreter_last_error(_context)) ??
       fallback;
 
+  /// Checks the interpreter is open and reallocates after a resize.
+  void _ensureReady() {
+    _ensureNotClosed();
+    if (_needsAllocation) {
+      allocateTensors();
+    }
+  }
+
   void _ensureNotClosed() {
     if (_closed) {
       throw StateError('Interpreter already closed.');
     }
   }
+}
+
+/// Dimensions of a nested list, read along its first elements.
+List<int> _nestedShape(List<Object?> list) {
+  final List<int> shape = <int>[];
+  Object? level = list;
+  while (level is List) {
+    shape.add(level.length);
+    if (level.isEmpty) {
+      break;
+    }
+    level = level.first;
+  }
+  return shape;
+}
+
+/// Tensor memory as a list of numbers. Bool tensors read and write 0 and 1.
+List<num> _numView(
+  ffi.Pointer<ffi.Void> pointer,
+  TfliteTensorType type,
+  int count,
+  String what,
+) => switch (type) {
+  TfliteTensorType.float32 => pointer.cast<ffi.Float>().asTypedList(count),
+  TfliteTensorType.float64 => pointer.cast<ffi.Double>().asTypedList(count),
+  TfliteTensorType.int8 => pointer.cast<ffi.Int8>().asTypedList(count),
+  TfliteTensorType.uint8 ||
+  TfliteTensorType.bool => pointer.cast<ffi.Uint8>().asTypedList(count),
+  TfliteTensorType.int16 => pointer.cast<ffi.Int16>().asTypedList(count),
+  TfliteTensorType.uint16 => pointer.cast<ffi.Uint16>().asTypedList(count),
+  TfliteTensorType.int32 => pointer.cast<ffi.Int32>().asTypedList(count),
+  TfliteTensorType.uint32 => pointer.cast<ffi.Uint32>().asTypedList(count),
+  TfliteTensorType.int64 => pointer.cast<ffi.Int64>().asTypedList(count),
+  TfliteTensorType.uint64 => pointer.cast<ffi.Uint64>().asTypedList(count),
+  TfliteTensorType.float16 || TfliteTensorType.other => throw UnsupportedError(
+    '$what is ${type.name}, which is only available as raw bytes.',
+  ),
+};
+
+TypedData _copyTyped(List<num> view) => switch (view) {
+  Float32List() => Float32List.fromList(view),
+  Float64List() => Float64List.fromList(view),
+  Int8List() => Int8List.fromList(view),
+  Uint8List() => Uint8List.fromList(view),
+  Int16List() => Int16List.fromList(view),
+  Uint16List() => Uint16List.fromList(view),
+  Int32List() => Int32List.fromList(view),
+  Uint32List() => Uint32List.fromList(view),
+  Int64List() => Int64List.fromList(view),
+  Uint64List() => Uint64List.fromList(view),
+  _ => throw StateError('Unexpected tensor view ${view.runtimeType}.'),
+};
+
+TypedData _emptyTyped(TfliteTensorType type, String what) => switch (type) {
+  TfliteTensorType.float32 => Float32List(0),
+  TfliteTensorType.float64 => Float64List(0),
+  TfliteTensorType.int8 => Int8List(0),
+  TfliteTensorType.uint8 || TfliteTensorType.bool => Uint8List(0),
+  TfliteTensorType.int16 => Int16List(0),
+  TfliteTensorType.uint16 => Uint16List(0),
+  TfliteTensorType.int32 => Int32List(0),
+  TfliteTensorType.uint32 => Uint32List(0),
+  TfliteTensorType.int64 => Int64List(0),
+  TfliteTensorType.uint64 => Uint64List(0),
+  TfliteTensorType.float16 || TfliteTensorType.other => throw UnsupportedError(
+    '$what is ${type.name}, which is only available as raw bytes.',
+  ),
+};
+
+bool _isTypedListOf(TypedData data, TfliteTensorType type) => switch (type) {
+  TfliteTensorType.float32 => data is Float32List,
+  TfliteTensorType.float64 => data is Float64List,
+  TfliteTensorType.int8 => data is Int8List,
+  TfliteTensorType.uint8 || TfliteTensorType.bool => data is Uint8List,
+  TfliteTensorType.int16 => data is Int16List,
+  TfliteTensorType.uint16 => data is Uint16List,
+  TfliteTensorType.int32 => data is Int32List,
+  TfliteTensorType.uint32 => data is Uint32List,
+  TfliteTensorType.int64 => data is Int64List,
+  TfliteTensorType.uint64 => data is Uint64List,
+  TfliteTensorType.float16 || TfliteTensorType.other => false,
+};
+
+bool _isFloat(TfliteTensorType type) =>
+    type == TfliteTensorType.float32 || type == TfliteTensorType.float64;
+
+/// Writes the numbers and bools in [source], depth first, to [view] starting
+/// at [offset]. Returns the offset after the last element written.
+int _flattenInto(
+  List<Object?> source,
+  List<num> view,
+  int offset,
+  TfliteTensorType type,
+) {
+  final bool isFloat = _isFloat(type);
+  for (final Object? element in source) {
+    if (element is List) {
+      offset = _flattenInto(element, view, offset, type);
+      continue;
+    }
+    if (offset >= view.length) {
+      // Keep counting so the caller can report the real element count.
+      offset++;
+      continue;
+    }
+    if (element is num) {
+      view[offset] = isFloat ? element.toDouble() : element.toInt();
+    } else if (element is bool) {
+      view[offset] = element ? 1 : 0;
+    } else {
+      throw ArgumentError(
+        'Tensor data must be numbers or bools, got $element.',
+      );
+    }
+    offset++;
+  }
+  return offset;
+}
+
+/// Fills [target], a nested list shaped like [shape], from [view]. Returns
+/// the offset after the last element read.
+int _fillNested(
+  List<Object?> target,
+  List<num> view,
+  List<int> shape,
+  int depth,
+  int offset,
+  TfliteTensorType type,
+  String what,
+) {
+  if (target.length != shape[depth]) {
+    throw ArgumentError(
+      '$what has shape $shape, but the target list has length '
+      '${target.length} at depth $depth.',
+    );
+  }
+  if (depth < shape.length - 1) {
+    for (final Object? child in target) {
+      if (child is! List) {
+        throw ArgumentError(
+          '$what has shape $shape, but the target list is not nested '
+          '${shape.length} deep.',
+        );
+      }
+      offset = _fillNested(child, view, shape, depth + 1, offset, type, what);
+    }
+    return offset;
+  }
+  final bool isFloat = _isFloat(type);
+  final bool isBool = type == TfliteTensorType.bool;
+  for (int i = 0; i < target.length; i++) {
+    final num value = view[offset++];
+    target[i] = isBool
+        ? value != 0
+        : isFloat
+        ? value.toDouble()
+        : value.toInt();
+  }
+  return offset;
 }
 
 /// Half the available cores clamped to 1..4, the same default the face

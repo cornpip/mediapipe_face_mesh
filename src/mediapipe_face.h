@@ -314,8 +314,7 @@ FFI_PLUGIN_EXPORT MpDelegateType mp_face_detector_active_delegate(
     const MpFaceDetectorContext* context);
 
 // ---- Generic interpreter ---------------------------------------------------
-// Runs an arbitrary TensorFlow Lite model on the bundled runtime. Tensors keep
-// the shapes the model was allocated with; resizing is not supported.
+// Runs an arbitrary TensorFlow Lite model on the bundled runtime.
 
 typedef struct MpInterpreterContext MpInterpreterContext;
 
@@ -337,6 +336,10 @@ typedef struct {
   int32_t dims[MP_TENSOR_MAX_DIMS];
   int32_t dims_count;
   uint64_t byte_size;
+  // Quantization parameters. A scale of zero means the tensor is not
+  // quantized.
+  float quantization_scale;
+  int32_t quantization_zero_point;
 } MpTensorInfo;
 
 FFI_PLUGIN_EXPORT MpInterpreterContext* mp_interpreter_create_from_file(
@@ -364,6 +367,18 @@ FFI_PLUGIN_EXPORT uint8_t mp_interpreter_input_info(
 
 FFI_PLUGIN_EXPORT uint8_t mp_interpreter_output_info(
     MpInterpreterContext* context, int32_t index, MpTensorInfo* info);
+
+// Change the shape of the input at [index]. Tensor memory is stale until
+// mp_interpreter_allocate_tensors runs. Return zero on error.
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_resize_input(
+    MpInterpreterContext* context,
+    int32_t index,
+    const int32_t* dims,
+    int32_t dims_count);
+
+// Reallocate tensors after mp_interpreter_resize_input. Return zero on error.
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_allocate_tensors(
+    MpInterpreterContext* context);
 
 // Tensor memory, byte_size bytes long. Write inputs before
 // mp_interpreter_invoke and read outputs after it. An output pointer is valid

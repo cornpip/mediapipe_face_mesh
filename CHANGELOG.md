@@ -4,8 +4,12 @@
   `package:mediapipe_face_mesh/tflite_interpreter.dart`, which runs any
   TensorFlow Lite model on the bundled runtime
   - `fromBuffer` loads a model from bytes, `fromFile` from a path
-  - float32 input and output through `setInput` and `output`, raw bytes
-    through `setInputBytes` and `outputBytes`
+  - `run` and `runForMultipleInputs` take and fill nested lists
+  - `setInput`, `invoke`, `output`, and `outputData` work on flat typed
+    data of any numeric tensor type
+  - `resizeInput` changes an input shape, and `run` does so when a nested
+    list has another shape
+  - `TfliteTensorInfo.quantization` exposes the scale and zero point
 
 ## 3.2.2
 

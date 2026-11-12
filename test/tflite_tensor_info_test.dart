@@ -28,4 +28,15 @@ void main() {
   test('other has no element size', () {
     expect(TfliteTensorType.other.bytesPerElement, 0);
   });
+
+  test('quantization converts both ways', () {
+    const TfliteQuantization quantization = TfliteQuantization(
+      scale: 0.5,
+      zeroPoint: 3,
+    );
+
+    expect(quantization.dequantize(13), 5.0);
+    expect(quantization.quantize(5.0), 13);
+    expect(quantization.quantize(-1.5), 0);
+  });
 }

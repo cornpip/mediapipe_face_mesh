@@ -71,6 +71,35 @@ class InterpreterContext {
     return FillInfo(OutputTensor(index), info);
   }
 
+  bool ResizeInput(int32_t index, const int32_t* dims, int32_t dims_count) {
+    if (!InputTensor(index)) {
+      return false;
+    }
+    if (dims_count < 0 || dims_count > MP_TENSOR_MAX_DIMS ||
+        (dims_count > 0 && !dims)) {
+      SetError("Unsupported tensor rank: " + std::to_string(dims_count));
+      return false;
+    }
+    if (TfLiteInterpreterResizeInputTensor(interpreter_.get(), index, dims,
+                                           dims_count) != kTfLiteOk) {
+      SetError("Unable to resize input tensor " + std::to_string(index));
+      return false;
+    }
+    return true;
+  }
+
+  bool AllocateTensors() {
+    if (!interpreter_) {
+      SetError("Interpreter is not initialized.");
+      return false;
+    }
+    if (TfLiteInterpreterAllocateTensors(interpreter_.get()) != kTfLiteOk) {
+      SetError("Tensor allocation failed.");
+      return false;
+    }
+    return true;
+  }
+
   void* InputData(int32_t index) {
     TfLiteTensor* tensor = InputTensor(index);
     return tensor ? TfLiteTensorData(tensor) : nullptr;
@@ -261,6 +290,10 @@ class InterpreterContext {
       info->dims[i] = i < dims_count ? TfLiteTensorDim(tensor, i) : 0;
     }
     info->byte_size = static_cast<uint64_t>(TfLiteTensorByteSize(tensor));
+    const TfLiteQuantizationParams quantization =
+        TfLiteTensorQuantizationParams(tensor);
+    info->quantization_scale = quantization.scale;
+    info->quantization_zero_point = quantization.zero_point;
     return true;
   }
 
@@ -400,6 +433,22 @@ FFI_PLUGIN_EXPORT uint8_t mp_interpreter_output_info(
     MpInterpreterContext* context, int32_t index, MpTensorInfo* info) {
   return GuardedNative(context, static_cast<uint8_t>(0), [&]() -> uint8_t {
     return context && context->impl.OutputInfo(index, info) ? 1 : 0;
+  });
+}
+
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_resize_input(
+    MpInterpreterContext* context, int32_t index, const int32_t* dims,
+    int32_t dims_count) {
+  return GuardedNative(context, static_cast<uint8_t>(0), [&]() -> uint8_t {
+    return context && context->impl.ResizeInput(index, dims, dims_count) ? 1
+                                                                          : 0;
+  });
+}
+
+FFI_PLUGIN_EXPORT uint8_t mp_interpreter_allocate_tensors(
+    MpInterpreterContext* context) {
+  return GuardedNative(context, static_cast<uint8_t>(0), [&]() -> uint8_t {
+    return context && context->impl.AllocateTensors() ? 1 : 0;
   });
 }
 

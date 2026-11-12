@@ -861,6 +861,55 @@ class MediapipeFaceBindings {
         )
       >();
 
+  /// Change the shape of the input at [index]. Tensor memory is stale until
+  /// mp_interpreter_allocate_tensors runs. Return zero on error.
+  int mp_interpreter_resize_input(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+    ffi.Pointer<ffi.Int32> dims,
+    int dims_count,
+  ) {
+    return _mp_interpreter_resize_input(context, index, dims, dims_count);
+  }
+
+  late final _mp_interpreter_resize_inputPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Int32>,
+            ffi.Int32,
+          )
+        >
+      >('mp_interpreter_resize_input');
+  late final _mp_interpreter_resize_input = _mp_interpreter_resize_inputPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<MpInterpreterContext>,
+          int,
+          ffi.Pointer<ffi.Int32>,
+          int,
+        )
+      >();
+
+  /// Reallocate tensors after mp_interpreter_resize_input. Return zero on error.
+  int mp_interpreter_allocate_tensors(
+    ffi.Pointer<MpInterpreterContext> context,
+  ) {
+    return _mp_interpreter_allocate_tensors(context);
+  }
+
+  late final _mp_interpreter_allocate_tensorsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_allocate_tensors');
+  late final _mp_interpreter_allocate_tensors =
+      _mp_interpreter_allocate_tensorsPtr
+          .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
+
   /// Tensor memory, byte_size bytes long. Write inputs before
   /// mp_interpreter_invoke and read outputs after it. An output pointer is valid
   /// until the next mp_interpreter_invoke. Returns null on error.
@@ -1302,6 +1351,14 @@ final class MpTensorInfo extends ffi.Struct {
 
   @ffi.Uint64()
   external int byte_size;
+
+  /// Quantization parameters. A scale of zero means the tensor is not
+  /// quantized.
+  @ffi.Float()
+  external double quantization_scale;
+
+  @ffi.Int32()
+  external int quantization_zero_point;
 }
 
 const int MP_TENSOR_MAX_DIMS = 8;
