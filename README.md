@@ -320,18 +320,34 @@ final interpreter = TfliteInterpreter.fromBuffer(modelBytes);
 
 print(interpreter.inputs); // name, type, shape of each input
 
-interpreter.setInput(0, input); // flat Float32List, row-major
-interpreter.invoke();
-final Float32List output = interpreter.output(0);
+// Nested lists shaped like the tensors. The output is filled in place.
+final output = [List<double>.filled(2, 0)]; // shape [1, 2]
+interpreter.run(input, output);
 
 interpreter.close();
 ```
 
+For several inputs or outputs, use
+`runForMultipleInputs([a, b], {0: out0, 1: out1})`.
+
+Flat typed data skips the list conversion, which matters for large inputs
+such as images:
+
+```dart
+interpreter.setInput(0, pixels); // Float32List, row-major
+interpreter.invoke();
+final Float32List scores = interpreter.output(0);
+```
+
 - The runtime includes the TFLite builtin operators and the MediaPipe
   custom operators. A model that needs other operators fails to load.
-- Tensors keep the shapes stored in the model. Resizing is not supported.
-- `setInput` and `output` are for float32 tensors. Use `setInputBytes` and
-  `outputBytes` for other types.
+- Delegates are `FaceMeshDelegate.cpu` and `FaceMeshDelegate.xnnpack`.
+  There is no GPU delegate.
+- A nested list whose shape differs from the tensor's resizes that input.
+  `resizeInput` does the same explicitly.
+- `outputData` returns a typed list of the tensor's own type (`Int32List`
+  for int32, `Uint8List` for uint8). `TfliteTensorInfo.quantization` holds
+  the scale and zero point of a quantized tensor.
 - `fromBuffer` copies the model bytes, so the list can be discarded
   afterwards.
 
