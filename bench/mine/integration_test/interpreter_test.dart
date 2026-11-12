@@ -80,7 +80,8 @@ void main() {
   });
 
   test('a model loaded from a file matches the same model from bytes', () {
-    final Directory dir = Directory.systemTemp.createTempSync('mpfm_interp');
+    // A non-ASCII directory name: the path has to survive as it is.
+    final Directory dir = Directory.systemTemp.createTempSync('mpfm_모델');
     final File file = File('${dir.path}/model.tflite')
       ..writeAsBytesSync(modelBytes);
     final TfliteInterpreter fromBuffer = TfliteInterpreter.fromBuffer(
@@ -411,6 +412,80 @@ void main() {
       final Int32List typed = Int32List(3);
       interpreter.copyOutputTo(0, typed);
       expect(typed, <int>[2, 4, 6]);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('a run that fails after resizing puts the shapes back', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddModel,
+    );
+    try {
+      final List<List<int>> output = <List<int>>[List<int>.filled(4, 0)];
+
+      // Four columns would resize the input, but the fraction is rejected.
+      expect(
+        () => interpreter.run(<List<num>>[
+          <num>[1, 2, 3, 4.5],
+        ], output),
+        throwsArgumentError,
+      );
+      expect(interpreter.inputs.single.shape, <int>[1, 3]);
+
+      // The first row promises [2, 4], the list holds five elements.
+      expect(
+        () => interpreter.run(<List<int>>[
+          <int>[1, 2, 3, 4],
+          <int>[5],
+        ], output),
+        throwsArgumentError,
+      );
+      expect(interpreter.inputs.single.shape, <int>[1, 3]);
+
+      interpreter.run(
+        <List<int>>[
+          <int>[1, 2, 3],
+        ],
+        <List<int>>[List<int>.filled(3, 0)],
+      );
+      expect(interpreter.outputData(0), <int>[2, 4, 6]);
+
+      // An unmodifiable target is reported as a bad argument.
+      expect(
+        () => interpreter.copyOutputTo(
+          0,
+          List<List<int>>.unmodifiable(<List<int>>[
+            List<int>.unmodifiable(<int>[0, 0, 0]),
+          ]),
+        ),
+        throwsArgumentError,
+      );
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('uint8 tensors take clamped lists and reject out-of-range values', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _uint8AddModel,
+    );
+    try {
+      interpreter
+        ..setInput(0, Uint8ClampedList.fromList(<int>[3, 5, 13]))
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[6, 8, 16]);
+
+      expect(
+        () => interpreter.setInput(0, <int>[300, 5, 13]),
+        throwsArgumentError,
+      );
+      expect(
+        () => interpreter.setInput(0, <int>[-1, 5, 13]),
+        throwsArgumentError,
+      );
+      interpreter.invoke();
+      expect(interpreter.outputData(0), <int>[6, 8, 16]);
     } finally {
       interpreter.close();
     }
