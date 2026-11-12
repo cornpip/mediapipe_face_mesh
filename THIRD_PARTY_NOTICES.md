@@ -53,6 +53,9 @@ operator resolver also registers the MediaPipe custom operators required by
   `xnn_enable_arm_sme2=false`, `xnn_enable_kleidiai=false`), because they
   raise an illegal instruction on A18 and A19. The recipe is in
   `tool/tflite_runtime/apple/`.
+  On iOS and macOS every exported symbol of the runtime is renamed with an
+  `mpfm_` prefix (`tool/prefix_apple_tflite_symbols.sh`), so it cannot be
+  mistaken for another TensorFlow Lite in the same process.
 - **Windows**: built from the TensorFlow 2.19.0 CMake tree with MediaPipe's CPU
   kernels for those operators added to the build and registered in
   `tensorflow/lite/core/create_op_resolver_with_builtin_ops.cc`. Local build
@@ -63,7 +66,9 @@ No changes were made to TensorFlow Lite's inference behavior beyond operator
 registration and the build configuration described above. The vendored headers
 under `src/include` are unmodified upstream files. The copies inside the
 xcframeworks differ only in their `#include` paths, which are flattened to bare
-file names.
+file names. The xcframeworks also carry two files that are not upstream: the
+umbrella `TensorFlowLiteC.h` and the generated `mpfm_symbol_prefix.h`, which
+maps the original `TfLite*` names to the prefixed symbols.
 
 ### Components linked into the prebuilt runtime binaries
 

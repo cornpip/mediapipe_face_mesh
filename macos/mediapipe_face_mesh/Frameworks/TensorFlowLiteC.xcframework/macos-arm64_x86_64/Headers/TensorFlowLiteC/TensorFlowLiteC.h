@@ -1,3 +1,4 @@
+#import <TensorFlowLiteC/mpfm_symbol_prefix.h>
 #import <TensorFlowLiteC/builtin_ops.h>
 #import <TensorFlowLiteC/c_api.h>
 #import <TensorFlowLiteC/c_api_experimental.h>

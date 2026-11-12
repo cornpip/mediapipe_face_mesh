@@ -16,6 +16,11 @@
 - rebuild the bundled iOS device runtime without XNNPACK's Arm SME and
   KleidiAI kernels, which crash during inference on iPhone 16 and 17
   (A18, A19)
+- prefix the symbols of the bundled TensorFlow Lite runtime with `mpfm_`
+  on iOS and macOS, so another TensorFlow Lite in the same app no longer
+  resolves to it
+  - an app-provided Flex delegate no longer attaches to the bundled runtime
+    on these platforms
 
 ## 3.2.2
 
