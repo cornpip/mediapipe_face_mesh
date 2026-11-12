@@ -1,0 +1,253 @@
+#!/bin/bash
+#
+# Prefixes the global symbols of the bundled Apple TensorFlow Lite runtime
+# with mpfm_, so another TensorFlow Lite in the same app never resolves to
+# this one.
+#
+# The plugin links libTensorFlowLiteC.a into its own framework, which then
+# exports TfLiteInterpreterCreate and the rest under their original names. A
+# plugin that looks TensorFlow Lite up process-wide (DynamicLibrary.process())
+# can pick this runtime instead of its own. In a static build the names
+# collide at link time.
+#
+# For every slice of each xcframework this script:
+#   1. renames each global symbol in libTensorFlowLiteC.a from _X to _mpfm_X,
+#   2. writes Headers/TensorFlowLiteC/mpfm_symbol_prefix.h, which maps the
+#      original TfLite* names to the prefixed ones with #define,
+#   3. imports that header first in the umbrella TensorFlowLiteC.h.
+#
+# Sources keep calling the unprefixed names. Global symbols outside the C API
+# are renamed too and get no define. Today that is only the weak
+# tflite::AcquireFlexDelegate(), the hook an app-provided Flex delegate
+# overrides. Renaming it keeps another runtime's Flex delegate out of this one.
+#
+# Nothing in the xcframework is touched until every slice has been renamed
+# and checked. Running it again on an already prefixed binary only
+# regenerates the header. It stops when a slice exports Objective-C or Swift
+# symbols, which a prefix would break.
+#
+# Run it on macOS. Elsewhere it skips ranlib, and the rewritten archives need
+# `xcrun ranlib` on a Mac before they are committed.
+#
+# Usage:
+#   tool/prefix_apple_tflite_symbols.sh [path/to/TensorFlowLiteC.xcframework ...]
+#
+# With no arguments it processes the iOS and macOS xcframeworks of this repo.
+#
+# Needs llvm-objcopy and llvm-nm (macOS: `brew install llvm`). Set
+# LLVM_OBJCOPY and LLVM_NM to use specific binaries.
+
+set -euo pipefail
+export LC_ALL=C
+
+PREFIX="mpfm_"
+LIB_NAME="libTensorFlowLiteC.a"
+HEADER_DIR="Headers/TensorFlowLiteC"
+PREFIX_HEADER="mpfm_symbol_prefix.h"
+UMBRELLA_HEADER="TensorFlowLiteC.h"
+IMPORT_LINE="#import <TensorFlowLiteC/${PREFIX_HEADER}>"
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# Prints the path of an LLVM tool: the value of the override variable if set,
+# else PATH, else the Xcode toolchain, else Homebrew's keg-only llvm.
+#   $1 tool name, $2 name of the override variable
+find_tool() {
+  local name="$1" variable="$2" dir
+  local override="${!variable:-}"
+  if [[ -n "${override}" ]]; then
+    command -v "${override}" >/dev/null 2>&1 \
+      || die "${variable}=${override} is not an executable"
+    echo "${override}"
+    return
+  fi
+  if command -v "${name}" >/dev/null 2>&1; then
+    command -v "${name}"
+    return
+  fi
+  if command -v xcrun >/dev/null 2>&1 && xcrun -f "${name}" >/dev/null 2>&1; then
+    xcrun -f "${name}"
+    return
+  fi
+  if command -v brew >/dev/null 2>&1; then
+    dir="$(brew --prefix llvm 2>/dev/null || true)"
+    if [[ -n "${dir}" && -x "${dir}/bin/${name}" ]]; then
+      echo "${dir}/bin/${name}"
+      return
+    fi
+  fi
+  die "${name} not found. Install LLVM (macOS: brew install llvm) or set ${variable}."
+}
+
+OBJCOPY="$(find_tool llvm-objcopy LLVM_OBJCOPY)"
+NM="$(find_tool llvm-nm LLVM_NM)"
+
+# Set once an archive has been rewritten without ranlib.
+needs_ranlib=0
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+
+# Prints the defined global symbols of a library, one per line, every
+# architecture merged. Prints nothing when there are none.
+global_symbols() {
+  "${NM}" -g --defined-only -j "$1" | tr -d '\r' | { grep '^_' || true; } | sort -u
+}
+
+# Renames the symbols of one slice into a staged copy and leaves the original
+# alone. Writes no staged copy when the slice is already prefixed.
+#   $1 library, $2 staged copy to write, $3 file to receive the final symbols
+stage_library() {
+  local lib="$1" staged="$2" symbols_out="$3"
+  local before="${staged}.before" expected="${staged}.expected" map="${staged}.map"
+
+  global_symbols "${lib}" > "${before}"
+  if ! grep -q -E "^_(${PREFIX})?TfLite" "${before}"; then
+    die "${lib}: no TfLite symbols found"
+  fi
+  # Objective-C metadata symbols (_OBJC_CLASS_$_Foo) and Swift symbols carry
+  # their meaning in the name, so prefixing them breaks them instead of
+  # hiding them.
+  if grep -q -E '\$|^__?OBJC_' "${before}"; then
+    grep -E '\$|^__?OBJC_' "${before}" | sed 's/^/    /' >&2
+    die "${lib}: exports Objective-C or Swift symbols, which this script cannot prefix"
+  fi
+
+  # The set of names every architecture must end up with. Compared as a set,
+  # so a universal slice with only one architecture prefixed still passes.
+  sed -E "s/^_(${PREFIX})?(.*)$/_${PREFIX}\2/" "${before}" | sort -u > "${expected}"
+  { grep -v "^_${PREFIX}" "${before}" || true; } \
+    | sed -E "s/^_(.*)$/_\1 _${PREFIX}\1/" > "${map}"
+
+  if [[ ! -s "${map}" ]]; then
+    cp "${before}" "${symbols_out}"
+    echo "  ${lib}: already prefixed"
+    return
+  fi
+
+  "${OBJCOPY}" --redefine-syms="${map}" "${lib}" "${staged}"
+  # Apple's linker wants a current table of contents in a static archive.
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    xcrun ranlib "${staged}"
+  else
+    needs_ranlib=1
+  fi
+
+  global_symbols "${staged}" > "${symbols_out}"
+  if ! cmp -s "${expected}" "${symbols_out}"; then
+    die "${lib}: global symbols after renaming are not the expected set"
+  fi
+  echo "  ${lib}: prefixed $(wc -l < "${map}" | tr -d ' ') symbols"
+}
+
+write_prefix_header() {
+  local names="$1" out="$2" name
+  {
+    echo "// Generated by tool/prefix_apple_tflite_symbols.sh. Do not edit."
+    echo "//"
+    echo "// The bundled runtime exports its C API with an ${PREFIX} prefix. These"
+    echo "// defines let sources keep the original names."
+    echo "#ifndef MPFM_SYMBOL_PREFIX_H_"
+    echo "#define MPFM_SYMBOL_PREFIX_H_"
+    echo
+    while IFS= read -r name; do
+      echo "#define ${name} ${PREFIX}${name}"
+    done < "${names}"
+    echo
+    echo "#endif  // MPFM_SYMBOL_PREFIX_H_"
+  } > "${out}"
+}
+
+# Makes the prefix header the first import of the umbrella header, so the
+# defines are in place before any declaration.
+update_umbrella() {
+  local umbrella="$1" tmp="${WORK}/umbrella.tmp"
+  [[ -f "${umbrella}" ]] || die "${umbrella} not found"
+  if [[ "$(head -n 1 "${umbrella}" | tr -d '\r')" == "${IMPORT_LINE}" ]]; then
+    return
+  fi
+  {
+    echo "${IMPORT_LINE}"
+    grep -v -F "${IMPORT_LINE}" "${umbrella}" || true
+  } > "${tmp}"
+  cat "${tmp}" > "${umbrella}"
+}
+
+process_xcframework() {
+  local xcframework="$1"
+  local stage libs lib slice index names others
+  [[ -d "${xcframework}" ]] || die "${xcframework} is not a directory"
+
+  libs="$(find "${xcframework}" -name "${LIB_NAME}" | sort)"
+  [[ -n "${libs}" ]] || die "${xcframework}: no ${LIB_NAME} found"
+
+  echo "${xcframework}"
+  stage="$(mktemp -d "${WORK}/stage.XXXXXX")"
+
+  # Rename and check every slice first. A failure here leaves the xcframework
+  # as it was.
+  index=0
+  while IFS= read -r lib; do
+    index=$((index + 1))
+    [[ -f "$(dirname "${lib}")/${HEADER_DIR}/${UMBRELLA_HEADER}" ]] \
+      || die "$(dirname "${lib}")/${HEADER_DIR}/${UMBRELLA_HEADER} not found"
+    stage_library "${lib}" "${stage}/${index}.a" "${stage}/${index}.symbols"
+  done <<< "${libs}"
+
+  # One header for every slice, so Headers/ stays identical across slices.
+  names="${stage}/names.txt"
+  cat "${stage}"/*.symbols | sed -n -E "s/^_${PREFIX}(TfLite.*)$/\1/p" \
+    | sort -u > "${names}"
+
+  # The header is shared, so a name one slice lacks only fails when that
+  # slice is linked.
+  index=0
+  while IFS= read -r lib; do
+    index=$((index + 1))
+    if ! sed -n -E "s/^_${PREFIX}(TfLite.*)$/\1/p" "${stage}/${index}.symbols" \
+        | cmp -s - "${names}"; then
+      echo "  warning: ${lib} lacks some of the names the other slices export" >&2
+    fi
+  done <<< "${libs}"
+
+  index=0
+  while IFS= read -r lib; do
+    index=$((index + 1))
+    if [[ -f "${stage}/${index}.a" ]]; then
+      mv "${stage}/${index}.a" "${lib}"
+    fi
+    slice="$(dirname "${lib}")"
+    write_prefix_header "${names}" "${slice}/${HEADER_DIR}/${PREFIX_HEADER}"
+    update_umbrella "${slice}/${HEADER_DIR}/${UMBRELLA_HEADER}"
+  done <<< "${libs}"
+  echo "  wrote ${PREFIX_HEADER} ($(wc -l < "${names}" | tr -d ' ') names)"
+
+  # Report what is exported outside the C API, so a rebuilt binary that
+  # exports more than before does not go unnoticed.
+  others="$(cat "${stage}"/*.symbols | { grep -v "^_${PREFIX}TfLite" || true; } | sort -u)"
+  if [[ -n "${others}" ]]; then
+    echo "  note: prefixed without a define:"
+    echo "${others}" | sed 's/^/    /'
+  fi
+}
+
+if [[ "$#" -eq 0 ]]; then
+  set -- \
+    "${repo_root}/ios/mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework" \
+    "${repo_root}/macos/mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework"
+fi
+
+for xcframework in "$@"; do
+  process_xcframework "${xcframework%/}"
+done
+
+if [[ "${needs_ranlib}" -eq 1 ]]; then
+  echo "warning: not run on macOS, so the rewritten archives have no fresh" \
+    "table of contents. Run 'xcrun ranlib' on them on a Mac before" \
+    "committing." >&2
+fi

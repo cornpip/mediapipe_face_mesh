@@ -81,6 +81,10 @@ diff <(nm -gU "$OLD" | awk '$2=="T"{print $3}' | sort) \
 
 ## After replacing the binary
 
+- Run `tool/prefix_apple_tflite_symbols.sh`. A freshly built archive exports
+  the original `TfLite*` names, and the plugin's headers expect the `mpfm_`
+  ones. Run the Verify step above before this one, since it compares
+  unprefixed names.
 - Re-sync `Headers/` in every xcframework slice from `src/include` if the
   TensorFlow commit changed, and keep the slices' headers identical.
 - Update `THIRD_PARTY_NOTICES.md` and the attribution prose in `NOTICES`.

@@ -42,7 +42,8 @@ releases. They are rebuilt from source so that the C API's default operator
 resolver also registers the MediaPipe custom operators TransformTensorBilinear,
 TransformLandmarks, Landmarks2TransformMatrix, MaxPoolingWithArgmax2D,
 MaxUnpooling2D, Convolution2DTransposeBias, and Resampler. The iOS device
-binary is also built without XNNPACK's Arm SME and KleidiAI kernels. No other
+binary is also built without XNNPACK's Arm SME and KleidiAI kernels. On iOS
+and macOS the exported symbols are renamed with an mpfm_ prefix. No other
 change was made to TensorFlow Lite.
 
 MediaPipe, Copyright The MediaPipe Authors. The face detection, face landmark,
