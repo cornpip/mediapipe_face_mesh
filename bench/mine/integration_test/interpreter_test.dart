@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -8,7 +9,21 @@ import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
 import 'package:mediapipe_face_mesh/tflite_interpreter.dart';
 
 /// Functional exercises for the generic interpreter, run on the bundled
-/// blendshapes model (146x2 float32 landmarks in, 52 float32 scores out).
+/// blendshapes model (146x2 float32 landmarks in, 52 float32 scores out) and
+/// on two one-operator models that add their input to itself.
+
+/// int32, shape [1, 3] with a dynamic second dimension. Tensors `x` and
+/// `sum`. Built by tool/make_interpreter_test_models.py.
+final Uint8List _int32AddModel = base64Decode(
+  'CAAAAFRGTDPC////VAEAABAAAAAoAAAAPAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAsAAAAGAAAABwAAABkAAAABAAAAG1haW4AAAAAAQAAAAEAAAABAAAAAAAAAAEAAAAUAAAAAAAOABQAAAAQAAwACwAEAA4AAAAkAAAAAAAACwgAAAAMAAAAAQAAAAEAAAACAAAAAAAAAAAAAABg////AgAAAFAAAAAEAAAAzP///xAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAADAAAAc3VtABQAFAAQAA8AAAAIAAAAAAAAAAQAFAAAABAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAABAAAAeAAAAAEAAAAEAAAA9P///wEAAAAIAAAABAAEAAQAAAA=',
+);
+
+/// uint8, same graph. Input quantization (0.5, 3), output (1.0, 6), so the
+/// quantized output is the quantized input plus 3.
+final Uint8List _uint8AddModel = base64Decode(
+  'CAAAAFRGTDPC////rAEAABAAAAAoAAAAlAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAsAAAAGAAAABwAAABkAAAABAAAAG1haW4AAAAAAQAAAAEAAAABAAAAAAAAAAEAAAAUAAAAAAAOABQAAAAQAAwACwAEAA4AAAAkAAAAAAAACwgAAAAMAAAAAQAAAAEAAAACAAAAAAAAAAAAAAAI////AgAAAHQAAAAEAAAAqP///zQAAAAQAAAARAAAAAAAAAMwAAAAlP///wgAAAAQAAAAAQAAAAYAAAAAAAAAAQAAAAAAgD8CAAAAAQAAAP////8CAAAAAQAAAAMAAAADAAAAc3VtABQAGAAUABMAAAAMAAgAAAAAAAQAFAAAAEQAAAAcAAAAVAAAAAAAAANAAAAADAAMAAAAAAAIAAQADAAAAAgAAAAUAAAAAQAAAAMAAAAAAAAAAAAAAAEAAAAAAAA/AgAAAAEAAAD/////AgAAAAEAAAADAAAAAQAAAHgAAAABAAAABAAAAPT///8BAAAACAAAAAQABAAEAAAA',
+);
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -134,5 +149,156 @@ void main() {
     interpreter.close();
     expect(interpreter.invoke, throwsStateError);
     expect(() => interpreter.outputs, throwsStateError);
+  });
+
+  test('run takes and fills nested lists', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      modelBytes,
+    );
+    try {
+      interpreter
+        ..setInput(0, input)
+        ..invoke();
+      final Float32List expected = interpreter.output(0);
+
+      // Nest the flat input the way the model shapes it.
+      Object nest(List<int> shape, int offset) {
+        if (shape.length == 1) {
+          return input.sublist(offset, offset + shape.first).toList();
+        }
+        final int stride = shape.skip(1).reduce((int a, int b) => a * b);
+        return <Object>[
+          for (int i = 0; i < shape.first; i++)
+            nest(shape.sublist(1), offset + i * stride),
+        ];
+      }
+
+      final List<int> inputShape = interpreter.inputs.single.shape;
+      final List<int> outputShape = interpreter.outputs.first.shape;
+      Object zeros(List<int> shape) => shape.length == 1
+          ? List<double>.filled(shape.first, 0)
+          : <Object>[
+              for (int i = 0; i < shape.first; i++) zeros(shape.sublist(1)),
+            ];
+      final Object output = zeros(outputShape);
+
+      interpreter.run(nest(inputShape, 0), output);
+
+      Object leaf = output;
+      while (leaf is List && leaf.first is List) {
+        leaf = leaf.first as Object;
+      }
+      expect(leaf, expected);
+      // The shape did not change, so run must not have resized the input.
+      expect(interpreter.inputs.single.shape, inputShape);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('integer tensors use typed lists of their own type', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddModel,
+    );
+    try {
+      final TfliteTensorInfo info = interpreter.inputs.single;
+      expect(info.type, TfliteTensorType.int32);
+      expect(info.shape, <int>[1, 3]);
+      expect(info.quantization, isNull);
+      expect(interpreter.inputIndex('x'), 0);
+      expect(interpreter.outputIndex('sum'), 0);
+      expect(() => interpreter.inputIndex('nope'), throwsArgumentError);
+
+      final List<List<int>> output = <List<int>>[
+        <int>[0, 0, 0],
+      ];
+      interpreter.run(<List<int>>[
+        <int>[1, -2, 3],
+      ], output);
+      expect(output, <List<int>>[
+        <int>[2, -4, 6],
+      ]);
+      expect(interpreter.outputData(0), isA<Int32List>());
+      expect(interpreter.outputData(0), <int>[2, -4, 6]);
+
+      interpreter
+        ..setInput(0, Int32List.fromList(<int>[10, 20, 30]))
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[20, 40, 60]);
+
+      // A typed list of another type is rejected instead of reinterpreted.
+      expect(
+        () => interpreter.setInput(0, Float32List(3)),
+        throwsArgumentError,
+      );
+      expect(() => interpreter.output(0), throwsArgumentError);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('inputs resize explicitly and through run', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddModel,
+    );
+    try {
+      final List<List<int>> output = <List<int>>[List<int>.filled(5, 0)];
+      interpreter.run(<List<int>>[
+        <int>[1, 2, 3, 4, 5],
+      ], output);
+      expect(output.single, <int>[2, 4, 6, 8, 10]);
+      expect(interpreter.inputs.single.shape, <int>[1, 5]);
+      expect(interpreter.outputs.single.shape, <int>[1, 5]);
+
+      interpreter.resizeInput(0, <int>[1, 2]);
+      expect(interpreter.inputs.single.shape, <int>[1, 2]);
+      interpreter
+        ..setInput(0, <int>[7, 8])
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[14, 16]);
+
+      expect(
+        () => interpreter.setInput(0, <int>[1, 2, 3]),
+        throwsArgumentError,
+      );
+      expect(
+        () => interpreter.copyOutputTo(0, <List<int>>[
+          <int>[0, 0, 0],
+        ]),
+        throwsArgumentError,
+      );
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('quantized tensors report their parameters', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _uint8AddModel,
+    );
+    try {
+      final TfliteQuantization input = interpreter.inputs.single.quantization!;
+      final TfliteQuantization output =
+          interpreter.outputs.single.quantization!;
+      expect(interpreter.inputs.single.type, TfliteTensorType.uint8);
+      expect(input.scale, 0.5);
+      expect(input.zeroPoint, 3);
+      expect(output.scale, 1.0);
+      expect(output.zeroPoint, 6);
+
+      // Real 0, 1, 5 in; real 0, 2, 10 out.
+      interpreter
+        ..setInput(
+          0,
+          Uint8List.fromList(<int>[
+            for (final double real in <double>[0, 1, 5]) input.quantize(real),
+          ]),
+        )
+        ..invoke();
+      final Uint8List quantized = interpreter.outputData(0) as Uint8List;
+      expect(quantized.map(output.dequantize), <double>[0, 2, 10]);
+    } finally {
+      interpreter.close();
+    }
   });
 }
