@@ -10,7 +10,7 @@ import 'package:mediapipe_face_mesh/tflite_interpreter.dart';
 
 /// Functional exercises for the generic interpreter, run on the bundled
 /// blendshapes model (146x2 float32 landmarks in, 52 float32 scores out) and
-/// on two one-operator models that add their input to itself.
+/// on three one-operator models that add integers.
 
 /// int32, shape [1, 3] with a dynamic second dimension. Tensors `x` and
 /// `sum`. Built by tool/make_interpreter_test_models.py.
@@ -22,6 +22,12 @@ final Uint8List _int32AddModel = base64Decode(
 /// quantized output is the quantized input plus 3.
 final Uint8List _uint8AddModel = base64Decode(
   'CAAAAFRGTDPC////rAEAABAAAAAoAAAAlAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAsAAAAGAAAABwAAABkAAAABAAAAG1haW4AAAAAAQAAAAEAAAABAAAAAAAAAAEAAAAUAAAAAAAOABQAAAAQAAwACwAEAA4AAAAkAAAAAAAACwgAAAAMAAAAAQAAAAEAAAACAAAAAAAAAAAAAAAI////AgAAAHQAAAAEAAAAqP///zQAAAAQAAAARAAAAAAAAAMwAAAAlP///wgAAAAQAAAAAQAAAAYAAAAAAAAAAQAAAAAAgD8CAAAAAQAAAP////8CAAAAAQAAAAMAAAADAAAAc3VtABQAGAAUABMAAAAMAAgAAAAAAAQAFAAAAEQAAAAcAAAAVAAAAAAAAANAAAAADAAMAAAAAAAIAAQADAAAAAgAAAAUAAAAAQAAAAMAAAAAAAAAAAAAAAEAAAAAAAA/AgAAAAEAAAD/////AgAAAAEAAAADAAAAAQAAAHgAAAABAAAABAAAAPT///8BAAAACAAAAAQABAAEAAAA',
+);
+
+/// int32, two inputs `x` and `y` of shape [1, 3] with a dynamic second
+/// dimension, added into `sum`. The inputs must be resized together.
+final Uint8List _int32AddTwoModel = base64Decode(
+  'CAAAAFRGTDPC////kAEAABAAAAAoAAAAeAEAAAMAAAAWAAAAaW50ZXJwcmV0ZXIgdGVzdCBtb2RlbAAAAQAAABQAAAAAAA4AGAAUABAADAAIAAQADgAAABQAAAAwAAAAGAAAABwAAABoAAAABAAAAG1haW4AAAAAAQAAAAIAAAACAAAAAAAAAAEAAAABAAAAFAAAAAAADgAUAAAAEAAMAAsABAAOAAAAJAAAAAAAAAsIAAAADAAAAAEAAAACAAAAAgAAAAAAAAABAAAAKP///wMAAACIAAAAPAAAAAQAAACY////EAAAACQAAAAAAAACEAAAAAIAAAABAAAA/////wIAAAABAAAAAwAAAAMAAABzdW0AzP///xAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAABAAAAeQAAABQAFAAQAA8AAAAIAAAAAAAAAAQAFAAAABAAAAAkAAAAAAAAAhAAAAACAAAAAQAAAP////8CAAAAAQAAAAMAAAABAAAAeAAAAAEAAAAEAAAA9P///wEAAAAIAAAABAAEAAQAAAA=',
 );
 
 void main() {
@@ -297,6 +303,114 @@ void main() {
         ..invoke();
       final Uint8List quantized = interpreter.outputData(0) as Uint8List;
       expect(quantized.map(output.dequantize), <double>[0, 2, 10]);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('run resizes every input before it reallocates', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddTwoModel,
+    );
+    try {
+      expect(interpreter.inputs, hasLength(2));
+      final List<List<int>> output = <List<int>>[List<int>.filled(4, 0)];
+      // Both inputs grow from 3 to 4 columns. Allocating after only the
+      // first one changed would fail, because 4 and 3 columns do not add.
+      interpreter.runForMultipleInputs(
+        <Object>[
+          <List<int>>[
+            <int>[1, 2, 3, 4],
+          ],
+          <List<int>>[
+            <int>[10, 20, 30, 40],
+          ],
+        ],
+        <int, Object>{0: output},
+      );
+      expect(output.single, <int>[11, 22, 33, 44]);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('a failed allocation goes back to the previous shapes', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddTwoModel,
+    );
+    try {
+      // Only one of the two inputs is resized, so the shapes cannot add.
+      interpreter.resizeInput(0, <int>[1, 4]);
+      expect(interpreter.invoke, throwsA(isA<FaceMeshException>()));
+
+      expect(interpreter.inputs.first.shape, <int>[1, 3]);
+      interpreter
+        ..setInput(0, <int>[1, 2, 3])
+        ..setInput(1, <int>[4, 5, 6])
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[5, 7, 9]);
+    } finally {
+      interpreter.close();
+    }
+  });
+
+  test('values that do not fit are rejected without side effects', () {
+    final TfliteInterpreter interpreter = TfliteInterpreter.fromBuffer(
+      _int32AddModel,
+    );
+    try {
+      interpreter.setInput(0, <int>[1, 2, 3]);
+
+      // Wrong length, a fraction, and NaN for an integer tensor. None of
+      // them may overwrite the input that is already there.
+      expect(
+        () => interpreter.setInput(0, <int>[9, 9, 9, 9]),
+        throwsArgumentError,
+      );
+      expect(
+        () => interpreter.setInput(0, <num>[9, 9.5, 9]),
+        throwsArgumentError,
+      );
+      expect(
+        () => interpreter.setInput(0, <num>[9, double.nan, 9]),
+        throwsArgumentError,
+      );
+      interpreter.invoke();
+      expect(interpreter.outputData(0), <int>[2, 4, 6]);
+
+      // A whole-number double is fine.
+      interpreter
+        ..setInput(0, <num>[1.0, 2, 3])
+        ..invoke();
+      expect(interpreter.outputData(0), <int>[2, 4, 6]);
+
+      // A flat list of another length cannot stand in for shape [1, 3], so
+      // it is rejected instead of resizing the input to one dimension.
+      expect(
+        () => interpreter.run(
+          <int>[1, 2, 3, 4, 5],
+          <List<int>>[
+            <int>[0, 0, 0, 0, 0],
+          ],
+        ),
+        throwsArgumentError,
+      );
+      expect(interpreter.inputs.single.shape, <int>[1, 3]);
+
+      // Output targets of another element type.
+      expect(
+        () => interpreter.copyOutputTo(0, <List<double>>[
+          <double>[0, 0, 0],
+        ]),
+        throwsArgumentError,
+      );
+      expect(
+        () => interpreter.copyOutputTo(0, Float32List(3)),
+        throwsArgumentError,
+      );
+      final Int32List typed = Int32List(3);
+      interpreter.copyOutputTo(0, typed);
+      expect(typed, <int>[2, 4, 6]);
     } finally {
       interpreter.close();
     }

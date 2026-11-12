@@ -1,7 +1,7 @@
 """Builds the tiny models embedded in integration_test/interpreter_test.dart.
 
-Each model is one ADD operator that adds its input to itself. Prints the
-models as base64. Needs only the `flatbuffers` package:
+Each model is one ADD operator, adding its input to itself or its two inputs
+to each other. Prints the models as base64. Needs only the `flatbuffers` package:
 
     python tool/make_interpreter_test_models.py
 """
@@ -62,7 +62,9 @@ def _tensor(b, name, tensor_type, shape, signature, quantization):
     return b.EndObject()
 
 
-def build(tensor_type, in_quantization=None, out_quantization=None):
+def build(
+    tensor_type, in_quantization=None, out_quantization=None, two_inputs=False
+):
     b = flatbuffers.Builder(512)
 
     # One empty buffer: index 0 means "no data".
@@ -73,18 +75,21 @@ def build(tensor_type, in_quantization=None, out_quantization=None):
     b.StartObject(4)
     operator_codes = _offset_vector(b, [b.EndObject()])
 
+    names = ["x", "y"] if two_inputs else ["x"]
     tensors = _offset_vector(
         b,
         [
-            _tensor(b, "x", tensor_type, [1, 3], [1, -1], in_quantization),
-            _tensor(b, "sum", tensor_type, [1, 3], [1, -1], out_quantization),
-        ],
+            _tensor(b, name, tensor_type, [1, 3], [1, -1], in_quantization)
+            for name in names
+        ]
+        + [_tensor(b, "sum", tensor_type, [1, 3], [1, -1], out_quantization)],
     )
+    sum_index = len(names)
 
     b.StartObject(1)
     add_options = b.EndObject()
-    op_inputs = _int32_vector(b, [0, 0])
-    op_outputs = _int32_vector(b, [1])
+    op_inputs = _int32_vector(b, [0, 1] if two_inputs else [0, 0])
+    op_outputs = _int32_vector(b, [sum_index])
     b.StartObject(5)
     b.PrependUint32Slot(0, 0, 0)
     b.PrependUOffsetTRelativeSlot(1, op_inputs, 0)
@@ -93,8 +98,8 @@ def build(tensor_type, in_quantization=None, out_quantization=None):
     b.PrependUOffsetTRelativeSlot(4, add_options, 0)
     operators = _offset_vector(b, [b.EndObject()])
 
-    graph_inputs = _int32_vector(b, [0])
-    graph_outputs = _int32_vector(b, [1])
+    graph_inputs = _int32_vector(b, list(range(sum_index)))
+    graph_outputs = _int32_vector(b, [sum_index])
     graph_name = b.CreateString("main")
     b.StartObject(5)
     b.PrependUOffsetTRelativeSlot(0, tensors, 0)
@@ -120,6 +125,7 @@ if __name__ == "__main__":
         "int32 add": build(INT32),
         # real = (q - 3) * 0.5 in, (q - 6) * 1.0 out, so the output is q + 3.
         "uint8 quantized add": build(UINT8, (0.5, 3), (1.0, 6)),
+        "int32 add of two inputs": build(INT32, two_inputs=True),
     }
     for name, data in models.items():
         print(f"{name} ({len(data)} bytes)")
