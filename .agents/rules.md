@@ -4,9 +4,12 @@ Read this first. Read other docs only when the task touches that area.
 
 - Repo conventions (commit prefixes, changelog `-wip` flow, engineering
   rules) are defined in `CONTRIBUTING.md` (repo root). Follow it.
-- Work is tracked on Jira (project `MFM`). Branch names and commit
-  subjects carry the card key (e.g. `MFM-27-readme-docs`) so GitHub for
-  Jira links them to the card.
+- Work is tracked with GitHub issues, grouped by release in milestones
+  (e.g. `3.3.0`). An issue is only open or closed, there are no status
+  columns. When a change has an issue, the branch name starts with its
+  number (e.g. `36-tflite-interpreter`), the PR description says
+  `Closes #<n>`, and the PR goes in the same milestone, so merging closes
+  the issue. Commit subjects carry no issue number.
 
 ## Read-On-Demand
 
