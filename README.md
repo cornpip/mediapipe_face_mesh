@@ -343,8 +343,8 @@ final Float32List scores = interpreter.output(0);
   custom operators. A model that needs other operators fails to load.
 - Delegates are `FaceMeshDelegate.cpu` and `FaceMeshDelegate.xnnpack`.
   There is no GPU delegate.
-- A nested list whose shape differs from the tensor's resizes that input.
-  `resizeInput` does the same explicitly.
+- A nested list with another element count resizes that input to the
+  list's shape. `resizeInput` does the same explicitly.
 - `outputData` returns a typed list of the tensor's own type (`Int32List`
   for int32, `Uint8List` for uint8). `TfliteTensorInfo.quantization` holds
   the scale and zero point of a quantized tensor.
