@@ -1,3 +1,22 @@
+## 3.3.0-wip
+
+- add `TfliteInterpreter` (experimental) in
+  `package:mediapipe_face_mesh/tflite_interpreter.dart`, which runs any
+  TensorFlow Lite model on the bundled runtime
+  - `fromBuffer` loads a model from bytes, `fromFile` from a path
+  - `run` and `runForMultipleInputs` take and fill nested lists
+  - `setInput`, `invoke`, `output`, and `outputData` work on flat typed
+    data of any numeric tensor type
+  - `resizeInput` changes an input shape, and `run` does so when a nested
+    list has another shape
+  - `TfliteTensorInfo.quantization` exposes the scale and zero point
+  - data that does not fit its tensor raises `ArgumentError` and leaves
+    the tensor and the input shapes as they were
+  - a single number or bool sets a one-element input
+- rebuild the bundled iOS device runtime without XNNPACK's Arm SME and
+  KleidiAI kernels, which crash during inference on iPhone 16 and 17
+  (A18, A19)
+
 ## 3.2.2
 
 - fix a leak on the exception path of `*_create`, `*_process`, and

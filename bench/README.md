@@ -91,85 +91,26 @@ flutter test integration_test/bench_test.dart -d <device-id> --dart-define=PACED
 Published summary of these results: `doc/BENCHMARKS.md` (package doc,
 linked from the main README). Keep it in sync when numbers change.
 
-## Results: v2.7.1 (reworked harness), Samsung SM-X930 (Dimensity 9400, Android 16)
+## Results
 
-Measured 2026-08-14 on the reworked harness, profile build (log
-`mine-android-rework-profile.log`; debug run `mine-android-rework2.log`),
-default settings unless noted. Streaming back-to-back reproduces the
-numbers published for the previous harness (1.54 / 2.10 / 1.47), so the
-rework did not shift the headline metric. Single-image numbers swing with
-device thermal state (observed 2.6 to 4.5ms across sessions); treat
-streaming back-to-back as the stable headline metric.
+Results live in `results/`, one file per device, named after the device
+model in lowercase with hyphens:
 
-Single image (full detector + mesh per call, mean ms):
-
-| config | portrait (820x1024) |
+| file | device |
 | --- | --- |
-| cpu, 468 mesh | 3.3 |
-| cpu, attention 478 | 4.0 |
-| xnnpack, 468 mesh | 3.0 |
+| `results/sm-x930.md` | Samsung SM-X930 (Dimensity 9400, Android 16) |
+| `results/iphone-12-mini.md` | iPhone 12 mini (A14, iOS 26.6) |
+| `results/windows-desktop.md` | Windows desktop |
+| `results/app-size.md` | app size, not tied to a device |
 
-Streaming back-to-back (720p sequence, ROI tracking, steady state, mean
-ms):
-
-| config | per frame | jitter raw / OneEuro (px) |
-| --- | --- | --- |
-| cpu, 468 mesh | 1.48 | 1.43 / 1.21 |
-| cpu, attention 478 | 2.12 | 1.51 / 1.28 |
-| xnnpack, 468 mesh | 1.50 | 1.43 / 1.21 |
-
-Tracking validation in these runs: `trackingFailFrames=0` in every
-config, drift IoU 0.77 to 0.80, `noFaceFrames=15` (the black tail),
-`scoreMin=1.00` on face-bearing frames.
-
-Comparison anchor: `google_mlkit_face_mesh_detection` 0.5.0,
-`FaceMeshDetectorOptions.faceMesh` (detection + 468 mesh in one call),
-nv21 buffer prepared outside the measured call; log
-`mlkit-meshdet-android.log`:
-
-| config | portrait |
-| --- | --- |
-| single image, per call | 43.7 |
-| streaming 720p, per frame | 49.6 (15/300 no mesh: the black tail frames) |
-
-Notes:
-- cpu and xnnpack are within noise of each other (the bundled runtime
-  applies XNNPACK in cpu mode too), which is why the matrix runs xnnpack
-  in a single config.
-- the GPU delegate is out of the matrix (`gpuV2` was removed in 3.0.0).
-
-### FaceMesh-V2 (2.8.0-wip, measured 2026-08-23)
-
-Profile run, log `mine-android-v2-profile.log`. The matrix key changed
-from `attention: bool` to `model` (v1 / attention / v2, logged as
-base/faceMeshV2 in this run before the enum rename); xnnpack now runs v1
-(cpu parity) and v2 (full-graph delegation check).
-
-| config | single image | streaming | jitter raw / OneEuro (px) |
-| --- | --- | --- | --- |
-| cpu, faceMeshV2 | 5.2 | 3.00 | 1.46 / 1.26 |
-| xnnpack, faceMeshV2 | 5.2 | 2.90 | 1.46 / 1.26 |
-
-XNNPACK delegates the whole FaceMesh-V2 graph (471 of 471 nodes, one
-partition, confirmed in the run log), but the 256x256 input (1.8x the
-pixels of attention's 192x192) still leaves it about 40% slower than
-attention on this device, with slightly lower raw jitter (1.46 vs
-1.51 px). Tracking validation passed in every config. The pre-existing
-configs reproduced the v2.7.1 numbers within noise (base 1.46/1.47,
-attention 2.08).
-
-### 2.9.0 verification and Windows delegates (measured 2026-09-01)
-
-Full matrix re-run before 2.9.0 (debug, log
-`mine-android-2.9.0-wip.log`). Every config matched the 2.8.0 numbers
-within noise, and jitter and drift IoU were identical to four decimals,
-so the per-frame coordinate-space decision did not change outputs on
-real footage.
-
-On Windows desktop the bundled dll's cpu path runs the mesh models 4~5x
-slower than xnnpack (v1 6.5 vs 1.7ms, attention 8.1 vs 2.3ms, v2 19.0
-vs 3.6ms per pass, `multiface_profile_test`, debug build). The example
-and README recommend xnnpack there.
+- A new device gets a new file that starts with its chip and OS. Add it to
+  the table above.
+- Each run adds a section at the top of the device's file: package
+  version, date, build mode, log file name, then the tables. Older
+  sections stay.
+- An A/B comparison goes in one section with a column per variant.
+- Logs are gitignored (`logs/`), so a section names its log file and
+  carries every number it relies on.
 
 ## App size
 
@@ -179,17 +120,7 @@ Windows PowerShell:
 .\bench\tool\build_sizes.ps1
 ```
 
-Results (release APK, android-arm64, identical bundled assets;
-log `app-sizes-android.log`):
-
-| app | apk MB | delta vs baseline MB |
-| --- | --- | --- |
-| baseline | 27.84 | 0 |
-| mine | 47.34 | 19.5 |
-| mlkit | 55.00 | 27.16 |
-
-Deltas include each package's native libraries and bundled models. The
-mlkit row was measured with `google_mlkit_face_detection`.
+Results: `results/app-size.md`.
 
 ## Known caveats
 
