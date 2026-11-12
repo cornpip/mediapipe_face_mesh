@@ -140,10 +140,9 @@ class MediapipeFaceBindings {
       >();
 
   /// Runs one mesh inference per ROI on the given frame, equivalent to calling
-  /// mp_face_mesh_process once per ROI. The batch form exists so a language
-  /// binding can copy the frame across its boundary once per frame instead of
-  /// once per face. Returns null and sets the context error if any ROI fails.
-  /// Release the result with mp_face_mesh_release_multi_result.
+  /// mp_face_mesh_process once per ROI with the frame copied once. An ROI whose
+  /// inference fails comes back without landmarks and leaves its error in
+  /// mp_face_mesh_last_error. Release with mp_face_mesh_release_multi_result.
   ffi.Pointer<MpFaceMeshMultiResult> mp_face_mesh_process_rois(
     ffi.Pointer<MpFaceMeshContext> context,
     ffi.Pointer<MpImage> image,
@@ -713,6 +712,308 @@ class MediapipeFaceBindings {
   late final _mp_face_detector_active_delegate =
       _mp_face_detector_active_delegatePtr
           .asFunction<int Function(ffi.Pointer<MpFaceDetectorContext>)>();
+
+  ffi.Pointer<MpInterpreterContext> mp_interpreter_create_from_file(
+    ffi.Pointer<ffi.Char> model_path,
+    ffi.Pointer<MpInterpreterCreateOptions> options,
+  ) {
+    return _mp_interpreter_create_from_file(model_path, options);
+  }
+
+  late final _mp_interpreter_create_from_filePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpInterpreterContext> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<MpInterpreterCreateOptions>,
+          )
+        >
+      >('mp_interpreter_create_from_file');
+  late final _mp_interpreter_create_from_file =
+      _mp_interpreter_create_from_filePtr
+          .asFunction<
+            ffi.Pointer<MpInterpreterContext> Function(
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<MpInterpreterCreateOptions>,
+            )
+          >();
+
+  /// Does not copy [model_data]: the caller keeps it alive until the context is
+  /// destroyed and frees it afterwards.
+  ffi.Pointer<MpInterpreterContext> mp_interpreter_create_from_buffer(
+    ffi.Pointer<ffi.Uint8> model_data,
+    int model_size,
+    ffi.Pointer<MpInterpreterCreateOptions> options,
+  ) {
+    return _mp_interpreter_create_from_buffer(model_data, model_size, options);
+  }
+
+  late final _mp_interpreter_create_from_bufferPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<MpInterpreterContext> Function(
+            ffi.Pointer<ffi.Uint8>,
+            ffi.Uint64,
+            ffi.Pointer<MpInterpreterCreateOptions>,
+          )
+        >
+      >('mp_interpreter_create_from_buffer');
+  late final _mp_interpreter_create_from_buffer =
+      _mp_interpreter_create_from_bufferPtr
+          .asFunction<
+            ffi.Pointer<MpInterpreterContext> Function(
+              ffi.Pointer<ffi.Uint8>,
+              int,
+              ffi.Pointer<MpInterpreterCreateOptions>,
+            )
+          >();
+
+  void mp_interpreter_destroy(ffi.Pointer<MpInterpreterContext> context) {
+    return _mp_interpreter_destroy(context);
+  }
+
+  late final _mp_interpreter_destroyPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<MpInterpreterContext>)>
+      >('mp_interpreter_destroy');
+  late final _mp_interpreter_destroy = _mp_interpreter_destroyPtr
+      .asFunction<void Function(ffi.Pointer<MpInterpreterContext>)>();
+
+  int mp_interpreter_input_count(ffi.Pointer<MpInterpreterContext> context) {
+    return _mp_interpreter_input_count(context);
+  }
+
+  late final _mp_interpreter_input_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_input_count');
+  late final _mp_interpreter_input_count = _mp_interpreter_input_countPtr
+      .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
+
+  int mp_interpreter_output_count(ffi.Pointer<MpInterpreterContext> context) {
+    return _mp_interpreter_output_count(context);
+  }
+
+  late final _mp_interpreter_output_countPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_output_count');
+  late final _mp_interpreter_output_count = _mp_interpreter_output_countPtr
+      .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
+
+  /// Fill [info] for the tensor at [index]. Return zero on error. An output with
+  /// a dynamic shape reports its final shape and size only after
+  /// mp_interpreter_invoke.
+  int mp_interpreter_input_info(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+    ffi.Pointer<MpTensorInfo> info,
+  ) {
+    return _mp_interpreter_input_info(context, index, info);
+  }
+
+  late final _mp_interpreter_input_infoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+            ffi.Pointer<MpTensorInfo>,
+          )
+        >
+      >('mp_interpreter_input_info');
+  late final _mp_interpreter_input_info = _mp_interpreter_input_infoPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<MpInterpreterContext>,
+          int,
+          ffi.Pointer<MpTensorInfo>,
+        )
+      >();
+
+  int mp_interpreter_output_info(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+    ffi.Pointer<MpTensorInfo> info,
+  ) {
+    return _mp_interpreter_output_info(context, index, info);
+  }
+
+  late final _mp_interpreter_output_infoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+            ffi.Pointer<MpTensorInfo>,
+          )
+        >
+      >('mp_interpreter_output_info');
+  late final _mp_interpreter_output_info = _mp_interpreter_output_infoPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<MpInterpreterContext>,
+          int,
+          ffi.Pointer<MpTensorInfo>,
+        )
+      >();
+
+  /// Change the shape of the input at [index]. Tensor memory is stale until
+  /// mp_interpreter_allocate_tensors runs. Return zero on error.
+  int mp_interpreter_resize_input(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+    ffi.Pointer<ffi.Int32> dims,
+    int dims_count,
+  ) {
+    return _mp_interpreter_resize_input(context, index, dims, dims_count);
+  }
+
+  late final _mp_interpreter_resize_inputPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Int32>,
+            ffi.Int32,
+          )
+        >
+      >('mp_interpreter_resize_input');
+  late final _mp_interpreter_resize_input = _mp_interpreter_resize_inputPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<MpInterpreterContext>,
+          int,
+          ffi.Pointer<ffi.Int32>,
+          int,
+        )
+      >();
+
+  /// Reallocate tensors after mp_interpreter_resize_input. Return zero on error.
+  int mp_interpreter_allocate_tensors(
+    ffi.Pointer<MpInterpreterContext> context,
+  ) {
+    return _mp_interpreter_allocate_tensors(context);
+  }
+
+  late final _mp_interpreter_allocate_tensorsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_allocate_tensors');
+  late final _mp_interpreter_allocate_tensors =
+      _mp_interpreter_allocate_tensorsPtr
+          .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
+
+  /// Tensor memory, byte_size bytes long. Write inputs before
+  /// mp_interpreter_invoke and read outputs after it. An output pointer is valid
+  /// until the next mp_interpreter_invoke. Returns null on error.
+  ffi.Pointer<ffi.Void> mp_interpreter_input_data(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+  ) {
+    return _mp_interpreter_input_data(context, index);
+  }
+
+  late final _mp_interpreter_input_dataPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Void> Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+          )
+        >
+      >('mp_interpreter_input_data');
+  late final _mp_interpreter_input_data = _mp_interpreter_input_dataPtr
+      .asFunction<
+        ffi.Pointer<ffi.Void> Function(ffi.Pointer<MpInterpreterContext>, int)
+      >();
+
+  ffi.Pointer<ffi.Void> mp_interpreter_output_data(
+    ffi.Pointer<MpInterpreterContext> context,
+    int index,
+  ) {
+    return _mp_interpreter_output_data(context, index);
+  }
+
+  late final _mp_interpreter_output_dataPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Void> Function(
+            ffi.Pointer<MpInterpreterContext>,
+            ffi.Int32,
+          )
+        >
+      >('mp_interpreter_output_data');
+  late final _mp_interpreter_output_data = _mp_interpreter_output_dataPtr
+      .asFunction<
+        ffi.Pointer<ffi.Void> Function(ffi.Pointer<MpInterpreterContext>, int)
+      >();
+
+  /// Returns zero on error.
+  int mp_interpreter_invoke(ffi.Pointer<MpInterpreterContext> context) {
+    return _mp_interpreter_invoke(context);
+  }
+
+  late final _mp_interpreter_invokePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint8 Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_invoke');
+  late final _mp_interpreter_invoke = _mp_interpreter_invokePtr
+      .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
+
+  ffi.Pointer<ffi.Char> mp_interpreter_last_error(
+    ffi.Pointer<MpInterpreterContext> context,
+  ) {
+    return _mp_interpreter_last_error(context);
+  }
+
+  late final _mp_interpreter_last_errorPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_last_error');
+  late final _mp_interpreter_last_error = _mp_interpreter_last_errorPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<MpInterpreterContext>)
+      >();
+
+  ffi.Pointer<ffi.Char> mp_interpreter_last_global_error() {
+    return _mp_interpreter_last_global_error();
+  }
+
+  late final _mp_interpreter_last_global_errorPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'mp_interpreter_last_global_error',
+      );
+  late final _mp_interpreter_last_global_error =
+      _mp_interpreter_last_global_errorPtr
+          .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  MpDelegateType mp_interpreter_active_delegate(
+    ffi.Pointer<MpInterpreterContext> context,
+  ) {
+    return MpDelegateType.fromValue(_mp_interpreter_active_delegate(context));
+  }
+
+  late final _mp_interpreter_active_delegatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.UnsignedInt Function(ffi.Pointer<MpInterpreterContext>)
+        >
+      >('mp_interpreter_active_delegate');
+  late final _mp_interpreter_active_delegate =
+      _mp_interpreter_active_delegatePtr
+          .asFunction<int Function(ffi.Pointer<MpInterpreterContext>)>();
 }
 
 final class MpFaceMeshContext extends ffi.Opaque {}
@@ -1019,3 +1320,46 @@ final class MpBlendshapesResult extends ffi.Struct {
   @ffi.Int32()
   external int scores_count;
 }
+
+final class MpInterpreterContext extends ffi.Opaque {}
+
+final class MpInterpreterCreateOptions extends ffi.Struct {
+  @ffi.Int32()
+  external int threads;
+
+  @ffi.UnsignedInt()
+  external int delegate;
+
+  /// When non-zero, fail creation instead of falling back to CPU if the
+  /// requested delegate is unavailable or cannot be created.
+  @ffi.Uint8()
+  external int disable_delegate_fallback;
+}
+
+final class MpTensorInfo extends ffi.Struct {
+  /// Owned by the context. Valid until the context is destroyed.
+  external ffi.Pointer<ffi.Char> name;
+
+  /// TfLiteType value of the tensor.
+  @ffi.Int32()
+  external int type;
+
+  @ffi.Array.multi([8])
+  external ffi.Array<ffi.Int32> dims;
+
+  @ffi.Int32()
+  external int dims_count;
+
+  @ffi.Uint64()
+  external int byte_size;
+
+  /// Quantization parameters. A scale of zero means the tensor is not
+  /// quantized.
+  @ffi.Float()
+  external double quantization_scale;
+
+  @ffi.Int32()
+  external int quantization_zero_point;
+}
+
+const int MP_TENSOR_MAX_DIMS = 8;

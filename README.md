@@ -225,6 +225,7 @@ These are all the objects that need closing.
 pipeline.close(); // closes the detector and mesh it was given
 await isolatePipeline.close();
 blendshapesProcessor.close();
+interpreter.close(); // TfliteInterpreter
 ```
 
 The processors release their native context on garbage collection if
@@ -304,6 +305,51 @@ final meshResult = faceMeshProcessor.process(
   rotationDegrees: rotationDegrees,
 );
 ```
+
+### Running Other TFLite Models
+
+Experimental. `TfliteInterpreter` runs any TensorFlow Lite model on the
+runtime this package bundles, so an app does not need a second TFLite
+plugin for its other models.
+
+```dart
+import 'package:mediapipe_face_mesh/tflite_interpreter.dart';
+
+final interpreter = TfliteInterpreter.fromBuffer(modelBytes);
+// or TfliteInterpreter.fromFile(path)
+
+print(interpreter.inputs); // name, type, shape of each input
+
+// Nested lists shaped like the tensors. The output is filled in place.
+final output = [List<double>.filled(2, 0)]; // shape [1, 2]
+interpreter.run(input, output);
+
+interpreter.close();
+```
+
+For several inputs or outputs, use
+`runForMultipleInputs([a, b], {0: out0, 1: out1})`.
+
+Flat typed data skips the list conversion, which matters for large inputs
+such as images:
+
+```dart
+interpreter.setInput(0, pixels); // Float32List, row-major
+interpreter.invoke();
+final Float32List scores = interpreter.output(0);
+```
+
+- The runtime includes the TFLite builtin operators and the MediaPipe
+  custom operators. A model that needs other operators fails to load.
+- Delegates are `FaceMeshDelegate.cpu` and `FaceMeshDelegate.xnnpack`.
+  There is no GPU delegate.
+- A nested list with another element count resizes that input to the
+  list's shape. `resizeInput` does the same explicitly.
+- `outputData` returns a typed list of the tensor's own type (`Int32List`
+  for int32, `Uint8List` for uint8). `TfliteTensorInfo.quantization` holds
+  the scale and zero point of a quantized tensor.
+- `fromBuffer` copies the model bytes, so the list can be discarded
+  afterwards.
 
 ### Overlay Painters
 

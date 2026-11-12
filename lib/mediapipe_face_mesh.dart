@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/services.dart';
 import 'package:mediapipe_face_mesh/src/mediapipe_face_bindings_generated.dart';
 import 'src/native_bindings_loader.dart';
+import 'src/native_helpers.dart';
 import 'src/one_euro_filter.dart';
 
 export 'src/one_euro_filter.dart';
@@ -304,22 +305,6 @@ void _validateUnitRange(double value, String name) {
   if (value.isNaN || value < 0.0 || value > 1.0) {
     throw ArgumentError.value(value, name, 'must be within [0.0, 1.0]');
   }
-}
-
-void _validateThreads(int? threads) {
-  if (threads != null && threads < 1) {
-    throw ArgumentError.value(threads, 'threads', 'must be >= 1');
-  }
-}
-
-/// Default TFLite thread count: half the available cores clamped to 1..4,
-/// matching MediaPipe's own CPU inference default.
-int _defaultInferenceThreads() {
-  final int half = Platform.numberOfProcessors ~/ 2;
-  if (half < 1) {
-    return 1;
-  }
-  return half > 4 ? 4 : half;
 }
 
 FaceMeshDelegate _faceMeshDelegateFromNative(MpDelegateType delegate) {
@@ -1266,7 +1251,7 @@ class FaceDetectorProcessor {
     double roiShiftX = 0.0,
     double roiShiftY = 0.0,
   }) async {
-    _validateThreads(threads);
+    validateThreads(threads);
     if (minDetectionConfidence != null) {
       _validateUnitRange(minDetectionConfidence, 'minDetectionConfidence');
     }
@@ -1283,7 +1268,7 @@ class FaceDetectorProcessor {
         .toNativeUtf8();
     try {
       optionsPtr.ref
-        ..threads = threads ?? _defaultInferenceThreads()
+        ..threads = threads ?? defaultInferenceThreads()
         ..min_detection_confidence = resolvedMinDetectionConfidence
         ..min_suppression_threshold = minSuppressionThreshold
         ..max_results = maxResults
@@ -1294,7 +1279,7 @@ class FaceDetectorProcessor {
           .mp_face_detector_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_face_detector_last_global_error()) ??
+          readCString(faceBindings.mp_face_detector_last_global_error()) ??
               'Failed to create face detector context.',
         );
       }
@@ -1356,7 +1341,7 @@ class FaceDetectorProcessor {
       };
       if (resultPtr == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_face_detector_last_error(_context)) ??
+          readCString(faceBindings.mp_face_detector_last_error(_context)) ??
               'Native face detector error.',
         );
       }
@@ -1574,7 +1559,7 @@ class FaceMeshProcessor {
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
-    _validateThreads(threads);
+    validateThreads(threads);
     _validateUnitRange(minTrackingConfidence, 'minTrackingConfidence');
     _validateUnitRange(minFacePresenceConfidence, 'minFacePresenceConfidence');
     // The attention and FaceMesh-V2 models already include refined irises in
@@ -1593,7 +1578,7 @@ class FaceMeshProcessor {
         resolvedIrisModelPath?.toNativeUtf8() ?? ffi.nullptr;
     try {
       optionsPtr.ref
-        ..threads = threads ?? _defaultInferenceThreads()
+        ..threads = threads ?? defaultInferenceThreads()
         // Native ROI tracking seeds at the presence threshold.
         ..min_detection_confidence = minFacePresenceConfidence
         ..min_tracking_confidence = minTrackingConfidence
@@ -1609,7 +1594,7 @@ class FaceMeshProcessor {
           .mp_face_mesh_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_face_mesh_last_global_error()) ??
+          readCString(faceBindings.mp_face_mesh_last_global_error()) ??
               'Failed to create face mesh context.',
         );
       }
@@ -1694,7 +1679,7 @@ class FaceMeshProcessor {
       };
       if (resultPtr == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+          readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
               'Native face mesh error.',
         );
       }
@@ -1758,7 +1743,7 @@ class FaceMeshProcessor {
       };
       if (resultPtr == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
+          readCString(faceBindings.mp_face_mesh_last_error(_context)) ??
               'Native face mesh error.',
         );
       }
@@ -1934,14 +1919,14 @@ class FaceBlendshapesProcessor {
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) async {
-    _validateThreads(threads);
+    validateThreads(threads);
     final String resolvedModelPath = await _materializeBlendshapesModel();
     final optionsPtr = pkg_ffi.calloc<MpBlendshapesCreateOptions>();
     final ffi.Pointer<pkg_ffi.Utf8> modelPathPtr = resolvedModelPath
         .toNativeUtf8();
     try {
       optionsPtr.ref
-        ..threads = threads ?? _defaultInferenceThreads()
+        ..threads = threads ?? defaultInferenceThreads()
         ..delegate = delegate.index
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1;
 
@@ -1949,7 +1934,7 @@ class FaceBlendshapesProcessor {
           .mp_blendshapes_create(modelPathPtr.cast(), optionsPtr);
       if (context == ffi.nullptr) {
         throw FaceMeshException(
-          _readCString(faceBindings.mp_blendshapes_last_global_error()) ??
+          readCString(faceBindings.mp_blendshapes_last_global_error()) ??
               'Failed to create blendshapes context.',
         );
       }
@@ -1995,7 +1980,7 @@ class FaceBlendshapesProcessor {
         );
     if (resultPtr == ffi.nullptr) {
       throw FaceMeshException(
-        _readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
+        readCString(faceBindings.mp_blendshapes_last_error(_context)) ??
             'Native blendshapes error.',
       );
     }
