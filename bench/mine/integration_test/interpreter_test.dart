@@ -451,6 +451,25 @@ void main() {
       );
       expect(interpreter.outputData(0), <int>[2, 4, 6]);
 
+      // An output list of the wrong length fails after inference. The
+      // resize that call made is undone as well.
+      expect(
+        () => interpreter.run(
+          <List<int>>[
+            <int>[1, 2, 3, 4],
+          ],
+          <List<int>>[List<int>.filled(3, 0)],
+        ),
+        throwsArgumentError,
+      );
+      expect(interpreter.inputs.single.shape, <int>[1, 3]);
+
+      expect(
+        () => interpreter.resizeInput(0, <int>[1, -1]),
+        throwsArgumentError,
+      );
+      expect(interpreter.inputs.single.shape, <int>[1, 3]);
+
       // An unmodifiable target is reported as a bad argument.
       expect(
         () => interpreter.copyOutputTo(
