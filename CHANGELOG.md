@@ -1,3 +1,9 @@
+## 3.2.3-wip
+
+- fix a crash during inference on iPhone 16 and 17 (A18, A19)
+  - the bundled iOS device runtime is rebuilt without XNNPACK's Arm SME
+    and KleidiAI kernels
+
 ## 3.2.2
 
 - fix a leak on the exception path of `*_create`, `*_process`, and

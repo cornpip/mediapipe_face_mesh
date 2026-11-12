@@ -70,3 +70,6 @@ src/include/**/tutorials/
 
 # Local benchmark suite (not part of the package)
 bench/
+
+# Build recipes for the bundled runtime binaries (not part of the package)
+tool/

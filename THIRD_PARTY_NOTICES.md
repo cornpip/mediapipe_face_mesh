@@ -48,6 +48,11 @@ operator resolver also registers the MediaPipe custom operators required by
   pins its own `org_tensorflow` commit and applies MediaPipe's TensorFlow
   patches. A local `tflite::CreateOpResolver()` returns `BuiltinOpResolver`
   combined with MediaPipe's `MediaPipe_RegisterTfLiteOpResolver`.
+  The iOS device slice (`ios-arm64`) is built with XNNPACK's Arm SME, SME2,
+  and KleidiAI kernels disabled (`xnn_enable_arm_sme=false`,
+  `xnn_enable_arm_sme2=false`, `xnn_enable_kleidiai=false`), because they
+  raise an illegal instruction on A18 and A19. The recipe is in
+  `tool/tflite_runtime/apple/`.
 - **Windows**: built from the TensorFlow 2.19.0 CMake tree with MediaPipe's CPU
   kernels for those operators added to the build and registered in
   `tensorflow/lite/core/create_op_resolver_with_builtin_ops.cc`. Local build
