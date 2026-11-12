@@ -546,7 +546,8 @@ class TfliteInterpreter {
   /// number or bool sets a one-element tensor.
   ///
   /// Throws [ArgumentError] when [data] does not match the tensor's type or
-  /// size.
+  /// size, and [UnsupportedError] for a list given to a float16 or
+  /// [TfliteTensorType.other] tensor. Use [setInputBytes] for those.
   void setInput(int index, Object data) {
     if (data is num || data is bool) {
       setInput(index, <Object>[data]);
@@ -670,7 +671,9 @@ class TfliteInterpreter {
   /// are filled in place, a typed list of the tensor's type, or raw bytes
   /// ([Uint8List], [ByteData], [ByteBuffer]) of the tensor's byte size.
   ///
-  /// Throws [ArgumentError] when [target] does not fit the tensor.
+  /// Throws [ArgumentError] when [target] does not fit the tensor, and
+  /// [UnsupportedError] for a list target on a float16 or
+  /// [TfliteTensorType.other] tensor.
   void copyOutputTo(int index, Object target) {
     final TfliteTensorInfo info = _outputInfo(index);
     if (target is TypedData &&
@@ -790,9 +793,10 @@ class TfliteInterpreter {
     if (bytes.isEmpty) {
       return;
     }
-    _inputPointer(
-      index,
-    ).cast<ffi.Uint8>().asTypedList(bytes.length).setAll(0, bytes);
+    _inputPointer(index)
+        .cast<ffi.Uint8>()
+        .asTypedList(bytes.length)
+        .setAll(0, bytes);
   }
 
   ffi.Pointer<ffi.Void> _inputPointer(int index) {
