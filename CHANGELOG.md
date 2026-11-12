@@ -13,6 +13,9 @@
   - data that does not fit its tensor raises `ArgumentError` and leaves
     the tensor and the input shapes as they were
   - a single number or bool sets a one-element input
+- rebuild the bundled iOS device runtime without XNNPACK's Arm SME and
+  KleidiAI kernels, which crash during inference on iPhone 16 and 17
+  (A18, A19)
 
 ## 3.2.2
 
