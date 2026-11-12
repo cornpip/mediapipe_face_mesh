@@ -72,4 +72,4 @@ src/include/**/tutorials/
 bench/
 
 # Maintainer scripts (not part of the package)
-tool/
+/tool/
