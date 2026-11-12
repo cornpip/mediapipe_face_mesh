@@ -45,6 +45,12 @@ bazelisk build -c opt --config=ios_arm64 \
 The output is `bazel-bin/mpfm_runtime/TensorFlowLiteC_framework.zip`, a
 static framework whose binary is an archive of every object file.
 
+All three defines are needed at this XNNPACK commit. Turning off only the
+two SME defines and keeping KleidiAI does not compile
+(`gemm-config.c: use of undeclared identifier 'XNN_ENABLE_ARM_SME'`), so
+KleidiAI's NEON kernels for quantized models are lost along with its SME
+ones. Revisit this when the pinned XNNPACK moves.
+
 ## Hide symbols and pack
 
 Only the C API stays exported. Everything else is made local so it cannot
@@ -60,15 +66,22 @@ xcrun libtool -static -o libTensorFlowLiteC.a TensorFlowLiteC.o
 
 ## Verify
 
-No SME instruction may remain, and the exported symbols must match the
-binary being replaced.
+No SME instruction may remain, and the exported symbols must be the same
+list as in the binary being replaced.
 
 ```
 OD=$(xcrun -f llvm-objdump)
 $OD -d --no-show-raw-insn --mattr=+sve,+sme,+sme2 libTensorFlowLiteC.a \
   | grep -c -w -E 'smstart|smstop|addvl|rdsvl|fmopa|smopa|bfmopa'   # 0
-nm -gU libTensorFlowLiteC.a | grep -c ' T '                         # 220
+
+OLD=<repo>/ios/mediapipe_face_mesh/Frameworks/TensorFlowLiteC.xcframework/ios-arm64/libTensorFlowLiteC.a
+diff <(nm -gU "$OLD" | awk '$2=="T"{print $3}' | sort) \
+     <(nm -gU libTensorFlowLiteC.a | awk '$2=="T"{print $3}' | sort)   # no output
 ```
 
-Then follow `.agents/docs/apple-binary-update.md` for the headers and
-`.agents/docs/license-notices.md` for the notices.
+## After replacing the binary
+
+- Re-sync `Headers/` in every xcframework slice from `src/include` if the
+  TensorFlow commit changed, and keep the slices' headers identical.
+- Update `THIRD_PARTY_NOTICES.md` and the attribution prose in `NOTICES`.
+- Add the CHANGELOG bullet.

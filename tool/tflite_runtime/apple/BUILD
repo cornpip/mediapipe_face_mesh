@@ -26,7 +26,13 @@ cc_library(
     ],
 )
 
-# bazel build -c opt --config=ios_arm64 //mpfm_runtime:TensorFlowLiteC_framework
+# Build with the three --define flags from README.md. Without them the SME
+# kernels are compiled back in:
+#   bazel build -c opt --config=ios_arm64 \
+#     --define=xnn_enable_arm_sme=false \
+#     --define=xnn_enable_arm_sme2=false \
+#     --define=xnn_enable_kleidiai=false \
+#     //mpfm_runtime:TensorFlowLiteC_framework
 ios_static_framework(
     name = "TensorFlowLiteC_framework",
     bundle_name = "TensorFlowLiteC",
