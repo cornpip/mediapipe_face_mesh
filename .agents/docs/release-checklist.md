@@ -17,16 +17,23 @@
 ## CocoaPods path (macOS host)
 
 The podspecs are only used by apps that turned Swift Package Manager off,
-so nothing else builds them. Build the example that way once, in a
-separate worktree so the CocoaPods files it generates never touch this
-checkout:
+and nothing else builds them. CocoaPods support is removed in 4.0.0 (#45).
+Until then, skip this section unless
+`git diff v<last>..HEAD --stat -- ios macos` shows a change. A change whose
+pull request already records a CocoaPods build of its final state counts as
+checked.
 
-- [ ] `git worktree add /tmp/mpfm-pods HEAD`
+`example/` is Swift Package Manager only and does not build with it turned
+off, so use a throwaway app (or `bench/mine` with a generated iOS runner):
+
+- [ ] `flutter create` an app in a temp directory and add this repository
+      as a path dependency
 - [ ] `flutter config --no-enable-swift-package-manager`
-- [ ] in `/tmp/mpfm-pods/example`: `flutter build macos --release` and
+- [ ] in that app: `flutter build macos --release` and
       `flutter build ios --release --no-codesign`
-- [ ] `flutter config --enable-swift-package-manager` (user-global setting)
-- [ ] `git worktree remove --force /tmp/mpfm-pods`
+- [ ] `flutter config --enable-swift-package-manager` (user-global setting,
+      restore it even when a build failed)
+- [ ] delete the temp directory
 
 ## After the release commit
 

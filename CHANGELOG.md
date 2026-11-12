@@ -21,6 +21,8 @@
   resolves to it
   - an app-provided Flex delegate no longer attaches to the bundled runtime
     on these platforms
+- CocoaPods support on iOS and macOS will be removed in 4.0.0, use Swift
+  Package Manager
 
 ## 3.2.2
 
