@@ -12,6 +12,7 @@
   - `TfliteTensorInfo.quantization` exposes the scale and zero point
   - data that does not fit its tensor raises `ArgumentError` and leaves
     the tensor and the input shapes as they were
+  - a single number or bool sets a one-element input
 
 ## 3.2.2
 

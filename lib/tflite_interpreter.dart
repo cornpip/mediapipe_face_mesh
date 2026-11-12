@@ -393,6 +393,13 @@ class TfliteInterpreter {
         'at most $MP_TENSOR_MAX_DIMS dimensions are supported',
       );
     }
+    if (shape.any((int dim) => dim < 0)) {
+      throw ArgumentError.value(
+        shape,
+        'shape',
+        'dimensions must not be negative',
+      );
+    }
     if (!_needsAllocation) {
       _shapesBeforeResize = <List<int>>[
         for (final TfliteTensorInfo info in inputs) info.shape,
@@ -508,19 +515,20 @@ class TfliteInterpreter {
     }
     if (resizes.isEmpty) {
       _setInputsAndInvoke(inputs);
-    } else {
-      final List<List<int>> previous = <List<int>>[
-        for (final TfliteTensorInfo info in current) info.shape,
-      ];
-      try {
-        resizes.forEach(resizeInput);
-        _setInputsAndInvoke(inputs);
-      } catch (_) {
-        _restoreShapes(previous);
-        rethrow;
-      }
+      outputs.forEach(copyOutputTo);
+      return;
     }
-    outputs.forEach(copyOutputTo);
+    final List<List<int>> previous = <List<int>>[
+      for (final TfliteTensorInfo info in current) info.shape,
+    ];
+    try {
+      resizes.forEach(resizeInput);
+      _setInputsAndInvoke(inputs);
+      outputs.forEach(copyOutputTo);
+    } catch (_) {
+      _restoreShapes(previous);
+      rethrow;
+    }
   }
 
   void _setInputsAndInvoke(List<Object> inputs) {
@@ -534,11 +542,16 @@ class TfliteInterpreter {
   ///
   /// [data] is a typed list of the tensor's type (a [Float32List] for a
   /// float32 tensor), raw bytes ([Uint8List], [ByteData], [ByteBuffer]), or a
-  /// flat or nested list of numbers or bools in row-major order.
+  /// flat or nested list of numbers or bools in row-major order. A single
+  /// number or bool sets a one-element tensor.
   ///
   /// Throws [ArgumentError] when [data] does not match the tensor's type or
   /// size.
   void setInput(int index, Object data) {
+    if (data is num || data is bool) {
+      setInput(index, <Object>[data]);
+      return;
+    }
     final TfliteTensorInfo info = _inputInfo(index);
     if (data is ByteBuffer) {
       _writeBytes(index, info, data.asUint8List());
@@ -689,15 +702,16 @@ class TfliteInterpreter {
         );
       }
     } else if (target is List) {
-      if (info.elementCount == 0) {
-        return;
-      }
-      final List<num> view = _numView(
-        _outputPointer(index),
-        info.type,
-        info.elementCount,
-        'Output $index',
-      );
+      // An empty tensor has no memory to view, but the target still has to
+      // match its shape, so stale values are not mistaken for a result.
+      final List<num> view = info.elementCount == 0
+          ? const <num>[]
+          : _numView(
+              _outputPointer(index),
+              info.type,
+              info.elementCount,
+              'Output $index',
+            );
       // A scalar tensor fills a one-element list.
       final List<int> shape = info.shape.isEmpty ? const <int>[1] : info.shape;
       _fillNested(target, view, shape, 0, 0, info.type, 'Output $index');
