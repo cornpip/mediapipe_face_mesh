@@ -10,6 +10,8 @@
   - `resizeInput` changes an input shape, and `run` does so when a nested
     list has another shape
   - `TfliteTensorInfo.quantization` exposes the scale and zero point
+  - data that does not fit its tensor raises `ArgumentError` and leaves
+    the tensor and the input shapes as they were
 
 ## 3.2.2
 

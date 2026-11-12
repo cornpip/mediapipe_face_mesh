@@ -14,6 +14,7 @@ import 'package:meta/meta.dart';
 import 'mediapipe_face_mesh.dart' show FaceMeshDelegate, FaceMeshException;
 import 'src/mediapipe_face_bindings_generated.dart';
 import 'src/native_bindings_loader.dart';
+import 'src/native_helpers.dart';
 
 /// Element type of a tensor.
 @experimental
@@ -220,7 +221,7 @@ class TfliteInterpreter {
     if (model.isEmpty) {
       throw ArgumentError.value(model, 'model', 'must not be empty');
     }
-    _checkThreads(threads);
+    validateThreads(threads);
     // The native interpreter reads the model from this buffer for as long as
     // it lives. _create takes ownership of it.
     final ffi.Pointer<ffi.Uint8> modelPtr = pkg_ffi.malloc<ffi.Uint8>(
@@ -242,13 +243,38 @@ class TfliteInterpreter {
 
   /// Loads the model file at [path]. See [TfliteInterpreter.fromBuffer] for
   /// the options.
+  ///
+  /// Throws [FaceMeshException] when the file cannot be read or is not a
+  /// model.
   factory TfliteInterpreter.fromFile(
     String path, {
     int? threads,
     FaceMeshDelegate delegate = FaceMeshDelegate.cpu,
     bool allowDelegateFallback = true,
   }) {
-    _checkThreads(threads);
+    validateThreads(threads);
+    if (Platform.isWindows) {
+      // The runtime opens the path with the narrow-character C API, which
+      // cannot name a file outside the ANSI code page. Dart can, so read
+      // the file here.
+      final Uint8List bytes;
+      try {
+        bytes = File(path).readAsBytesSync();
+      } on FileSystemException catch (e) {
+        throw FaceMeshException(
+          'Unable to load model file: $path (${e.osError?.message ?? e.message})',
+        );
+      }
+      if (bytes.isEmpty) {
+        throw FaceMeshException('Unable to load model file: $path');
+      }
+      return TfliteInterpreter.fromBuffer(
+        bytes,
+        threads: threads,
+        delegate: delegate,
+        allowDelegateFallback: allowDelegateFallback,
+      );
+    }
     final ffi.Pointer<pkg_ffi.Utf8> pathPtr = path.toNativeUtf8();
     try {
       return _create(
@@ -278,7 +304,7 @@ class TfliteInterpreter {
     final optionsPtr = pkg_ffi.calloc<MpInterpreterCreateOptions>();
     try {
       optionsPtr.ref
-        ..threads = threads ?? _defaultThreads()
+        ..threads = threads ?? defaultInferenceThreads()
         ..delegate = delegate.index
         ..disable_delegate_fallback = allowDelegateFallback ? 0 : 1;
       final ffi.Pointer<MpInterpreterContext> context = create(optionsPtr);
@@ -287,7 +313,7 @@ class TfliteInterpreter {
           pkg_ffi.malloc.free(modelData);
         }
         throw FaceMeshException(
-          _readCString(faceBindings.mp_interpreter_last_global_error()) ??
+          readCString(faceBindings.mp_interpreter_last_global_error()) ??
               'Failed to create interpreter.',
         );
       }
@@ -298,12 +324,6 @@ class TfliteInterpreter {
       );
     } finally {
       pkg_ffi.calloc.free(optionsPtr);
-    }
-  }
-
-  static void _checkThreads(int? threads) {
-    if (threads != null && threads < 1) {
-      throw ArgumentError.value(threads, 'threads', 'must be >= 1');
     }
   }
 
@@ -389,7 +409,8 @@ class TfliteInterpreter {
   ///
   /// Throws [FaceMeshException] when the model cannot run with the new
   /// shapes. The inputs then go back to the shapes they had before the
-  /// resize, so the interpreter stays usable.
+  /// resize, so the interpreter stays usable, but the data they held is
+  /// gone and has to be set again.
   void allocateTensors() {
     _ensureNotClosed();
     _inputs = null;
@@ -400,20 +421,28 @@ class TfliteInterpreter {
       return;
     }
     final String message = _lastError('Tensor allocation failed.');
-    if (previous != null) {
-      bool restored = true;
-      for (int i = 0; i < previous.length; i++) {
-        restored = _resizeNative(i, previous[i]) && restored;
-      }
-      if (restored &&
-          faceBindings.mp_interpreter_allocate_tensors(_context) != 0) {
-        _needsAllocation = false;
-        throw FaceMeshException(
-          '$message The inputs are back to their previous shapes.',
-        );
-      }
+    if (previous != null && _restoreShapes(previous)) {
+      throw FaceMeshException(
+        '$message The inputs are back to their previous shapes and hold no '
+        'data.',
+      );
     }
     throw FaceMeshException(message);
+  }
+
+  /// Resizes every input to [shapes] and reallocates. Returns false, with
+  /// an allocation still pending, when that fails.
+  bool _restoreShapes(List<List<int>> shapes) {
+    bool restored = true;
+    for (int i = 0; i < shapes.length; i++) {
+      restored = _resizeNative(i, shapes[i]) && restored;
+    }
+    restored =
+        restored && faceBindings.mp_interpreter_allocate_tensors(_context) != 0;
+    _inputs = null;
+    _shapesBeforeResize = null;
+    _needsAllocation = !restored;
+    return restored;
   }
 
   /// Runs the model on one [input] and writes its first output to [output].
@@ -433,7 +462,9 @@ class TfliteInterpreter {
   /// Each output is a nested list shaped like its tensor, filled in place, or
   /// typed data of the tensor's byte size.
   ///
-  /// Throws [ArgumentError] when a value does not fit its tensor.
+  /// Throws [ArgumentError] when a value does not fit its tensor. When the
+  /// call resized inputs and then fails, they go back to their previous
+  /// shapes.
   void runForMultipleInputs(List<Object> inputs, Map<int, Object> outputs) {
     _ensureNotClosed();
     if (inputs.length != _inputCount) {
@@ -446,6 +477,9 @@ class TfliteInterpreter {
     // Read the shapes once: reading them again after a resize would
     // reallocate before the other inputs are resized.
     final List<TfliteTensorInfo> current = this.inputs;
+    // Decide every resize before making any, so a list that is rejected
+    // here leaves the interpreter as it was.
+    final Map<int, List<int>> resizes = <int, List<int>>{};
     for (int i = 0; i < inputs.length; i++) {
       final Object input = inputs[i];
       if (input is TypedData || input is ByteBuffer || input is! List) {
@@ -453,7 +487,13 @@ class TfliteInterpreter {
       }
       final List<int> shape = _nestedShape(input);
       final TfliteTensorInfo info = current[i];
-      final int count = shape.fold<int>(1, (int a, int b) => a * b);
+      final int count = _countElements(input);
+      if (count != shape.fold<int>(1, (int a, int b) => a * b)) {
+        throw ArgumentError(
+          'Input $i is not a regular nested list: its first elements give '
+          'shape $shape, but it holds $count elements.',
+        );
+      }
       if (count == info.elementCount) {
         continue;
       }
@@ -464,13 +504,30 @@ class TfliteInterpreter {
           'the list ${info.shape.length} deep.',
         );
       }
-      resizeInput(i, shape);
+      resizes[i] = shape;
     }
+    if (resizes.isEmpty) {
+      _setInputsAndInvoke(inputs);
+    } else {
+      final List<List<int>> previous = <List<int>>[
+        for (final TfliteTensorInfo info in current) info.shape,
+      ];
+      try {
+        resizes.forEach(resizeInput);
+        _setInputsAndInvoke(inputs);
+      } catch (_) {
+        _restoreShapes(previous);
+        rethrow;
+      }
+    }
+    outputs.forEach(copyOutputTo);
+  }
+
+  void _setInputsAndInvoke(List<Object> inputs) {
     for (int i = 0; i < inputs.length; i++) {
       setInput(i, inputs[i]);
     }
     invoke();
-    outputs.forEach(copyOutputTo);
   }
 
   /// Writes [data] to the input at [index].
@@ -753,7 +810,7 @@ class TfliteInterpreter {
       }
       final MpTensorInfo info = infoPtr.ref;
       return TfliteTensorInfo(
-        name: _readCString(info.name) ?? '',
+        name: readCString(info.name) ?? '',
         type: TfliteTensorType._fromNative(info.type),
         shape: List<int>.unmodifiable(<int>[
           for (int i = 0; i < info.dims_count; i++) info.dims[i],
@@ -772,8 +829,7 @@ class TfliteInterpreter {
   }
 
   String _lastError(String fallback) =>
-      _readCString(faceBindings.mp_interpreter_last_error(_context)) ??
-      fallback;
+      readCString(faceBindings.mp_interpreter_last_error(_context)) ?? fallback;
 
   /// Checks the interpreter is open and reallocates after a resize.
   void _ensureReady() {
@@ -864,7 +920,8 @@ bool _isTypedListOf(TypedData data, TfliteTensorType type) => switch (type) {
   TfliteTensorType.float32 => data is Float32List,
   TfliteTensorType.float64 => data is Float64List,
   TfliteTensorType.int8 => data is Int8List,
-  TfliteTensorType.uint8 || TfliteTensorType.bool => data is Uint8List,
+  TfliteTensorType.uint8 ||
+  TfliteTensorType.bool => data is Uint8List || data is Uint8ClampedList,
   TfliteTensorType.int16 => data is Int16List,
   TfliteTensorType.uint16 => data is Uint16List,
   TfliteTensorType.int32 => data is Int32List,
@@ -887,6 +944,7 @@ int _flattenInto(
   String what,
 ) {
   final bool isFloat = _isFloat(type);
+  final (int, int)? range = _intRange(type);
   for (final Object? element in source) {
     if (element is List) {
       offset = _flattenInto(element, view, offset, type, what);
@@ -906,7 +964,14 @@ int _flattenInto(
           '$what is ${type.name}, so $element is not a value it can hold.',
         );
       } else {
-        view[offset] = element.toInt();
+        final int value = element.toInt();
+        if (range != null && (value < range.$1 || value > range.$2)) {
+          throw ArgumentError(
+            '$what is ${type.name}, which holds ${range.$1} to ${range.$2}. '
+            'Got $value.',
+          );
+        }
+        view[offset] = value;
       }
     } else if (element is bool) {
       view[offset] = element ? 1 : 0;
@@ -918,6 +983,28 @@ int _flattenInto(
     offset++;
   }
   return offset;
+}
+
+/// Smallest and largest value of an integer tensor type, or null for types
+/// a Dart int always fits or that are not integers.
+(int, int)? _intRange(TfliteTensorType type) => switch (type) {
+  TfliteTensorType.bool => (0, 1),
+  TfliteTensorType.int8 => (-128, 127),
+  TfliteTensorType.uint8 => (0, 255),
+  TfliteTensorType.int16 => (-32768, 32767),
+  TfliteTensorType.uint16 => (0, 65535),
+  TfliteTensorType.int32 => (-2147483648, 2147483647),
+  TfliteTensorType.uint32 => (0, 4294967295),
+  _ => null,
+};
+
+/// Number of numbers and bools in [list], however it is nested.
+int _countElements(List<Object?> list) {
+  int count = 0;
+  for (final Object? element in list) {
+    count += element is List ? _countElements(element) : 1;
+  }
+  return count;
 }
 
 /// Fills [target], a nested list shaped like [shape], from [view]. Returns
@@ -973,24 +1060,12 @@ int _fillNested(
       '$element values, for example List<$element>.filled(n, ...). Got a '
       '${target.runtimeType}.',
     );
+    // ignore: avoid_catching_errors
+  } on UnsupportedError {
+    throw ArgumentError(
+      '$what cannot be copied into an unmodifiable list. Pass lists that '
+      'can be written to.',
+    );
   }
   return offset;
-}
-
-/// Half the available cores clamped to 1..4, the same default the face
-/// processors use.
-int _defaultThreads() {
-  final int half = Platform.numberOfProcessors ~/ 2;
-  if (half < 1) {
-    return 1;
-  }
-  return half > 4 ? 4 : half;
-}
-
-String? _readCString(ffi.Pointer<ffi.Char> pointer) {
-  if (pointer == ffi.nullptr) {
-    return null;
-  }
-  final String value = pointer.cast<pkg_ffi.Utf8>().toDartString();
-  return value.isEmpty ? null : value;
 }
