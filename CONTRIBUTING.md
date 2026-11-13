@@ -30,6 +30,21 @@ bullets for the next release.
 - Keep bullets to the change. Add a reason only when it changes what the
   reader should do. Name public symbols in backticks.
 
+## Issues and milestones
+
+Work is tracked with GitHub issues, grouped by release in milestones (e.g.
+`3.3.0`). An issue is only open or closed, there are no status columns.
+
+When a change has an issue, the branch name starts with its number (e.g.
+`36-tflite-interpreter`), the PR description says `Closes #<n>`, and the PR
+goes in the same milestone, so merging closes the issue. Commit subjects
+carry no issue number.
+
+## Prose
+
+Avoid em dashes in anything written for this repo (docs, CHANGELOG, code
+comments, commit messages). Use a comma or a separate sentence.
+
 ## Engineering rules
 
 - New capabilities are opt-in (default off); default-behavior changes

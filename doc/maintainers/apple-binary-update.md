@@ -24,4 +24,4 @@ When a bundled iOS or macOS binary is replaced:
   with `#define`, and makes the umbrella import it first. That header is
   generated, not an upstream file. Commit the binaries and headers together.
 - A replaced binary also changes the notices. Read
-  `.agents/docs/license-notices.md`.
+  `doc/maintainers/license-notices.md`.
