@@ -1,3 +1,3 @@
 # CLAUDE.md
 
-Read `.agents/rules.md` first.
+Read `AGENTS.md` first.
