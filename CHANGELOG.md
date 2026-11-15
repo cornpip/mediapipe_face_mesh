@@ -1,4 +1,4 @@
-## 3.3.0-wip
+## 3.3.0
 
 - add `TfliteInterpreter` (experimental) in
   `package:mediapipe_face_mesh/tflite_interpreter.dart`, which runs any
