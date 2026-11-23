@@ -1,3 +1,11 @@
+## 3.3.1-wip
+
+- import `package:flutter/widgets.dart` instead of the deprecated
+  `package:flutter/material.dart` in `FaceDetectionPainter` and
+  `FaceMeshPainter`
+  - the default colors are now plain `Color` values with the same ARGB as
+    before, so they draw the same but are no longer `MaterialAccentColor`
+
 ## 3.3.0
 
 - add `TfliteInterpreter` (experimental) in

@@ -1,8 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show listEquals;
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
+
+// Material amberAccent, lightGreenAccent, and black87, spelled out so this
+// file does not import package:flutter/material.dart.
+const Color _defaultFaceBoxColor = Color(0xFFFFD740);
+const Color _defaultRoiBoxColor = Color(0xFFB2FF59);
+const Color _defaultLabelColor = Color(0xDD000000);
 
 /// A mesh ROI to draw, with an optional label such as a track id.
 class FaceRoi {
@@ -63,14 +69,14 @@ class FaceDetectionPainter extends CustomPainter {
     this.showConfidence = true,
     this.showFaceBox = true,
     this.showRoiBox = false,
-    this.faceBoxColor = Colors.amberAccent,
-    this.roiBoxColor = Colors.lightGreenAccent,
+    this.faceBoxColor = _defaultFaceBoxColor,
+    this.roiBoxColor = _defaultRoiBoxColor,
     this.strokeWidth = 2.0,
     this.roiStrokeWidth = 3.0,
     this.bboxLabel = 'Face',
     this.roiLabel = 'ROI',
     this.labelTextStyle = const TextStyle(
-      color: Colors.black87,
+      color: _defaultLabelColor,
       fontSize: 14,
       fontWeight: FontWeight.w600,
     ),
@@ -88,14 +94,14 @@ class FaceDetectionPainter extends CustomPainter {
     bool showConfidence = true,
     bool showFaceBox = true,
     bool showRoiBox = false,
-    Color faceBoxColor = Colors.amberAccent,
-    Color roiBoxColor = Colors.lightGreenAccent,
+    Color faceBoxColor = _defaultFaceBoxColor,
+    Color roiBoxColor = _defaultRoiBoxColor,
     double strokeWidth = 2.0,
     double roiStrokeWidth = 3.0,
     String bboxLabel = 'Face',
     String roiLabel = 'ROI',
     TextStyle labelTextStyle = const TextStyle(
-      color: Colors.black87,
+      color: _defaultLabelColor,
       fontSize: 14,
       fontWeight: FontWeight.w600,
     ),
@@ -130,14 +136,14 @@ class FaceDetectionPainter extends CustomPainter {
     bool showConfidence = true,
     bool showFaceBox = true,
     bool showRoiBox = false,
-    Color faceBoxColor = Colors.amberAccent,
-    Color roiBoxColor = Colors.lightGreenAccent,
+    Color faceBoxColor = _defaultFaceBoxColor,
+    Color roiBoxColor = _defaultRoiBoxColor,
     double strokeWidth = 2.0,
     double roiStrokeWidth = 3.0,
     String bboxLabel = 'Face',
     String roiLabel = 'ROI',
     TextStyle labelTextStyle = const TextStyle(
-      color: Colors.black87,
+      color: _defaultLabelColor,
       fontSize: 14,
       fontWeight: FontWeight.w600,
     ),
