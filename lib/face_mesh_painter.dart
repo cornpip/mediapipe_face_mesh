@@ -1,5 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:mediapipe_face_mesh/mediapipe_face_mesh.dart';
+
+// Material greenAccent and cyanAccent, spelled out so this file does not
+// import package:flutter/material.dart.
+const Color _defaultStrokeColor = Color(0xFF69F0AE);
+const Color _defaultIrisColor = Color(0xFF18FFFF);
 
 /// Draws one or more [FaceMeshResult] overlays on a [CustomPaint] canvas.
 /// [FaceMeshPainter.fromInference] and [FaceMeshPainter.fromMultiInference]
@@ -15,9 +20,9 @@ class FaceMeshPainter extends CustomPainter {
     List<FaceMeshResult>? results,
     this.rotationDegrees = 0,
     this.mirrorHorizontal = false,
-    this.strokeColor = Colors.greenAccent,
-    this.irisColor = Colors.cyanAccent,
-    this.refinedEyeColor = Colors.greenAccent,
+    this.strokeColor = _defaultStrokeColor,
+    this.irisColor = _defaultIrisColor,
+    this.refinedEyeColor = _defaultStrokeColor,
     this.strokeWidth = 0.4,
     this.dotRadius = 1.5,
     this.irisDotRadius = 1.8,
@@ -35,9 +40,9 @@ class FaceMeshPainter extends CustomPainter {
     FaceMeshInferenceResult inference, {
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
-    Color strokeColor = Colors.greenAccent,
-    Color irisColor = Colors.cyanAccent,
-    Color refinedEyeColor = Colors.greenAccent,
+    Color strokeColor = _defaultStrokeColor,
+    Color irisColor = _defaultIrisColor,
+    Color refinedEyeColor = _defaultStrokeColor,
     double strokeWidth = 0.4,
     double dotRadius = 1.5,
     double irisDotRadius = 1.8,
@@ -72,9 +77,9 @@ class FaceMeshPainter extends CustomPainter {
     FaceMeshMultiInferenceResult inference, {
     int rotationDegrees = 0,
     bool mirrorHorizontal = false,
-    Color strokeColor = Colors.greenAccent,
-    Color irisColor = Colors.cyanAccent,
-    Color refinedEyeColor = Colors.greenAccent,
+    Color strokeColor = _defaultStrokeColor,
+    Color irisColor = _defaultIrisColor,
+    Color refinedEyeColor = _defaultStrokeColor,
     double strokeWidth = 0.4,
     double dotRadius = 1.5,
     double irisDotRadius = 1.8,
