@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The last error, shown above the preview so the controls stay usable.
 class ErrorBanner extends StatelessWidget {
